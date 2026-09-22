@@ -43,7 +43,14 @@ export default function Auth() {
       }
       navigate(returnTo, { replace: true });
     } catch (err: any) {
-      setError(err?.message ?? "Authentication failed");
+      // Convex Auth reports a wrong password as a bare "InvalidSecret", which
+      // reads like a server fault. Say what it actually means.
+      const raw = String(err?.message ?? "");
+      setError(
+        /InvalidSecret/i.test(raw)
+          ? "Wrong email or password. Demo accounts all use the password dogfood2026 — click a demo account to fill it in, or press “seed demo data”."
+          : raw || "Authentication failed",
+      );
     } finally {
       setBusy(false);
     }

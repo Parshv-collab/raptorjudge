@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { action, internalMutation, internalQuery } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { createAccount } from "@convex-dev/auth/server";
+import { createAccount, modifyAccountCredentials, retrieveAccount } from "@convex-dev/auth/server";
 import { sha256Hex, hmacSha256Hex, randomHex, mulberry32 } from "./crypto";
 import { appendAudit } from "./lib/audit";
 import { planJudgeAssignments } from "../lib/algorithms/assignment";
@@ -16,6 +16,9 @@ import { bradleyTerry } from "../lib/algorithms/pairwise";
  */
 
 const DAY = 24 * 60 * 60 * 1000;
+
+/** The single password every seeded demo account shares (see README). */
+const SEED_PASSWORD = "dogfood2026";
 
 const SEED_USERS = [
   { email: "admin@raptors.dev", name: "Rex Adminson", role: "admin", bio: "Platform administrator, Hackathon Raptors" },
@@ -97,11 +100,32 @@ export const seed = action({
 
     // Give every seeded account a real credential so `email / dogfood2026`
     // signs in through Convex Auth (see Auth page demo accounts).
+    let repaired = 0;
     for (const u of SEED_USERS) {
-      await ctx.runAction(api.seed.ensureSeedUser, {
+      const res = await ctx.runAction(api.seed.ensureSeedUser, {
         email: u.email,
-        password: "dogfood2026",
+        password: SEED_PASSWORD,
       });
+      if (res.repaired) repaired += 1;
+    }
+    if (repaired > 0) console.log(`seed: repaired ${repaired} stale credential(s)`);
+
+    // Prove the documented credentials actually sign in. Without this a broken
+    // credential only shows up in the browser as a cryptic "InvalidSecret",
+    // long after the deploy that caused it; here it fails the bootstrap loudly.
+    const brokenCredentials: string[] = [];
+    for (const u of SEED_USERS) {
+      try {
+        await retrieveAccount(ctx, {
+          provider: "password",
+          account: { id: u.email, secret: SEED_PASSWORD },
+        });
+      } catch (err) {
+        brokenCredentials.push(`${u.email} (${(err as Error).message})`);
+      }
+    }
+    if (brokenCredentials.length > 0) {
+      throw new Error(`seeded credentials do not verify: ${brokenCredentials.join(", ")}`);
     }
 
     // ---- event ------------------------------------------------------------
@@ -390,23 +414,37 @@ export const upsertSeedUser = internalMutation({
 });
 
 /**
- * Provision a Convex Auth credential account for a seeded user so the
- * documented demo credentials can actually sign in. Runs in an action context
- * (createAccount needs one). Idempotent — existing accounts are left alone.
+ * Provision — or repair — a Convex Auth credential account for a seeded user,
+ * so the documented demo credentials can always sign in. Runs in an action
+ * context (`createAccount` needs one).
+ *
+ * `createAccount` is idempotent per (provider, account.id), but it *throws*
+ * when the account already exists with a different secret, while `wipeAll`
+ * deliberately preserves `authAccounts`. That combination used to leave a
+ * credential that could never be signed in with (the browser reported a bare
+ * "InvalidSecret") and that re-seeding could never repair. Resetting the secret
+ * makes the seeded password authoritative by construction.
  */
 export const ensureSeedUser = action({
   args: { email: v.string(), password: v.string() },
   handler: async (ctx, args) => {
-    // createAccount is idempotent per (provider, account.id) and — thanks to
-    // emailVerificationTime set in upsertSeedUser — links the credential to
-    // the existing seeded profile row instead of creating a duplicate user.
-    await createAccount(ctx, {
-      provider: "password",
-      account: { id: args.email, secret: args.password },
-      profile: { email: args.email, name: args.email.split("@")[0] },
-      shouldLinkViaEmail: true,
-    });
-    return { ok: true };
+    const account = { id: args.email, secret: args.password };
+    // Thanks to emailVerificationTime set in upsertSeedUser, shouldLinkViaEmail
+    // attaches the credential to the existing seeded row instead of duplicating.
+    const profile = { email: args.email, name: args.email.split("@")[0] };
+    try {
+      await createAccount(ctx, {
+        provider: "password",
+        account,
+        profile,
+        shouldLinkViaEmail: true,
+      });
+      return { ok: true, repaired: false };
+    } catch (err) {
+      if (!/already exists/i.test(String((err as Error)?.message ?? ""))) throw err;
+      await modifyAccountCredentials(ctx, { provider: "password", account });
+      return { ok: true, repaired: true };
+    }
   },
 });
 
