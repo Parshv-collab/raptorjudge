@@ -1,4 +1,4 @@
-// One-shot fixture seeder for local/CI use: `bun run seed`.
+// One-shot fixture seeder for local/CI use: `npm run seed`.
 //
 // Requires a running Convex backend (the Freebuff-managed `convex dev`
 // session) with VITE_CONVEX_URL present in the environment. Idempotent — it

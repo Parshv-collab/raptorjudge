@@ -1,5 +1,5 @@
 // Runs the server-side acceptance suite as the seeded organizer and prints a
-// tier-by-tier report: `bun run acceptance`.
+// tier-by-tier report: `npm run acceptance`.
 //
 // Signs in through the same Convex Auth credentials the UI uses, then invokes
 // the `acceptance.runSuite` mutation with the issued JWT. Exits non-zero if any
@@ -26,11 +26,11 @@ try {
   token = res?.tokens?.token;
 } catch (err) {
   console.error(`sign-in failed: ${err.message}`);
-  console.error("Seed the fixtures first with `bun run seed`.");
+  console.error("Seed the fixtures first with `npm run seed`.");
   process.exit(1);
 }
 if (!token) {
-  console.error("sign-in returned no token — seed the fixtures first (`bun run seed`).");
+  console.error("sign-in returned no token — seed the fixtures first (`npm run seed`).");
   process.exit(1);
 }
 client.setAuth(token);

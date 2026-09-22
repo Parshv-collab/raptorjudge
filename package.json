@@ -4,6 +4,9 @@
   "version": "1.0.0",
   "description": "RaptorJudge — open-source, self-hostable hackathon submission & judging platform for Hackathon Raptors / Dogfood 2026",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -12,7 +15,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seed": "node scripts/run-seed.mjs",
-    "acceptance": "node scripts/run-acceptance.mjs"
+    "acceptance": "node scripts/run-acceptance.mjs",
+    "keys:generate": "node scripts/generate-auth-keys.mjs",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down -v"
   },
   "dependencies": {
     "convex": "^1.19.0",

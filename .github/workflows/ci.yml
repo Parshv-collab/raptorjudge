@@ -13,16 +13,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          bun-version: latest
+          node-version: "20"
+          cache: npm
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: npm ci
 
       - name: Typecheck
-        run: bun run typecheck
+        run: npm run typecheck
 
       - name: Unit tests
-        run: bun run test
+        run: npm test
+
+  docker:
+    name: docker compose builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate compose file
+        run: docker compose config --quiet
+
+      - name: Build images
+        run: docker compose build

@@ -4,19 +4,33 @@
 
 RaptorJudge handles the entire event lifecycle: registration and team formation, deadline-enforced submissions, algorithmic judge assignment, weighted rubric evaluation, cross-judge score normalization, Bradley-Terry pairwise ranking, community voting with anti-abuse controls, HMAC-signed webhooks, cryptographically verifiable certificates, and a tamper-evident audit log.
 
-Everything runs **100% offline**: no external APIs, no cloud accounts, no third-party auth providers. The backend is [Convex](https://convex.dev) (self-hostable), the frontend is React + TypeScript + Tailwind.
+Everything runs **100% offline**: no external APIs, no cloud accounts, no third-party auth providers. The backend is [Convex](https://convex.dev) (self-hostable), the frontend is React + TypeScript + Tailwind, and the whole stack runs under Docker Compose. The toolchain is standard **Node.js 20 + npm**.
 
 ---
 
 ## Quickstart
 
 ```bash
-bun install
-bun run dev          # Vite dev server (binds 0.0.0.0)
-bun convex dev --once  # push Convex functions / regenerate types
+docker compose up --build
 ```
 
-Then open the app and click **"seed demo data"** on the sign-in page (or sign in directly — seeding is one click and idempotent).
+Then open **http://localhost:3000** and click **"seed demo data"** on the sign-in page (seeding is one click and idempotent).
+
+> **One-time bootstrap.** Self-hosted Convex mints its admin key *inside the
+> backend*, so the very first run needs that key pasted into `.env` before the
+> functions can be pushed. It is three commands — see
+> [Docker & self-hosting](#docker--self-hosting).
+
+<details>
+<summary>Local development without Docker</summary>
+
+```bash
+npm install
+npm run dev            # Vite dev server (binds 0.0.0.0)
+npx convex dev --once  # push Convex functions / regenerate types
+```
+
+</details>
 
 ### Seed credentials
 
@@ -33,6 +47,59 @@ All demo accounts share the password **`dogfood2026`**:
 | Participant | `participant1@raptors.dev` … `participant6@raptors.dev` | team workspace |
 
 The seeded event is **Dogfood 2026** (`/e/dogfood-2026`) with 12 submitted projects across 4 tracks, biased judge scores (to demonstrate normalization), pairwise matches, quadratic community votes, comments, a webhook registration, and signed certificates.
+
+---
+
+## Docker & self-hosting
+
+`docker compose up` brings up the entire platform offline: no cloud account, no third-party service, and no outbound network access at runtime.
+
+| Service | Image / build | Purpose | URL |
+|---|---|---|---|
+| `db` | `postgres:16` | Convex's persistent store | — |
+| `backend` | `ghcr.io/get-convex/convex-backend:latest` | Convex backend (database + function runtime) and the `/api/*` REST layer | http://localhost:3210 (client API) · http://localhost:3211 (HTTP actions) |
+| `dashboard` | `ghcr.io/get-convex/convex-dashboard:latest` | Convex admin dashboard | http://localhost:6791 |
+| `bootstrap` | `backend/Dockerfile` | one-shot: publishes auth keys, pushes functions (the migration), seeds fixtures | — |
+| `frontend` | `frontend/Dockerfile` (Vite → nginx) | the web app; nginx proxies `/api/*` to the backend | http://localhost:3000 |
+
+### Why this shape
+
+The brief this stack was built from assumed a Node/Python REST server plus Postgres and `bun:sqlite`. This project is not that, so the mapping is:
+
+- **The backend is Convex**, an open-source database + serverless-function runtime. There is no Express/Fastify/uvicorn process to containerize — the backend *is* the upstream `convex-backend` image, so the `backend` service runs it directly rather than `build`-ing a server.
+- **There is no `bun:sqlite` to migrate.** Convex owns its storage engine, defaulting to embedded SQLite and supporting Postgres as a production store. The compose `db` service is wired up as Convex's *real* backing store via `POSTGRES_URL`, not left as an unused container.
+- **Migrations are function pushes.** Convex has no SQL migration files; `convex deploy` applies `src/convex/schema.ts`, which is exactly what `bootstrap` does on startup before seeding.
+
+### One-time bootstrap
+
+Self-hosted Convex derives its admin key from `INSTANCE_SECRET` inside the backend, and no environment variable provisions one, so the first run mints it once:
+
+```bash
+cp env.example .env                                   # env template (.env is git-ignored)
+docker compose up -d db backend                       # start Postgres + Convex backend
+docker compose exec backend ./generate_admin_key.sh   # mint the admin key
+# → paste the printed key into .env as CONVEX_SELF_HOSTED_ADMIN_KEY=...
+docker compose up --build                             # everything: push functions + seed
+```
+
+After that, `docker compose up` is the only command you need.
+
+### Health checks
+
+```bash
+curl http://localhost:3000/api/health   # through nginx, the way the app calls it
+curl http://localhost:8000/api/health   # 8000 is an alias for the HTTP-actions port
+```
+
+Expected: `{"ok":true,"service":"raptorjudge","version":"1.0.0","mode":"offline","time":"…"}`
+
+### Configuration notes
+
+- `VITE_CONVEX_URL` is inlined by Vite **at build time**. Repointing the app at another backend means `docker compose build frontend`.
+- `CONVEX_CLOUD_ORIGIN` / `CONVEX_SITE_ORIGIN` must be the origins the **browser** uses to reach the backend. `CONVEX_SITE_ORIGIN` is what `src/convex/auth.config.ts` verifies session JWTs against.
+- `INSTANCE_SECRET` is the root secret — rotate it (`openssl rand -hex 32`) for anything real. Rotating it invalidates all existing keys and sessions.
+- Convex Auth's CLI does not support self-hosted deployments, so `bootstrap` mints the `JWT_PRIVATE_KEY` / `JWKS` pair itself (`npm run keys:generate`) and publishes it with `npx convex env set`.
+- The only outbound request the app makes is the Google Fonts stylesheet in `index.html`; it degrades gracefully offline. Remove it or self-host the fonts for a fully air-gapped install.
 
 ---
 
@@ -110,6 +177,10 @@ src/
                      ParticipantWorkspace, JudgePortal, OrganizerDashboard,
                      Verify, EmbedGallery
   components/        AppShell, theme, NormalizationPlayground
+
+docker-compose.yml   self-hosted stack: Postgres + Convex backend + dashboard + app
+backend/             bootstrap image (function push + seed)  → backend/Dockerfile
+tests/               vitest unit tests for the pure algorithm cores
 ```
 
 Design principles: strict server-side RBAC on every Convex function, deadlines enforced in the backend (never the client), hidden vote tallies until publish, and no secret (webhook keys, cert HMAC secret) ever returned by a query.
@@ -117,13 +188,17 @@ Design principles: strict server-side RBAC on every Convex function, deadlines e
 ## Scripts
 
 ```bash
-bun run dev            # Vite dev server
-bun run build          # production build (dist/)
-bun run typecheck      # tsc -b --noEmit
-bun run test           # vitest unit suite (algorithm cores: normalization, pairwise, assignment)
-bun run seed           # (re)seed the deterministic Dogfood 2026 fixtures
-bun run acceptance     # run the server-side acceptance suite as the organizer (CI-friendly, exits non-zero on failure)
-bun convex dev --once  # push functions + regenerate types
+npm run dev            # Vite dev server
+npm run build          # production build (dist/)
+npm run typecheck      # tsc -b --noEmit
+npm test               # vitest unit suite (algorithm cores: normalization, pairwise, assignment)
+npm run seed           # (re)seed the deterministic Dogfood 2026 fixtures
+npm run acceptance     # server-side acceptance suite as the organizer (exits non-zero on failure)
+npm run keys:generate  # mint a Convex Auth RS256 keypair (self-hosted deployments)
+npx convex dev --once  # push functions + regenerate types
+
+npm run docker:up      # docker compose up --build
+npm run docker:down    # docker compose down -v
 ```
 
 ## License
