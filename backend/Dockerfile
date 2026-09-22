@@ -28,8 +28,13 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 # Everything the Convex CLI needs to push this project.
+#
+# `src` is copied as a whole rather than just `src/convex`, because the Convex
+# functions import the shared pure algorithm cores via "../lib/algorithms/*"
+# (i.e. src/lib/algorithms). Copying only src/convex makes `convex deploy` fail
+# with "Could not resolve ../lib/algorithms/normalization".
 COPY convex.json tsconfig.json tsconfig.node.json ./
-COPY src/convex ./src/convex
+COPY src ./src
 COPY scripts/generate-auth-keys.mjs ./scripts/generate-auth-keys.mjs
 COPY backend/entrypoint.sh ./backend/entrypoint.sh
 
