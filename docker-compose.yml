@@ -127,7 +127,12 @@ services:
         # Vite inlines VITE_* at build time; change + rebuild to repoint.
         VITE_CONVEX_URL: ${VITE_CONVEX_URL:-http://localhost:3210}
     depends_on:
-      - backend
+      # Do NOT serve the app until the functions are actually deployed. An SPA
+      # pointed at an empty Convex backend looks fine and then fails every
+      # query with "Could not find public function" — so gate on bootstrap and
+      # fail loudly at startup instead of serving a silently broken app.
+      bootstrap:
+        condition: service_completed_successfully
     ports:
       - "3000:3000"
     networks:

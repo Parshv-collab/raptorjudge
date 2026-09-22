@@ -101,6 +101,30 @@ Expected: `{"ok":true,"service":"raptorjudge","version":"1.0.0","mode":"offline"
 - Convex Auth's CLI does not support self-hosted deployments, so `bootstrap` mints the `JWT_PRIVATE_KEY` / `JWKS` pair itself (`npm run keys:generate`) and publishes it with `npx convex env set`.
 - The only outbound request the app makes is the Google Fonts stylesheet in `index.html`; it degrades gracefully offline. Remove it or self-host the fonts for a fully air-gapped install.
 
+### Troubleshooting
+
+**`Could not find public function for 'users:me'` in the browser console**
+
+The app is being served against a Convex backend that has no function bundle —
+invariably because the one-time admin key bootstrap was not completed, so
+`bootstrap` never pushed the functions.
+
+`frontend` declares `depends_on: bootstrap: condition:
+service_completed_successfully`, so this should stop nginx from starting at all
+and `bootstrap` should have exited non-zero with instructions. If you already
+have nginx running from an earlier `up`, check the bootstrap logs and re-run:
+
+```bash
+docker compose logs bootstrap
+docker compose up -d db backend                       # backend must be up
+docker compose exec backend ./generate_admin_key.sh   # mint the admin key
+# → .env: CONVEX_SELF_HOSTED_ADMIN_KEY=<key>
+docker compose up --build
+```
+
+The `bootstrap` container now also probes `users:me` after deploying, so a
+deploy that silently no-ops fails the container instead of the browser.
+
 ---
 
 ## Feature tiers

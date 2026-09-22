@@ -37,6 +37,10 @@ Run it once, with the backend up:
 
 Copy the printed key into `.env` as CONVEX_SELF_HOSTED_ADMIN_KEY=<key>, then
 run `docker compose up --build` again.
+
+The frontend deliberately does NOT start until this succeeds: an app served
+against a backend with no functions looks fine and then fails on every query
+with "Could not find public function".
 MSG
   exit 1
 fi
@@ -60,6 +64,21 @@ fi
 # --- migrations ------------------------------------------------------------
 echo "==> deploying Convex functions (schema migration) ..."
 npx convex deploy
+
+# --- verify the bundle is actually live ------------------------------------
+# Convex deploy is a no-op if it silently targets the wrong deployment, which
+# leaves the SPA throwing "Could not find public function for 'users:me'".
+# Probe a known query so a partial deploy fails here instead of in the browser.
+echo "==> verifying the deployed function bundle ..."
+verify_out=$(npx convex run users:me '{}' 2>&1 || true)
+case "${verify_out}" in
+  *"Could not find public function"*)
+    echo "ERROR: functions did not land on the backend — 'users:me' is missing." >&2
+    echo "       See the 'npx convex deploy' output above." >&2
+    exit 1
+    ;;
+esac
+echo "    functions are live."
 
 # --- seed ------------------------------------------------------------------
 if [ "${SEED_ON_START:-true}" = "true" ]; then
