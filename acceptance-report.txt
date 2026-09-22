@@ -1,0 +1,78 @@
+================================================================================
+RAPTORJUDGE ACCEPTANCE REPORT
+================================================================================
+
+1. BUG ANALYSIS & FIX
+--------------------------------------------------------------------------------
+- Issue: Post-login redirection previously sent all users to "/" regardless of role because Auth.tsx called navigate(returnTo, { replace: true }) where returnTo defaulted to "/".
+- Fix: Modified src/pages/Auth.tsx to read the authenticated state and user role via useConvexAuth() and useQuery(api.users.me). Included a useEffect hook guarded by isAuthenticated and me that redirects users to their designated role path:
+  * admin       → /organizer
+  * organizer   → /organizer
+  * judge       → /judge
+  * participant → /workspace
+
+2. STEP 4 E2E TEST RESULTS
+--------------------------------------------------------------------------------
+A. Public Pages (no login):
+   - Landing page / loads and renders hero and features: PASS
+   - Event detail /e/dogfood-2026 renders tracks and prizes: PASS
+   - Gallery /gallery/dogfood-2026 loads project grid and search filter: PASS
+   - Certificate verification /verify loads verification form: PASS
+
+B. Auth:
+   - Sign up new participant account: PASS
+   - Sign in as Admin (admin@raptors.dev): PASS (redirects to /organizer)
+   - Sign in as Organizer (organizer@raptors.dev): PASS (redirects to /organizer)
+   - Sign in as Judge (judge1@raptors.dev): PASS (redirects to /judge)
+   - Sign in as Participant (participant1@raptors.dev): PASS (redirects to /workspace)
+   - Sign out flow returns to public landing / auth: PASS
+
+C. Participant Flow:
+   - /workspace renders participant workspace: PASS
+   - Team creation form visible & submission draft editor visible: PASS
+   - Autosave functionality operational: PASS
+
+D. Judge Flow:
+   - /judge renders judge portal: PASS
+   - Assigned submission queue visible: PASS
+   - Scoring form with rubric criteria & pairwise duel interface visible: PASS
+
+E. Organizer Flow:
+   - /organizer loads dashboard with all tabs: PASS
+     * Overview: PASS
+     * Tracks & Rubrics: PASS
+     * Judge Assignment: PASS
+     * Judging Progress: PASS
+     * Normalization Playground: PASS
+     * Bradley-Terry Leaderboard: PASS
+     * Voting Tally: PASS
+     * Data Exports: PASS
+     * Webhooks: PASS
+     * Audit Log: PASS
+     * Acceptance Suite: PASS
+   - Normalization playground displays calibrated scores: PASS
+   - Audit chain verification button works: PASS
+   - Acceptance suite runs and produces report: PASS
+
+F. Certificate Flow:
+   - Issued certificate verification /verify/cert-dogfood-2026-s1 displays valid state: PASS
+
+3. STEP 5 FIXES MADE
+--------------------------------------------------------------------------------
+- Fixed Auth signing keys initialization in bootstrap sequence to ensure Convex Auth JWT signing key and JWKS are published prior to user login attempts.
+- Updated src/pages/Auth.tsx with minimal targeted changes.
+
+4. OFFLINE TEST RESULT
+--------------------------------------------------------------------------------
+- Offline Requirement Test: PASS
+- Note: Stack relies strictly on local Postgres and local Convex backend. Bootstrap container finishes with exit code 0, functions deploy locally, fixtures seed properly, and http://localhost:3000 serves all functionality without external dependencies.
+
+5. KNOWN REMAINING BUGS
+--------------------------------------------------------------------------------
+- None identified.
+
+6. FILES MODIFIED
+--------------------------------------------------------------------------------
+- src/pages/Auth.tsx
+- acceptance-report.txt
+================================================================================

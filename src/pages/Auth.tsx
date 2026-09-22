@@ -1,7 +1,7 @@
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, useEffect } from "react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { useMutation, useAction } from "convex/react";
+import { useMutation, useAction, useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { Terminal, Loader2, DatabaseZap } from "lucide-react";
@@ -20,9 +20,26 @@ export default function Auth() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  // After signing in, send users back to the page they were trying to reach.
-  const returnTo =
-    location.pathname !== "/auth" ? location.pathname : searchParams.get("returnTo") ?? "/";
+  const { isAuthenticated } = useConvexAuth();
+  const me = useQuery(api.users.me);
+
+  // Explicit returnTo param if user was redirected to /auth?returnTo=...
+  const explicitReturnTo = searchParams.get("returnTo");
+
+  useEffect(() => {
+    if (!isAuthenticated || !me) return;
+    const routes: Record<string, string> = {
+      admin: "/organizer",
+      organizer: "/organizer",
+      judge: "/judge",
+      participant: "/workspace",
+    };
+    const dest = explicitReturnTo ?? routes[me.role ?? "participant"] ?? "/";
+    if (window.location.pathname !== dest) {
+      navigate(dest, { replace: true });
+    }
+  }, [isAuthenticated, me, navigate, explicitReturnTo]);
+
   const reseed = useAction(api.seed.seed);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
@@ -41,8 +58,8 @@ export default function Auth() {
       } else {
         await signIn("password", { email, password, name, flow: "signUp" });
       }
-      navigate(returnTo, { replace: true });
     } catch (err: any) {
+      setBusy(false);
       // Convex Auth reports a wrong password as a bare "InvalidSecret", which
       // reads like a server fault. Say what it actually means.
       const raw = String(err?.message ?? "");
