@@ -65,3 +65,23 @@ Next verification steps in a configured self-hosted environment:
 3. Sign in as organizer, create/publish/edit an event, then verify list and management pages.
 4. Sign in as admin and verify /admin sees all events.
 5. Verify judge queue/scoring and participant team/submission deadline flows.
+
+Phase 4.5 — Participant dashboard (/dashboard): PASS (static verification)
+Built:
+- Separate /dashboard route and ParticipantDashboard page; /workspace remains the team/submission management surface.
+- Role-aware post-login routing sends participants to /dashboard and redirects other roles to their home pages.
+- Greeting with participant first name.
+- Your Events section with enrolled-event cards showing banner, title, host, status, deadline, and participant count.
+- Empty state: “You're not in any events yet.” with Browse events CTA.
+- Featured section with up to four open events ranked by participant count; omitted when there are no open events.
+- Responsive card layout: four columns desktop, three tablet, horizontal snap scrolling on mobile.
+- Help, Contact, Terms, Privacy, and copyright footer links.
+- Participant AppShell links: Dashboard and My Events (filtered view query parameter), plus the existing workspace link.
+- Convex events.enrolled and events.featured queries.
+
+Verification:
+- npm run typecheck: PASS
+- npm run build: PASS
+- npm test: PASS (14 files, 166 tests)
+- git diff --check: PASS
+- Live Convex/Docker/Chrome acceptance remains unavailable without a configured deployment in this sandbox.

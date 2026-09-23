@@ -73,3 +73,36 @@ export const setStage = mutation({ args: { eventId: v.id("events"), stage: v.str
   const stages = ["draft", "registration", "hacking", "judging", "voting", "published", "archived"]; if (!stages.includes(args.stage)) throw new Error("Invalid stage");
   await ctx.db.patch(args.eventId, { status: args.stage }); await appendAudit(ctx, { eventId: args.eventId, actorId: actor._id, action: "event.stage_change", targetType: "event", targetId: String(args.eventId), beforeState: event.status, afterState: args.stage }); return { ok: true };
 } });
+
+
+/** Participant discovery: events where the current user belongs to a team. */
+export const enrolled = query({ args: {}, handler: async (ctx) => {
+  const user = await requireUser(ctx);
+  const memberships = await ctx.db.query("teamMembers").withIndex("by_user", (q) => q.eq("userId", user._id)).collect();
+  const eventIds = new Set<string>();
+  for (const membership of memberships) {
+    const team = await ctx.db.get(membership.teamId);
+    if (team) eventIds.add(String(team.eventId));
+  }
+  const all = await ctx.db.query("events").collect();
+  const teams = await ctx.db.query("teams").collect();
+  const members = await ctx.db.query("teamMembers").collect();
+  return all.filter((event) => eventIds.has(String(event._id))).map((event) => ({
+    ...event,
+    participantCount: members.filter((member) => teams.find((team) => team._id === member.teamId)?.eventId === event._id).length,
+  }));
+} });
+
+/** Public discovery feed, ranked by current team-member count. */
+export const featured = query({ args: {}, handler: async (ctx) => {
+  const events = (await ctx.db.query("events").collect()).filter((event) => ["registration", "hacking", "judging", "voting", "published"].includes(event.status));
+  const teams = await ctx.db.query("teams").collect();
+  const members = await ctx.db.query("teamMembers").collect();
+  return events.map((event) => ({
+    ...event,
+    participantCount: members.filter((member) => {
+      const team = teams.find((candidate) => candidate._id === member.teamId);
+      return team?.eventId === event._id;
+    }).length,
+  })).sort((a, b) => b.participantCount - a.participantCount).slice(0, 4);
+} });

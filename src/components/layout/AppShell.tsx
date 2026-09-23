@@ -94,6 +94,7 @@ export function AppShell() {
               </span>
             </Link>
             <nav className="hidden items-center gap-5 md:flex">
+              {me?.role === "participant" && <><NavLink to="/dashboard" className={navLink}>Dashboard</NavLink><NavLink to="/dashboard?view=my-events" className={navLink}>My Events</NavLink></>}
               <NavLink to="/e/dogfood-2026" className={navLink}>
                 event
               </NavLink>
