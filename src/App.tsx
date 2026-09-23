@@ -11,6 +11,8 @@ import EmbedGallery from "@/pages/EmbedGallery";
 import ParticipantWorkspace from "@/pages/ParticipantWorkspace";
 import JudgePortal from "@/pages/JudgePortal";
 import OrganizerDashboard from "@/pages/OrganizerDashboard";
+import Security from "@/pages/Security";
+import RoleHome from "@/pages/RoleHome";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { Toaster } from "sonner";
 
@@ -40,6 +42,14 @@ export default function App() {
           <Route path="/e/:slug" element={<EventPublic />} />
           <Route path="/gallery/:slug" element={<Gallery />} />
           <Route path="/project/:id" element={<ProjectDetail />} />
+          <Route
+            path="/home"
+            element={
+              <Protected>
+                <RoleHome />
+              </Protected>
+            }
+          />
           <Route path="/verify" element={<Verify />} />
           <Route path="/verify/:uuid" element={<Verify />} />
           <Route
@@ -63,6 +73,14 @@ export default function App() {
             element={
               <Protected>
                 <OrganizerDashboard />
+              </Protected>
+            }
+          />
+          <Route
+            path="/security"
+            element={
+              <Protected>
+                <Security />
               </Protected>
             }
           />

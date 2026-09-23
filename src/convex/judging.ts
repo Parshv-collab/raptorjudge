@@ -149,8 +149,12 @@ export const runAssignment = mutation({
 
     const now = Date.now();
     let inserted = 0;
+    // Security item 57: a submission must never accumulate two assignments for
+    // the same judge. A duplicate row would let one judge supply two score sets
+    // (double weight in normalization) and would break per-assignment
+    // uniqueness assumptions, so the plan is de-duplicated here.
     for (const [subId, judgeIds] of Object.entries(plan.assignments)) {
-      for (const judgeId of judgeIds) {
+      for (const judgeId of Array.from(new Set(judgeIds))) {
         await ctx.db.insert("judgeAssignments", {
           eventId: args.eventId,
           judgeId: judgeId as never,
@@ -259,12 +263,26 @@ export const submitScores = mutation({
     if (user.role === "judge" && !stageAllowsJudging(event.status as never)) {
       throw new Error("Judging is not open for this event");
     }
+    // Security item 57: a judge scores each submission exactly once. Re-opening
+    // a completed assignment would let a judge revise a score after seeing
+    // other results; organizers/admins can still correct a score explicitly.
+    if (user.role === "judge" && assignment.status === "completed") {
+      throw new Error("You have already scored this submission");
+    }
 
     const criteria = await ctx.db
       .query("rubricCriteria")
       .withIndex("by_event", (q) => q.eq("eventId", assignment.eventId))
       .collect();
     const now = Date.now();
+
+    // Security item 57: collapse duplicate criterion ids in the request (last
+    // one wins). Without this, the same criterion sent twice inserted two rows
+    // because `existing` is read before the loop.
+    const requested = new Map(args.scores.map((s) => [String(s.criterionId), s]));
+    if (requested.size !== args.scores.length) {
+      throw new Error("Each rubric criterion may only be scored once per submission");
+    }
 
     // upsert one row per criterion
     const existing = await ctx.db

@@ -449,7 +449,13 @@ function CertificatesTab({ eventId }: { eventId: any }) {
             setBusy(true);
             try {
               const res = await issueAll({ eventId });
-              toast.success(`Issued ${res.issued} certificates`);
+              // Issuance is idempotent, so a re-run reports how many awards
+              // already existed instead of minting duplicates.
+              toast.success(
+                res.reused
+                  ? `${res.issued} certificates (${res.reused} already issued — unchanged)`
+                  : `Issued ${res.issued} certificates`,
+              );
             } catch (e: any) { toast.error(e.message); }
             finally { setBusy(false); }
           }}

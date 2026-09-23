@@ -9,13 +9,22 @@ import {
 import { internal } from "./_generated/api";
 import { requireOrganizer } from "./lib/common";
 import { appendAudit } from "./lib/audit";
-import { hmacSha256Hex } from "./crypto";
+import { hmacSha256Hex, randomHex } from "./crypto";
+import { signedPayload } from "./lib/webhookSignature";
+import { assertWebhookTargetUrl } from "../lib/webhookTarget";
 
 /**
  * Webhooks (T4). Organizers register target URLs with per-webhook secrets.
- * Deliveries carry an X-RaptorJudge-Signature: HMAC-SHA256(secret, body)
- * header so receivers can verify authenticity. Delivery runs in an action;
- * failures are logged with status code for retry/inspection.
+ * Delivery runs in an action; failures are logged with status code for retry
+ * and inspection.
+ *
+ * Replay protection (security item 59): each delivery is signed over
+ * `"<timestamp>.<delivery id>.<raw body>"` with a fresh 128-bit nonce, and is
+ * sent with `X-RaptorJudge-Timestamp` / `X-RaptorJudge-Delivery` headers.
+ * Receivers must reject payloads older than five minutes and remember the
+ * nonce for that window — see src/convex/lib/webhookSignature.ts, whose
+ * `verifyDelivery()` is the reference implementation (and is exercised by the
+ * acceptance suite). {@link WEBHOOK_REPLAY_WINDOW_MS} is the window.
  */
 
 export const list = query({
@@ -59,11 +68,16 @@ export const register = mutation({
   },
   handler: async (ctx, args) => {
     await requireOrganizer(ctx);
-    if (!/^https?:\/\//.test(args.targetUrl)) throw new Error("targetUrl must be http(s)");
-    const secretKey = `whsec_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+    // Security items 64 + 67: the old check was a `^https?://` regex, which let
+    // `https://user:pass@host`, cloud-metadata addresses and trailing garbage
+    // through to the delivery `fetch`. See src/lib/webhookTarget.ts.
+    const targetUrl = assertWebhookTargetUrl(args.targetUrl);
+    // A 256-bit random secret (the previous Math.random() pairing was neither
+    // unpredictable nor that long); shown once at registration, HMAC key after.
+    const secretKey = `whsec_${randomHex(32)}`;
     const id = await ctx.db.insert("webhooks", {
       eventId: args.eventId,
-      targetUrl: args.targetUrl,
+      targetUrl,
       secretKey,
       events: args.events,
       isActive: true,
@@ -74,7 +88,7 @@ export const register = mutation({
       action: "webhook.register",
       targetType: "webhook",
       targetId: String(id),
-      afterState: JSON.stringify({ targetUrl: args.targetUrl, events: args.events }),
+      afterState: JSON.stringify({ targetUrl, events: args.events }),
     });
     return { webhookId: id, secretKey }; // secret shown once at registration
   },
@@ -125,12 +139,21 @@ export const deliver = internalAction({
   handler: async (ctx, args) => {
     const hook = await ctx.runQuery(internal.webhooks.getHook, { webhookId: args.webhookId });
     if (!hook) return;
+    // A fresh nonce per delivery (single-use within the replay window) and a
+    // send timestamp; both are covered by the signature below.
+    const timestamp = Date.now();
+    const deliveryId = randomHex(16);
     const body = JSON.stringify({
+      id: deliveryId,
       type: args.eventType,
-      deliveredAt: Date.now(),
+      timestamp,
+      deliveredAt: timestamp,
       data: JSON.parse(args.payload || "{}"),
     });
-    const signature = await hmacSha256Hex(hook.secretKey, body);
+    const signature = await hmacSha256Hex(
+      hook.secretKey,
+      signedPayload(timestamp, deliveryId, body),
+    );
     let statusCode = 0;
     let success = false;
     try {
@@ -139,6 +162,8 @@ export const deliver = internalAction({
         headers: {
           "Content-Type": "application/json",
           "X-RaptorJudge-Event": args.eventType,
+          "X-RaptorJudge-Delivery": deliveryId,
+          "X-RaptorJudge-Timestamp": String(timestamp),
           "X-RaptorJudge-Signature": `sha256=${signature}`,
         },
         body,

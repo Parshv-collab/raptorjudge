@@ -1,6 +1,8 @@
 import { v } from "convex/values";
 import { query, mutation, internalMutation } from "./_generated/server";
 import { requireOrganizer } from "./lib/common";
+import { runSecurityChecks } from "./lib/securityChecks";
+import { isSafeWebhookTarget } from "../lib/webhookTarget";
 
 /**
  * Acceptance suite (T4 + Bonus).
@@ -9,12 +11,21 @@ import { requireOrganizer } from "./lib/common";
  * via the REST API endpoint — no external test runner needed in production.
  */
 
+/** Minimum webhook secret length: `whsec_` + 32 random bytes as hex = 70. */
+const MIN_WEBHOOK_SECRET_LENGTH = 64;
+
 interface CheckResult {
   id: string;
   tier: string;
   description: string;
   pass: boolean;
   detail?: string;
+  /**
+   * True when the check had nothing to evaluate. Skipped checks are excluded
+   * from the pass count entirely (security item 63): a check that reports
+   * success because it had no input is a fail-open check.
+   */
+  skipped?: boolean;
 }
 
 export const runSuite = mutation({
@@ -22,8 +33,14 @@ export const runSuite = mutation({
   handler: async (ctx): Promise<{ runAt: number; checks: CheckResult[]; summary: string }> => {
     await requireOrganizer(ctx);
     const checks: CheckResult[] = [];
-    const add = (tier: string, id: string, description: string, pass: boolean, detail?: string) =>
-      checks.push({ tier, id, description, pass, detail });
+    const add = (
+      tier: string,
+      id: string,
+      description: string,
+      pass: boolean,
+      detail?: string,
+      skipped = false,
+    ) => checks.push({ tier, id, description, pass, detail, skipped });
 
     // ---------------------------------------------------------- T1 checks ---
     const users = await ctx.db.query("users").collect();
@@ -117,8 +134,24 @@ export const runSuite = mutation({
     add("T4", "t4.certificates", "Certificates issued with HMAC signatures",
       certs.length > 0 && certs.every((c) => c.signatureHash.length === 64));
 
+    // Carries real evidence rather than "a row exists": the secret is a full
+    // 256-bit HMAC key and the target is a deliverable, non-metadata http(s)
+    // URL (security items 64 + 67).
     const webhooks = await ctx.db.query("webhooks").collect();
-    add("T4", "t4.webhooks", "Webhook registrations with secrets available", webhooks.length > 0);
+    if (webhooks.length === 0) {
+      add("T4", "t4.webhooks", "Webhook targets are safe and secrets are strong", true,
+        "no webhooks registered to verify against", true);
+    } else {
+      const weak = webhooks.filter((h) => h.secretKey.length < MIN_WEBHOOK_SECRET_LENGTH);
+      const unsafe = webhooks.filter((h) => !isSafeWebhookTarget(h.targetUrl));
+      add(
+        "T4",
+        "t4.webhooks",
+        "Webhook targets are deliverable http(s) URLs and secrets are 256-bit",
+        weak.length === 0 && unsafe.length === 0,
+        `checked=${webhooks.length} weakSecrets=${weak.length} unsafeTargets=${unsafe.length}`,
+      );
+    }
 
     const criteriaCount = criteria.length;
 
@@ -126,8 +159,24 @@ export const runSuite = mutation({
     add("BONUS", "b.norm_proof", "Normalization engine available with proof metrics", criteriaCount > 0);
     add("BONUS", "b.pairwise", "Pairwise match history + Bradley-Terry engine available", true);
 
-    const passed = checks.filter((c) => c.pass).length;
-    const summary = `${passed}/${checks.length} checks passed`;
+    // ---------------------------------------------- T5 · security hardening ---
+    // Item 55 (TOTP), 56 (uniform auth errors), 57 (role/score integrity),
+    // 58 (idempotency), 59 (webhook replay) and the Phase 0 discovery fix are
+    // verified against the live database instead of being claimed in prose.
+    for (const check of await runSecurityChecks(ctx)) {
+      add(check.tier, check.id, check.description, check.pass, check.detail, check.skipped);
+    }
+
+    // Skipped checks are reported but never counted as passes, so the headline
+    // number cannot be inflated by checks that had no input to inspect.
+    const skipped = checks.filter((c) => c.skipped === true).length;
+    const evaluated = checks.length - skipped;
+    const passed = checks.filter((c) => c.pass && c.skipped !== true).length;
+    const failed = evaluated - passed;
+    const summary =
+      `${passed}/${evaluated} checks passed` +
+      (failed > 0 ? `, ${failed} failing` : "") +
+      (skipped > 0 ? ` (${skipped} skipped, not counted as passes)` : "");
     return { runAt: Date.now(), checks, summary };
   },
 });
@@ -147,9 +196,16 @@ export const saveReport = mutation({
   },
 });
 
+/**
+ * The most recent acceptance report.
+ *
+ * Organizer-gated (security item 70): it enumerates counts, ids and internal
+ * state, which is operational information rather than public content.
+ */
 export const latestReport = query({
   args: {},
   handler: async (ctx) => {
+    await requireOrganizer(ctx);
     const row = await ctx.db
       .query("platform")
       .withIndex("by_key", (q) => q.eq("key", "acceptance_report"))

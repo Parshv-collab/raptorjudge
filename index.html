@@ -8,12 +8,19 @@
       content="RaptorJudge — open-source hackathon submission & judging platform. Teams, rubric judging, score normalization, Bradley-Terry rankings, community voting, and verifiable certificates."
     />
     <title>RaptorJudge — Hackathon Judging Platform</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <!--
+      No third-party requests at runtime (offline-first guarantee; security
+      items 65 + 67): the page used to load Inter/JetBrains Mono from Google
+      Fonts, which leaked every visitor's IP and Referer to a third party and
+      made first paint depend on an external network. The font stack in
+      tailwind.config.js still names "Inter"/"JetBrains Mono" first, so an
+      operator who self-hosts the files (or has them installed) gets them for
+      free; otherwise the system stack renders immediately.
+
+      `no-referrer` here mirrors the header nginx sends in the containerised
+      build, covering the Vite dev preview too.
+    -->
+    <meta name="referrer" content="no-referrer" />
   </head>
   <body>
     <div id="root"></div>

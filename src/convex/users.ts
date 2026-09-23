@@ -2,6 +2,8 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { requireOrganizer, requireUser, type Role } from "./lib/common";
+import { assertRoleChangeAllowed } from "./lib/rbac";
+import { appendAudit } from "./lib/audit";
 
 /**
  * Users & RBAC (T1).
@@ -60,15 +62,37 @@ export const list = query({
   },
 });
 
-/** Set role (admin only) — used by the seed and the admin role manager. */
+/**
+ * Change a user's role — used by the admin role manager.
+ *
+ * Security item 57: the policy lives in lib/rbac.ts and is shared with the REST
+ * role-switch bridge, which previously allowed any authenticated caller to
+ * promote themselves to admin. Every change is audited with before/after state.
+ */
 export const setRole = mutation({
   args: { userId: v.id("users"), role: v.string() },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
     const target = await ctx.db.get(args.userId);
     if (!target) throw new Error("User not found");
+
+    await assertRoleChangeAllowed(ctx, {
+      actorRole: actor.role ?? "participant",
+      targetUserId: args.userId,
+      currentRole: target.role,
+      nextRole: args.role,
+    });
+
     const before = target.role;
     await ctx.db.patch(args.userId, { role: args.role as Role });
+    await appendAudit(ctx, {
+      actorId: actor._id,
+      action: "user.role_change",
+      targetType: "user",
+      targetId: String(args.userId),
+      beforeState: JSON.stringify({ role: before ?? null, email: target.email }),
+      afterState: JSON.stringify({ role: args.role }),
+    });
     return { userId: args.userId, before, after: args.role, actor: actor.email };
   },
 });

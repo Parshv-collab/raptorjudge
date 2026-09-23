@@ -8,12 +8,25 @@ import { normalizeScores, type JudgeScoreSet } from "../lib/algorithms/normaliza
  * Builds per-judge score vectors from stored rubric scores (weighted by
  * criterion weight) and runs Z-score / min-max / Bayesian normalization with
  * rank-delta comparison and mathematical proof metrics.
+ *
+ * Access (security item 70)
+ * ------------------------
+ * This reveals each judge's calibration and the running ranking, so it is
+ * limited to staff (judge/organizer/admin) until the event publishes results —
+ * otherwise any signed-in participant could read the scoreboard mid-judging and
+ * tune their submission to it.
  */
-
 export const analyze = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
+    const user = await requireUser(ctx);
+    const event = await ctx.db.get(args.eventId);
+    if (!event) throw new Error("Event not found");
+    const published = event.status === "published" || event.status === "archived";
+    const isStaff = user.role === "judge" || user.role === "organizer" || user.role === "admin";
+    if (!published && !isStaff) {
+      throw new Error("Judging results are not published yet");
+    }
     const scores = await ctx.db
       .query("judgeScores")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
