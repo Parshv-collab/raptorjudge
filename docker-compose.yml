@@ -66,6 +66,8 @@ services:
       CONVEX_SITE_ORIGIN: ${CONVEX_SITE_ORIGIN:-http://localhost:3211}
       DISABLE_BEACON: "true"
       RUST_LOG: info
+      NO_PROXY: "localhost,127.0.0.1,backend,db,dashboard"
+      no_proxy: "localhost,127.0.0.1,backend,db,dashboard"
     ports:
       - "3210:3210"   # Convex client API: queries, mutations, actions, sync
       - "3211:3211"   # HTTP actions:      the /api/* REST + auth routes
