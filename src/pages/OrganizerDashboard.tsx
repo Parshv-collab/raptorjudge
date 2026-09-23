@@ -46,54 +46,16 @@ type TabId = (typeof TABS)[number]["id"];
 const STAGES = ["draft", "registration", "hacking", "judging", "voting", "published", "archived"];
 
 export default function OrganizerDashboard() {
-  const [tab, setTab] = useState<TabId>("overview");
+  const events = useQuery(api.events.listAll, {});
   const event = useQuery(api.events.getBySlug, { slug: "dogfood-2026" });
-
-  if (!event) {
-    return <div className="container py-24 text-center font-mono text-muted-foreground">loading…</div>;
-  }
-
-  return (
-    <div className="container max-w-7xl py-8">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="mono-label mb-1">organizer dashboard</div>
-          <h1 className="text-3xl font-bold tracking-tight">Organizer Dashboard</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Manage {event.title} and every event you host.</p>
-        </div>
-        <div className="flex gap-2">
-          <Link to="/organizer/events" className="rounded-lg border border-border px-4 py-2.5 font-mono text-xs uppercase">All events</Link>
-          <Link to="/organizer/events/new" className="rounded-lg bg-primary px-4 py-2.5 font-mono text-xs font-semibold uppercase text-primary-foreground">Create Event</Link>
-        </div>
-      </div>
-
-      {/* tabs */}
-      <div className="mb-6 flex flex-wrap gap-1.5 border-b border-border pb-3">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`flex items-center gap-1.5 rounded-lg px-3.5 py-2 font-mono text-xs uppercase tracking-wider transition ${
-              tab === t.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary"
-            }`}
-          >
-            <t.icon size={13} /> {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === "overview" && <OverviewTab eventId={event._id} />}
-      {tab === "judging" && <JudgingTab eventId={event._id} />}
-      {tab === "normalization" && <NormalizationPlayground eventId={event._id} />}
-      {tab === "pairwise" && <PairwiseTab eventId={event._id} />}
-      {tab === "voting" && <VotingTab eventId={event._id} />}
-      {tab === "exports" && <ExportsTab eventId={event._id} slug={event.slug} />}
-      {tab === "certificates" && <CertificatesTab eventId={event._id} />}
-      {tab === "webhooks" && <WebhooksTab eventId={event._id} />}
-      {tab === "audit" && <AuditTab />}
-      {tab === "acceptance" && <AcceptanceTab />}
-    </div>
-  );
+  const submissions = useQuery(api.submissions.byEvent, event ? { eventId: event._id } : "skip");
+  const teams = useQuery(api.teams.listByEvent, event ? { eventId: event._id } : "skip");
+  const progress = useQuery(api.judging.progress, event ? { eventId: event._id } : "skip");
+  const audit = useQuery(api.audit.list, { limit: 5 });
+  if (!events || !event) return <div className="container py-24 text-center font-mono text-muted-foreground">loading…</div>;
+  const liveEvents = events.filter((e: any) => !["draft", "archived"].includes(e.status)).length;
+  const pendingJudging = Math.max(0, (progress?.totalAssignments ?? 0) - (progress?.completedAssignments ?? 0));
+  return <div className="container max-w-7xl py-8"><header className="mb-8 flex flex-wrap items-end justify-between gap-4"><div><div className="mono-label mb-1">organizer dashboard</div><h1 className="text-3xl font-bold tracking-tight">Organizer Dashboard</h1></div><Link to="/organizer/events/new" className="min-h-11 inline-flex items-center rounded-lg bg-primary px-4 font-mono text-xs font-semibold uppercase text-primary-foreground">Create Event</Link></header><section className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4">{[["Live events", liveEvents], ["Total participants", teams?.length ?? 0], ["Total submissions", submissions?.length ?? 0], ["Pending judging", pendingJudging]].map(([label, value]) => <div key={label} className="rounded-xl border border-border bg-card p-4 sm:p-5"><div className="font-mono text-2xl font-bold text-primary">{value}</div><div className="mono-label mt-1">{label}</div></div>)}</section><section className="mb-8"><div className="mb-3 flex items-baseline justify-between"><div><h2 className="text-lg font-semibold">Your Events</h2><p className="mt-1 text-sm text-muted-foreground">Manage event details, tracks, rubrics, and judging from the event page.</p></div><Link to="/organizer/events" className="font-mono text-xs uppercase text-primary">View all</Link></div><div className="overflow-x-auto rounded-xl border border-border bg-card"><table className="w-full min-w-[600px] text-left text-sm"><thead className="border-b border-border font-mono text-[11px] uppercase text-muted-foreground"><tr><th className="p-4">Title</th><th className="p-4">Status</th><th className="p-4">Participants</th><th className="p-4">Submissions</th><th className="p-4">Action</th></tr></thead><tbody>{events.map((e: any) => <tr key={e._id} className="border-b border-border/50 last:border-0"><td className="p-4 font-semibold">{e.title}</td><td className="p-4"><span className="rounded-full bg-muted px-2 py-1 font-mono text-[10px] uppercase">{e.status}</span></td><td className="p-4 text-muted-foreground">{e._id === event._id ? teams?.length ?? 0 : "—"}</td><td className="p-4 text-muted-foreground">{e._id === event._id ? submissions?.length ?? 0 : "—"}</td><td className="p-4"><Link className="font-mono text-xs uppercase text-primary" to={`/organizer/events/${e.slug}`}>Manage</Link></td></tr>)}</tbody></table></div></section><details className="rounded-xl border border-border bg-card p-5"><summary className="cursor-pointer font-semibold">Recent activity</summary><div className="mt-4 grid gap-2">{(audit ?? []).map((item: any) => <div key={item.id} className="flex flex-wrap justify-between gap-2 border-t border-border pt-2 text-sm"><span>{item.action}</span><span className="font-mono text-xs text-muted-foreground">{new Date(item.timestamp).toLocaleString()}</span></div>)}{audit?.length === 0 && <p className="text-sm text-muted-foreground">No recent activity.</p>}</div></details></div>;
 }
 
 /* ---------------------------------------------------------------- overview --- */

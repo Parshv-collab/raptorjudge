@@ -1,181 +1,25 @@
 import { Outlet, Link, NavLink, useNavigate } from "react-router-dom";
-import { useQuery, useMutation } from "convex/react";
-import { useConvexAuth } from "convex/react";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "@/convex/_generated/api";
 import { useState } from "react";
-import {
-  Terminal,
-  Moon,
-  Sun,
-  LogOut,
-  User,
-  Shield,
-  Gavel,
-  Users,
-  LayoutDashboard,
-  Repeat,
-  ShieldCheck,
-} from "lucide-react";
+import { Menu, Moon, Sun, LogOut, User, Shield, Gavel, Users, LayoutDashboard, Repeat, X } from "lucide-react";
 import { useTheme } from "../theme/ThemeProvider";
 
 const ROLES = ["participant", "judge", "organizer", "admin"] as const;
+const roleHome = (role?: string) => role === "judge" ? "/judge" : role === "organizer" ? "/organizer" : role === "admin" ? "/admin" : "/dashboard";
 
-/** Role switcher for reviewers: one click to test each role's experience. */
 function RoleSwitcher({ current, userId }: { current: string; userId: any }) {
-  const [open, setOpen] = useState(false);
-  const switchRole = useMutation(api.users.setRole);
-  const navigate = useNavigate();
-
-  const icons: Record<string, React.ReactNode> = {
-    participant: <Users size={13} />,
-    judge: <Gavel size={13} />,
-    organizer: <LayoutDashboard size={13} />,
-    admin: <Shield size={13} />,
-  };
-
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 rounded-md border border-border bg-secondary px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-wider text-secondary-foreground transition hover:border-primary/50"
-        title="Quick switch role (demo convenience)"
-      >
-        <Repeat size={12} />
-        {current}
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-44 rounded-md border border-border bg-popover p-1 shadow-xl">
-          {ROLES.map((r) => (
-            <button
-              key={r}
-              className={`flex w-full items-center gap-2 rounded px-2.5 py-1.5 font-mono text-xs transition hover:bg-secondary ${
-                r === current ? "text-primary" : "text-muted-foreground"
-              }`}
-              onClick={async () => {
-                setOpen(false);
-                await switchRole({ userId, role: r });
-                navigate(r === "participant" ? "/workspace" : r === "judge" ? "/judge" : r === "admin" ? "/admin" : "/organizer");
-              }}
-            >
-              {icons[r]}
-              {r}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  const [open, setOpen] = useState(false); const switchRole = useMutation(api.users.setRole); const navigate = useNavigate();
+  const icons: Record<string, React.ReactNode> = { participant: <Users size={13} />, judge: <Gavel size={13} />, organizer: <LayoutDashboard size={13} />, admin: <Shield size={13} /> };
+  return <div className="relative"><button aria-label="Switch role" onClick={() => setOpen(!open)} className="flex min-h-11 items-center gap-1.5 rounded-md border border-border bg-secondary px-2.5 font-mono text-[11px] uppercase tracking-wider text-secondary-foreground transition hover:border-primary/50"><Repeat size={12} />{current}</button>{open && <div className="absolute right-0 top-full z-50 mt-1 w-44 rounded-md border border-border bg-popover p-1 shadow-xl">{ROLES.map(r => <button key={r} className={`flex min-h-11 w-full items-center gap-2 rounded px-2.5 font-mono text-xs transition hover:bg-secondary ${r === current ? "text-primary" : "text-muted-foreground"}`} onClick={async () => { setOpen(false); await switchRole({ userId, role: r }); navigate(roleHome(r)); }}>{icons[r]}{r}</button>)}</div>}</div>;
 }
 
 export function AppShell() {
-  const { isAuthenticated, isLoading } = useConvexAuth();
-  const { signOut } = useAuthActions();
-  const { theme, toggle } = useTheme();
-  const me = useQuery(api.users.me, {}) ?? null;
-  const navigate = useNavigate();
-
-  const navLink = ({ isActive }: { isActive: boolean }) =>
-    `font-mono text-[13px] transition hover:text-primary ${isActive ? "text-primary" : "text-muted-foreground"}`;
-
-  const homeHref = me?.role === "judge" ? "/judge" : me?.role === "organizer" ? "/organizer" : me?.role === "admin" ? "/admin" : "/workspace";
-
-  return (
-    <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur">
-        <div className="container flex h-14 items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Link to="/" className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded bg-primary text-primary-foreground">
-                <Terminal size={16} />
-              </span>
-              <span className="font-mono text-sm font-bold tracking-tight">
-                Raptor<span className="text-primary">Judge</span>
-              </span>
-            </Link>
-            <nav className="hidden items-center gap-5 md:flex">
-              {me?.role === "participant" && <><NavLink to="/dashboard" className={navLink}>Dashboard</NavLink><NavLink to="/dashboard?view=my-events" className={navLink}>My Events</NavLink></>}
-              <NavLink to="/e/dogfood-2026" className={navLink}>
-                event
-              </NavLink>
-              <NavLink to="/gallery/dogfood-2026" className={navLink}>
-                gallery
-              </NavLink>
-              <NavLink to="/verify" className={navLink}>
-                verify
-              </NavLink>
-              {me?.role === "participant" && <NavLink to="/workspace" className={navLink}>workspace</NavLink>}
-              {me?.role === "judge" && <NavLink to="/judge" className={navLink}>judge portal</NavLink>}
-              {(me?.role === "organizer" || me?.role === "admin") && <><NavLink to="/organizer" className={navLink}>dashboard</NavLink><NavLink to="/organizer/events" className={navLink}>events</NavLink></>}
-              {me?.role === "admin" && <NavLink to="/admin" className={navLink}>admin</NavLink>}
-            </nav>
-          </div>
-
-          <div className="flex items-center gap-2.5">
-            <button
-              onClick={toggle}
-              className="rounded-md border border-border p-1.5 text-muted-foreground transition hover:text-primary"
-              title="Toggle theme"
-            >
-              {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
-            </button>
-            {isAuthenticated && me ? (
-              <>
-                {(me.role === "admin" || me.role === "organizer") && (
-                  <Link
-                    to="/security"
-                    className="hidden items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-wider text-muted-foreground transition hover:border-primary/50 hover:text-primary sm:flex"
-                    title="Account security — two-factor authentication"
-                  >
-                    <ShieldCheck size={13} />
-                    security
-                  </Link>
-                )}
-                {me.role === "admin" && <RoleSwitcher current={me.role} userId={me._id} />}
-                <Link
-                  to={homeHref}
-                  className="hidden items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-wider text-muted-foreground transition hover:border-primary/50 hover:text-primary sm:flex"
-                >
-                  <User size={13} />
-                  {me.name}
-                </Link>
-                <button
-                  onClick={async () => {
-                    await signOut();
-                    navigate("/");
-                  }}
-                  className="rounded-md border border-border p-1.5 text-muted-foreground transition hover:text-destructive"
-                  title="Sign out"
-                >
-                  <LogOut size={15} />
-                </button>
-              </>
-            ) : (
-              !isLoading && (
-                <Link
-                  to="/auth"
-                  className="rounded-md bg-primary px-3.5 py-1.5 font-mono text-xs font-semibold uppercase tracking-wider text-primary-foreground transition hover:opacity-90"
-                >
-                  sign in
-                </Link>
-              )
-            )}
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1">
-        <Outlet />
-      </main>
-
-      <footer className="border-t border-border py-6">
-        <div className="container flex flex-col items-center justify-between gap-2 text-xs text-muted-foreground sm:flex-row">
-          <span className="font-mono">
-            RaptorJudge — open-source hackathon platform · built for Hackathon Raptors · Dogfood 2026
-          </span>
-          <span className="font-mono">MIT licensed · self-hostable · offline-first</span>
-        </div>
-      </footer>
-    </div>
-  );
+  const { isAuthenticated, isLoading } = useConvexAuth(); const { signOut } = useAuthActions(); const { theme, toggle } = useTheme(); const me = useQuery(api.users.me, {}) ?? null; const navigate = useNavigate(); const [mobileOpen, setMobileOpen] = useState(false); const [profileOpen, setProfileOpen] = useState(false);
+  const role = me?.role ?? "participant";
+  const links = role === "participant" ? [["Dashboard", "/dashboard"], ["My Events", "/dashboard?view=my-events"], ["Browse", "/e/dogfood-2026"]] : role === "judge" ? [["Judge Portal", "/judge"], ["My Assignments", "/judge"]] : role === "organizer" ? [["Dashboard", "/organizer"], ["Events", "/organizer/events"], ["Judges", "/organizer#judges"]] : [["Dashboard", "/admin"], ["Events", "/organizer/events"], ["Users", "/admin?view=users"], ["Audit", "/admin?view=audit"]];
+  const navLink = ({ isActive }: { isActive: boolean }) => `min-h-11 inline-flex items-center font-mono text-[13px] transition hover:text-primary ${isActive ? "text-primary" : "text-muted-foreground"}`;
+  async function logout() { await signOut(); navigate("/"); }
+  return <div className="flex min-h-screen flex-col"><header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur"><div className="container flex min-h-14 items-center justify-between gap-4"><div className="flex items-center gap-5"><Link to="/" className="flex shrink-0 items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded bg-primary text-primary-foreground">R</span><span className="font-mono text-sm font-bold tracking-tight">Raptor<span className="text-primary">Judge</span></span></Link><nav className="hidden items-center gap-5 md:flex">{links.map(([label, href]) => <NavLink key={label} to={href} className={navLink}>{label}</NavLink>)}</nav></div><div className="flex items-center gap-2"><button aria-label="Toggle theme" onClick={toggle} className="flex min-h-11 min-w-11 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:text-primary">{theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}</button>{isAuthenticated && me ? <><div className="hidden sm:block">{me.role === "admin" && <RoleSwitcher current={me.role} userId={me._id} />}</div><div className="relative hidden sm:block"><button aria-label="Open profile menu" onClick={() => setProfileOpen(!profileOpen)} className="flex min-h-11 items-center gap-1.5 rounded-md border border-border px-3 font-mono text-xs text-muted-foreground hover:border-primary/50 hover:text-primary"><User size={14} />{me.name}</button>{profileOpen && <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-md border border-border bg-popover p-1 shadow-xl"><Link to={roleHome(me.role)} className="flex min-h-11 items-center px-3 font-mono text-xs hover:bg-secondary">Profile</Link><Link to="/security" className="flex min-h-11 items-center px-3 font-mono text-xs hover:bg-secondary">Settings</Link><Link to="/security" className="flex min-h-11 items-center px-3 font-mono text-xs hover:bg-secondary">Security</Link><a href="mailto:help@raptorjudge.local" className="flex min-h-11 items-center px-3 font-mono text-xs hover:bg-secondary">Help</a><div className="my-1 border-t border-border" /><button onClick={logout} className="flex min-h-11 w-full items-center gap-2 px-3 text-left font-mono text-xs text-destructive hover:bg-secondary"><LogOut size={13} />Log out</button></div>}</div></> : !isLoading && <Link to="/auth" className="min-h-11 inline-flex items-center rounded-md bg-primary px-3.5 font-mono text-xs font-semibold uppercase tracking-wider text-primary-foreground">Sign in</Link>}<button aria-label="Open navigation" onClick={() => setMobileOpen(!mobileOpen)} className="flex min-h-11 min-w-11 items-center justify-center rounded-md border border-border md:hidden">{mobileOpen ? <X size={18} /> : <Menu size={18} />}</button></div></div>{mobileOpen && <nav className="container grid gap-1 border-t border-border py-2 md:hidden">{links.map(([label, href]) => <NavLink key={label} to={href} onClick={() => setMobileOpen(false)} className={navLink}>{label}</NavLink>)}{isAuthenticated && me && <><Link to="/security" onClick={() => setMobileOpen(false)} className="min-h-11 inline-flex items-center font-mono text-[13px] text-muted-foreground">Settings & Security</Link><button onClick={logout} className="min-h-11 text-left font-mono text-[13px] text-destructive">Log out</button></>}</nav>}</header><main className="flex-1"><Outlet /></main><footer className="border-t border-border py-6"><div className="container flex flex-col items-center justify-between gap-2 text-xs text-muted-foreground sm:flex-row"><span className="font-mono">RaptorJudge — open-source hackathon platform</span><span className="font-mono">MIT licensed · self-hostable · offline-first</span></div></footer></div>;
 }

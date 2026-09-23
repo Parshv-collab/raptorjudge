@@ -65,10 +65,26 @@
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-feature-settings: "ss01" on;
+    overflow-x: hidden;
   }
 
   ::selection {
     background: hsl(var(--primary) / 0.3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .backdrop-blur, .backdrop-blur-sm, .backdrop-blur-md, .backdrop-blur-lg {
+    backdrop-filter: none !important;
   }
 }
 
