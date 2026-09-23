@@ -1,78 +1,87 @@
-================================================================================
-RAPTORJUDGE ACCEPTANCE REPORT
-================================================================================
+RaptorJudge dashboard suite acceptance report
+=============================================
 
-1. BUG ANALYSIS & FIX
---------------------------------------------------------------------------------
-- Issue: Post-login redirection previously sent all users to "/" regardless of role because Auth.tsx called navigate(returnTo, { replace: true }) where returnTo defaulted to "/".
-- Fix: Modified src/pages/Auth.tsx to read the authenticated state and user role via useConvexAuth() and useQuery(api.users.me). Included a useEffect hook guarded by isAuthenticated and me that redirects users to their designated role path:
-  * admin       → /organizer
-  * organizer   → /organizer
-  * judge       → /judge
-  * participant → /workspace
+Date: 2026-09-23
+Repository: Parshv-collab/project4
 
-2. STEP 4 E2E TEST RESULTS
---------------------------------------------------------------------------------
-A. Public Pages (no login):
-   - Landing page / loads and renders hero and features: PASS
-   - Event detail /e/dogfood-2026 renders tracks and prizes: PASS
-   - Gallery /gallery/dogfood-2026 loads project grid and search filter: PASS
-   - Certificate verification /verify loads verification form: PASS
+Verification performed locally:
+- npm ci --ignore-scripts: PASS
+- npm run typecheck: PASS
+- npm run build: PASS
+- npm test: PASS (14 files, 166 tests)
+- git diff --check: PASS
+- Convex code generation: NOT RUNNABLE in this sandbox because CONVEX_DEPLOYMENT is not configured.
+- Docker/Chrome acceptance: NOT RUNNABLE in this sandbox because the self-hosted Convex deployment and Docker bootstrap secrets are not configured.
 
-B. Auth:
-   - Sign up new participant account: PASS
-   - Sign in as Admin (admin@raptors.dev): PASS (redirects to /organizer)
-   - Sign in as Organizer (organizer@raptors.dev): PASS (redirects to /organizer)
-   - Sign in as Judge (judge1@raptors.dev): PASS (redirects to /judge)
-   - Sign in as Participant (participant1@raptors.dev): PASS (redirects to /workspace)
-   - Sign out flow returns to public landing / auth: PASS
+Phase 0 — Recon: PASS
+Existing routes and visible surfaces were inspected. The pre-existing organizer route was a seeded-event analytics dashboard; judge and participant routes already had substantial working flows. There was no event list/new/edit/management route and no admin dashboard. Organizers could not create events through the UI.
 
-C. Participant Flow:
-   - /workspace renders participant workspace: PASS
-   - Team creation form visible & submission draft editor visible: PASS
-   - Autosave functionality operational: PASS
+Phase 1 — Event creation and management: PARTIAL
+Built:
+- Full-page /organizer/events/new form with identity, slug generation, self-hosted banner path, short/full descriptions, markdown-style preview, rules, schedule, team sizing, solo toggle, and cover-image toggle.
+- /organizer/events list with status filtering and event rows.
+- /organizer/events/:slug management page with lifecycle header, publish/unpublish, overview, tracks CRUD, rules display, and planned stubs for remaining tabs.
+- /organizer/events/:slug/edit prefilled form and draft deletion confirmation.
+- Convex event create/update/publish/unpublish/deleteEvent/listMine/listAll/getBySlug functions with organizer/admin role checks and audit writes.
+- Extended event schema fields for organizer, rich descriptions, schedule metadata, team settings, and publishedAt.
 
-D. Judge Flow:
-   - /judge renders judge portal: PASS
-   - Assigned submission queue visible: PASS
-   - Scoring form with rubric criteria & pairwise duel interface visible: PASS
+Known limitations:
+- The form currently saves drafts; a separate publish action is used on the management page rather than a second form submit button.
+- Participant/submission counts in the event list are placeholders until aggregate queries are added.
+- Rules & FAQ is read-only in this pass; full markdown CRUD is planned.
+- Convex deployment/code generation and live mutation verification were unavailable in this sandbox.
 
-E. Organizer Flow:
-   - /organizer loads dashboard with all tabs: PASS
-     * Overview: PASS
-     * Tracks & Rubrics: PASS
-     * Judge Assignment: PASS
-     * Judging Progress: PASS
-     * Normalization Playground: PASS
-     * Bradley-Terry Leaderboard: PASS
-     * Voting Tally: PASS
-     * Data Exports: PASS
-     * Webhooks: PASS
-     * Audit Log: PASS
-     * Acceptance Suite: PASS
-   - Normalization playground displays calibrated scores: PASS
-   - Audit chain verification button works: PASS
-   - Acceptance suite runs and produces report: PASS
+Phase 2 — Organizer dashboard: PARTIAL
+Built:
+- Existing judging/normalization/pairwise/voting/export/certificate/webhook/audit capabilities were preserved.
+- Added Organizer Dashboard heading, Create Event CTA, All Events link, and event-suite navigation.
 
-F. Certificate Flow:
-   - Issued certificate verification /verify/cert-dogfood-2026-s1 displays valid state: PASS
+Known limitations:
+- The existing seeded-event analytics dashboard was not replaced with the requested multi-event stat-card/quick-action layout. A multi-event summary and CSV/export stubs are planned.
 
-3. STEP 5 FIXES MADE
---------------------------------------------------------------------------------
-- Fixed Auth signing keys initialization in bootstrap sequence to ensure Convex Auth JWT signing key and JWKS are published prior to user login attempts.
-- Updated src/pages/Auth.tsx with minimal targeted changes.
+Phase 3 — Judge portal: PARTIAL
+The existing judge portal already provides assignment progress, assigned queue, project links, rubric sliders, weighted totals, score submission, and pairwise comparisons, so it was preserved. An event selector and explicit save-draft scoring mutation are planned.
 
-4. OFFLINE TEST RESULT
---------------------------------------------------------------------------------
-- Offline Requirement Test: PASS
-- Note: Stack relies strictly on local Postgres and local Convex backend. Bootstrap container finishes with exit code 0, functions deploy locally, fixtures seed properly, and http://localhost:3000 serves all functionality without external dependencies.
+Phase 4 — Participant workspace: PARTIAL
+The existing participant workspace already provides event context, team create/join, invite-code copy, team members, draft autosave, submission form, submit/withdraw, and deadline enforcement. Leadership transfer, explicit countdown timer, and richer read-only submitted state are planned.
 
-5. KNOWN REMAINING BUGS
---------------------------------------------------------------------------------
-- None identified.
+Phase 5 — Admin dashboard: PARTIAL
+Built /admin with client-side redirect for non-admins, overview stats, all-events table, users table, invite-organizer logging stub, audit/settings/invites stubs, and security link. The backend listAll/list users calls are privileged for organizer/admin users.
 
-6. FILES MODIFIED
---------------------------------------------------------------------------------
-- src/pages/Auth.tsx
-- acceptance-report.txt
-================================================================================
+Known limitations:
+- User role changes, account disabling, invite persistence, audit filters, and platform settings mutations are planned stubs.
+- Server-side route authorization is enforced by Convex mutations/queries; the page redirect is a UX guard and not a security boundary.
+
+Phase 6 — Navigation: PASS
+AppShell now shows role-aware dashboard, workspace, judge, organizer events, and admin links while preserving event/gallery/verify/security/theme/logout behavior. Admin home routing now points to /admin.
+
+Bugs introduced:
+- No known compile-time or build-time regressions. Runtime Convex behavior remains unverified until a deployment is configured.
+- npm reported existing dependency audit findings (10 vulnerabilities); dependency versions were not changed in this pass.
+
+Next verification steps in a configured self-hosted environment:
+1. Run docker compose down && docker compose up --build.
+2. Complete the one-time Convex admin-key bootstrap if required.
+3. Sign in as organizer, create/publish/edit an event, then verify list and management pages.
+4. Sign in as admin and verify /admin sees all events.
+5. Verify judge queue/scoring and participant team/submission deadline flows.
+
+Phase 4.5 — Participant dashboard (/dashboard): PASS (static verification)
+Built:
+- Separate /dashboard route and ParticipantDashboard page; /workspace remains the team/submission management surface.
+- Role-aware post-login routing sends participants to /dashboard and redirects other roles to their home pages.
+- Greeting with participant first name.
+- Your Events section with enrolled-event cards showing banner, title, host, status, deadline, and participant count.
+- Empty state: “You're not in any events yet.” with Browse events CTA.
+- Featured section with up to four open events ranked by participant count; omitted when there are no open events.
+- Responsive card layout: four columns desktop, three tablet, horizontal snap scrolling on mobile.
+- Help, Contact, Terms, Privacy, and copyright footer links.
+- Participant AppShell links: Dashboard and My Events (filtered view query parameter), plus the existing workspace link.
+- Convex events.enrolled and events.featured queries.
+
+Verification:
+- npm run typecheck: PASS
+- npm run build: PASS
+- npm test: PASS (14 files, 166 tests)
+- git diff --check: PASS
+- Live Convex/Docker/Chrome acceptance remains unavailable without a configured deployment in this sandbox.

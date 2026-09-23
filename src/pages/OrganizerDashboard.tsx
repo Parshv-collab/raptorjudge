@@ -26,6 +26,7 @@ import {
 } from "recharts";
 import { api } from "@/convex/_generated/api";
 import NormalizationPlayground from "@/components/organizer/NormalizationPlayground";
+import { Link } from "react-router-dom";
 
 const TABS = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -54,9 +55,16 @@ export default function OrganizerDashboard() {
 
   return (
     <div className="container max-w-7xl py-8">
-      <div className="mb-6">
-        <div className="mono-label mb-1">organizer dashboard</div>
-        <h1 className="text-3xl font-bold tracking-tight">{event.title}</h1>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="mono-label mb-1">organizer dashboard</div>
+          <h1 className="text-3xl font-bold tracking-tight">Organizer Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Manage {event.title} and every event you host.</p>
+        </div>
+        <div className="flex gap-2">
+          <Link to="/organizer/events" className="rounded-lg border border-border px-4 py-2.5 font-mono text-xs uppercase">All events</Link>
+          <Link to="/organizer/events/new" className="rounded-lg bg-primary px-4 py-2.5 font-mono text-xs font-semibold uppercase text-primary-foreground">Create Event</Link>
+        </div>
       </div>
 
       {/* tabs */}

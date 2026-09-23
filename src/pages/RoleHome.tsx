@@ -31,6 +31,6 @@ export default function RoleHome() {
     case "judge":
       return <Navigate to="/judge" replace />;
     default:
-      return <Navigate to="/workspace" replace />;
+      return <Navigate to="/dashboard" replace />;
   }
 }
