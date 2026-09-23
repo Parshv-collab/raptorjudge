@@ -1,25 +1,21 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RaptorJudge — Hackathon Judging Platform</title>
     <meta
       name="description"
-      content="RaptorJudge — open-source hackathon submission & judging platform. Teams, rubric judging, score normalization, Bradley-Terry rankings, community voting, and verifiable certificates."
+      content="RaptorJudge — Open-source hackathon submission & judging platform. Rubric scoring, score normalization, Bradley-Terry rankings, and verifiable certificates."
     />
-    <title>RaptorJudge — Hackathon Judging Platform</title>
-    <!--
-      No third-party requests at runtime (offline-first guarantee; security
-      items 65 + 67): the page used to load Inter/JetBrains Mono from Google
-      Fonts, which leaked every visitor's IP and Referer to a third party and
-      made first paint depend on an external network. The font stack in
-      tailwind.config.js still names "Inter"/"JetBrains Mono" first, so an
-      operator who self-hosts the files (or has them installed) gets them for
-      free; otherwise the system stack renders immediately.
-
-      `no-referrer` here mirrors the header nginx sends in the containerised
-      build, covering the Vite dev preview too.
-    -->
+    <meta property="og:title" content="RaptorJudge — Hackathon Judging Platform" />
+    <meta
+      property="og:description"
+      content="Open-source, self-hosted hackathon platform built for fair judging and seamless submission workflows."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
     <meta name="referrer" content="no-referrer" />
   </head>
   <body>

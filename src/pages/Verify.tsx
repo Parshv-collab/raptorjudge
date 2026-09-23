@@ -1,8 +1,11 @@
+import React, { useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "convex/react";
-import { useState } from "react";
 import { api } from "@/convex/_generated/api";
-import { ShieldCheck, ShieldX, BadgeCheck } from "lucide-react";
+import { GlassCard } from "@/components/ui/GlassCard";
+import { Input } from "@/components/ui/Input";
+import { Button } from "@/components/ui/Button";
+import { Alert } from "@/components/ui/Alert";
 
 export default function Verify() {
   const { uuid: uuidParam } = useParams<{ uuid?: string }>();
@@ -17,71 +20,77 @@ export default function Verify() {
     api.certificates.verify,
     submitted.uuid && submitted.signature
       ? { certUuid: submitted.uuid.trim(), signature: submitted.signature.trim() }
-      : "skip",
+      : "skip"
   );
 
   return (
-    <div className="container max-w-2xl py-16">
-      <div className="mb-8 text-center">
-        <BadgeCheck className="mx-auto mb-3 text-primary" size={36} />
-        <h1 className="text-3xl font-bold tracking-tight">Verify a certificate</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Certificates are signed with HMAC-SHA256. Paste the certificate UUID and signature to
-          check authenticity — the server recomputes the signature and compares in constant time.
+    <div className="max-w-2xl mx-auto py-12 px-4 flex flex-col gap-8">
+      <div className="text-center flex flex-col items-center gap-2">
+        <div className="w-12 h-12 rounded-2xl bg-[#ff0055]/10 text-[#ff0055] flex items-center justify-center font-bold text-xl mb-2">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          </svg>
+        </div>
+        <h1 className="text-3xl font-extrabold text-[#1d1d1f]">Verify Certificate</h1>
+        <p className="text-xs text-[#6e6e73] max-w-md leading-relaxed">
+          Verify the authenticity of a RaptorJudge cryptographic certificate using the UUID and HMAC signature.
         </p>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-6">
-        <div className="grid gap-4">
-          <label className="grid gap-1.5">
-            <span className="mono-label">certificate uuid</span>
-            <input
-              value={uuid}
-              onChange={(e) => setUuid(e.target.value)}
-              placeholder="e.g. 9f2c…"
-              className="rounded-lg border border-input bg-background px-3.5 py-2.5 font-mono text-sm outline-none focus:ring-2 focus:ring-ring"
-            />
-          </label>
-          <label className="grid gap-1.5">
-            <span className="mono-label">signature (hex)</span>
-            <input
-              value={signature}
-              onChange={(e) => setSignature(e.target.value)}
-              placeholder="sha256-hmac hex string"
-              className="rounded-lg border border-input bg-background px-3.5 py-2.5 font-mono text-xs outline-none focus:ring-2 focus:ring-ring"
-            />
-          </label>
-          <button
+      <GlassCard className="p-8">
+        <div className="flex flex-col gap-4">
+          <Input
+            label="Certificate UUID"
+            value={uuid}
+            onChange={(e) => setUuid(e.target.value)}
+            placeholder="e.g. 9f2c..."
+          />
+
+          <Input
+            label="Signature (HMAC Hex)"
+            value={signature}
+            onChange={(e) => setSignature(e.target.value)}
+            placeholder="sha256-hmac signature string"
+          />
+
+          <Button
+            variant="primary"
+            size="md"
             onClick={() => setSubmitted({ uuid, signature })}
-            className="rounded-lg bg-primary px-4 py-2.5 font-mono text-sm font-semibold uppercase tracking-wider text-primary-foreground transition hover:opacity-90"
+            className="mt-2"
           >
-            verify
-          </button>
+            Verify Certificate
+          </Button>
         </div>
-      </div>
+      </GlassCard>
 
       {result && (
-        <div
-          className={`mt-6 rounded-xl border p-6 ${
-            result.valid ? "border-success/40 bg-success/5" : "border-destructive/40 bg-destructive/5"
-          }`}
-        >
+        <div>
           {result.valid ? (
-            <>
-              <div className="mb-3 flex items-center gap-2 font-semibold text-success">
-                <ShieldCheck size={20} /> Valid certificate
+            <Alert variant="success" title="Certificate Verified">
+              <div className="flex flex-col gap-1.5 mt-2 text-xs">
+                <div>
+                  <span className="font-semibold text-[#1d1d1f]">Recipient: </span>
+                  {result.certificate?.recipientName}
+                </div>
+                <div>
+                  <span className="font-semibold text-[#1d1d1f]">Type: </span>
+                  <span className="uppercase">{result.certificate?.certType}</span>
+                </div>
+                <div>
+                  <span className="font-semibold text-[#1d1d1f]">Title: </span>
+                  {result.certificate?.title}
+                </div>
+                <div>
+                  <span className="font-semibold text-[#1d1d1f]">Issued: </span>
+                  {new Date(result.certificate?.issuedAt ?? 0).toLocaleDateString()}
+                </div>
               </div>
-              <dl className="grid gap-1.5 font-mono text-sm">
-                <div className="flex justify-between"><dt className="text-muted-foreground">recipient</dt><dd>{result.certificate?.recipientName}</dd></div>
-                <div className="flex justify-between"><dt className="text-muted-foreground">type</dt><dd className="uppercase">{result.certificate?.certType}</dd></div>
-                <div className="flex justify-between"><dt className="text-muted-foreground">title</dt><dd>{result.certificate?.title}</dd></div>
-                <div className="flex justify-between"><dt className="text-muted-foreground">issued</dt><dd>{new Date(result.certificate?.issuedAt ?? 0).toLocaleDateString()}</dd></div>
-              </dl>
-            </>
+            </Alert>
           ) : (
-            <div className="flex items-center gap-2 font-semibold text-destructive">
-              <ShieldX size={20} /> Invalid: {result.reason}
-            </div>
+            <Alert variant="error" title="Certificate Invalid">
+              {result.reason || "The provided certificate UUID or signature does not match records."}
+            </Alert>
           )}
         </div>
       )}

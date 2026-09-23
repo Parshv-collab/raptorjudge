@@ -14,7 +14,7 @@ const STATUS_OPTIONS = [
   { value: "archived", label: "Archived" },
 ];
 
-export function OrganizerEvents() {
+export default function AdminEvents() {
   const events = useQuery(api.events.listAll, {});
   const [statusFilter, setStatusFilter] = useState("all");
 
@@ -26,21 +26,21 @@ export function OrganizerEvents() {
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <Link to="/admin">
+        <span className="text-xs font-semibold text-[#ff0055] hover:underline">
+          ← Back to Admin Dashboard
+        </span>
+      </Link>
+
+      <div className="flex justify-between items-center">
         <div>
           <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-            Organizer
+            Platform Overview
           </span>
           <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-0.5">
-            Your Events
+            All System Events
           </h1>
         </div>
-
-        <Link to="/organizer/events/new">
-          <Button variant="primary" size="md">
-            + Create Event
-          </Button>
-        </Link>
       </div>
 
       {/* Filter Bar */}
@@ -54,7 +54,7 @@ export function OrganizerEvents() {
         </div>
       </GlassCard>
 
-      {/* Events Table */}
+      {/* All Events Table */}
       <GlassCard className="p-6">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -83,7 +83,7 @@ export function OrganizerEvents() {
                   <td className="py-3.5 px-4 text-right">
                     <Link to={`/organizer/events/${e.slug}`}>
                       <Button variant="secondary" size="sm">
-                        Manage →
+                        Inspect Event →
                       </Button>
                     </Link>
                   </td>

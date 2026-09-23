@@ -1,142 +1,153 @@
-import { useParams } from "react-router-dom";
+import React, { useState, useMemo } from "react";
+import { useParams, Link } from "react-router-dom";
 import { useQuery } from "convex/react";
-import { useState, useMemo } from "react";
 import { api } from "@/convex/_generated/api";
-import { Search, Shuffle, Github, Video } from "lucide-react";
+import { GlassCard } from "@/components/ui/GlassCard";
+import { Input } from "@/components/ui/Input";
+import { Dropdown } from "@/components/ui/Dropdown";
+import { EmptyState } from "@/components/ui/EmptyState";
+
+const SORT_OPTIONS = [
+  { value: "default", label: "Default Order" },
+  { value: "title_asc", label: "Title (A-Z)" },
+  { value: "title_desc", label: "Title (Z-A)" },
+];
 
 export default function Gallery() {
   const { slug } = useParams<{ slug: string }>();
   const event = useQuery(api.events.getBySlug, slug ? { slug } : "skip");
+
   const [search, setSearch] = useState("");
-  const [track, setTrack] = useState<string>("");
-  const [randomize, setRandomize] = useState(false);
-  const [seed] = useState(() => Math.floor(Math.random() * 2 ** 30));
+  const [selectedTrack, setSelectedTrack] = useState("");
+  const [sortBy, setSortBy] = useState("default");
 
   const cards = useQuery(
     api.submissions.publicGallery,
-    event
-      ? {
-          eventId: event._id,
-          search: search || undefined,
-          randomize,
-          seed: randomize ? seed : undefined,
-        }
-      : "skip",
+    event ? { eventId: event._id, search: search || undefined } : "skip"
   );
 
   const tracks = useQuery(api.tracks.listByEvent, event ? { eventId: event._id } : "skip");
 
-  const trackNames = useMemo(() => [...new Set((cards ?? []).map((c: any) => c.trackName))], [cards]);
-  const visible = useMemo(
-    () => (track ? (cards ?? []).filter((c: any) => c.trackName === track) : cards ?? []),
-    [cards, track],
-  );
+  const visibleProjects = useMemo(() => {
+    let list = cards ?? [];
+    if (selectedTrack) {
+      list = list.filter((p: any) => p.trackName === selectedTrack);
+    }
+    if (sortBy === "title_asc") {
+      list = [...list].sort((a, b) => a.title.localeCompare(b.title));
+    } else if (sortBy === "title_desc") {
+      list = [...list].sort((a, b) => b.title.localeCompare(a.title));
+    }
+    return list;
+  }, [cards, selectedTrack, sortBy]);
 
   const galleryClosed = event && ["draft", "registration", "hacking"].includes(event.status);
 
   return (
-    <div className="container py-10">
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+    <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-8">
+      {/* Gallery Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <div className="mono-label mb-1">public gallery</div>
-          <h1 className="text-3xl font-bold tracking-tight">{event?.title ?? "…"} projects</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <h1 className="text-3xl font-extrabold text-[#1d1d1f]">
+            {event?.title ? `${event.title} Projects` : "Project Gallery"}
+          </h1>
+          <p className="text-xs text-[#6e6e73] mt-1">
             {galleryClosed
-              ? "Projects become public once the hacking window closes."
-              : `${visible.length} submitted project${visible.length === 1 ? "" : "s"}`}
+              ? "Gallery submissions will be visible once hacking concludes."
+              : `Browsing ${visibleProjects.length} project submissions`}
           </p>
         </div>
-        <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2.5">
-          <Shuffle size={15} className={randomize ? "text-primary" : "text-muted-foreground"} />
-          <span className="font-mono text-xs uppercase tracking-wider">randomize order</span>
-          <input
-            type="checkbox"
-            checked={randomize}
-            onChange={(e) => setRandomize(e.target.checked)}
-            className="ml-1 h-4 w-4 accent-[hsl(var(--primary))]"
-          />
-        </label>
+
+        <Link to={`/e/${slug || "dogfood-2026"}`}>
+          <span className="text-xs font-semibold text-[#ff0055] hover:underline">
+            ← Back to Event
+          </span>
+        </Link>
       </div>
 
-      {/* filters */}
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 sm:max-w-md">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input
+      {/* Filter Controls Bar */}
+      <GlassCard className="p-4 flex flex-col sm:flex-row gap-4 items-center">
+        <div className="w-full sm:flex-1">
+          <Input
+            placeholder="Search project title, tagline, team..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="search title, tagline, tags, team…"
-            className="w-full rounded-lg border border-input bg-background py-2.5 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            onClick={() => setTrack("")}
-            className={`rounded-full px-3.5 py-1.5 font-mono text-xs uppercase tracking-wider transition ${
-              track === "" ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground hover:border-primary/50"
-            }`}
-          >
-            all
-          </button>
-          {(tracks ?? []).map((t) => (
-            <button
-              key={t._id}
-              onClick={() => setTrack(t.name)}
-              className={`rounded-full px-3.5 py-1.5 font-mono text-xs uppercase tracking-wider transition ${
-                track === t.name ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground hover:border-primary/50"
-              }`}
-            >
-              {t.name}
-            </button>
-          ))}
-        </div>
-      </div>
 
-      {/* grid */}
+        <div className="w-full sm:w-48">
+          <Dropdown
+            options={[
+              { value: "", label: "All Tracks" },
+              ...(tracks || []).map((t) => ({ value: t.name, label: t.name })),
+            ]}
+            value={selectedTrack}
+            onChange={(val) => setSelectedTrack(val)}
+          />
+        </div>
+
+        <div className="w-full sm:w-48">
+          <Dropdown
+            options={SORT_OPTIONS}
+            value={sortBy}
+            onChange={(val) => setSortBy(val)}
+          />
+        </div>
+      </GlassCard>
+
+      {/* Gallery Cards Grid (3 per row desktop, 2 tablet, 1 mobile) */}
       {galleryClosed ? (
-        <div className="rounded-xl border border-dashed border-border bg-card/50 py-24 text-center">
-          <p className="font-mono text-sm text-muted-foreground">
-            submissions are under embargo until the hacking window closes
-          </p>
-        </div>
-      ) : visible.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border bg-card/50 py-24 text-center">
-          <p className="font-mono text-sm text-muted-foreground">no projects match your search</p>
-        </div>
+        <EmptyState
+          title="Gallery Embargoed"
+          description="Submissions for this event will be published after the submission deadline."
+        />
+      ) : visibleProjects.length === 0 ? (
+        <EmptyState
+          title="No Projects Found"
+          description="No submitted projects match your current filter or search query."
+        />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {visible.map((c: any) => (
-            <a
-              key={c.id}
-              href={`/project/${c.id}`}
-              className="card-hover group flex flex-col rounded-xl border border-border bg-card p-5"
-            >
-              <div className="mb-2 flex items-center justify-between">
-                <span className="rounded-full bg-primary/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-primary">
-                  {c.trackName}
-                </span>
-                <div className="flex gap-2 text-muted-foreground">
-                  {c.repositoryUrl && <Github size={15} />}
-                  {c.videoUrl && <Video size={15} />}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {visibleProjects.map((project: any) => (
+            <Link key={project.id} to={`/project/${project.id}`}>
+              <GlassCard
+                hoverEffect
+                className="h-full flex flex-col justify-between p-5 border-white/80"
+              >
+                <div>
+                  {/* Cover Image Placeholder */}
+                  <div className="w-full h-36 rounded-input bg-gradient-to-br from-[#ff0055]/10 via-purple-500/10 to-blue-500/10 border border-white/80 flex items-center justify-center text-[#ff0055] mb-4 font-bold text-lg">
+                    {project.title.substring(0, 2).toUpperCase()}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-[#ff0055]/10 text-[#ff0055]">
+                      {project.trackName || "General Track"}
+                    </span>
+                    <span className="text-[11px] font-semibold text-[#6e6e73]">
+                      {project.teamName}
+                    </span>
+                  </div>
+
+                  <h3 className="text-base font-bold text-[#1d1d1f] mb-1 line-clamp-1">
+                    {project.title}
+                  </h3>
+
+                  <p className="text-xs text-[#6e6e73] line-clamp-2 leading-relaxed">
+                    {project.tagline || project.description}
+                  </p>
                 </div>
-              </div>
-              <h3 className="mb-1 text-lg font-semibold group-hover:text-primary">{c.title}</h3>
-              <p className="mb-4 flex-1 text-sm text-muted-foreground">{c.tagline}</p>
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-xs text-muted-foreground">{c.teamName}</span>
-                <div className="flex flex-wrap gap-1">
-                  {c.tags
-                    .split(",")
-                    .filter(Boolean)
-                    .slice(0, 3)
-                    .map((tag: string) => (
-                      <span key={tag} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                        {tag}
-                      </span>
-                    ))}
+
+                <div className="mt-4 pt-3 border-t border-black/5 flex justify-between items-center text-[11px] font-semibold text-[#ff0055]">
+                  <span>View Details →</span>
+                  {project.tags && (
+                    <span className="text-[#6e6e73] font-normal truncate max-w-[150px]">
+                      {project.tags}
+                    </span>
+                  )}
                 </div>
-              </div>
-            </a>
+              </GlassCard>
+            </Link>
           ))}
         </div>
       )}

@@ -2,48 +2,37 @@ import { useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
-import { KeyRound, ShieldCheck, ShieldOff, Loader2, Copy } from "lucide-react";
+import { GlassCard } from "@/components/ui/GlassCard";
+import { Button } from "@/components/ui/Button";
+import { Alert } from "@/components/ui/Alert";
 
-/**
- * Account security settings (security item 55).
- *
- * TOTP is offered to admin and organizer accounts only — the roles that can
- * change roles, run judging assignments, issue certificates and export data.
- * Everything is local: the secret never leaves this deployment and no SMS /
- * e-mail / push provider is involved.
- *
- * Deliberately no QR-code library: this is an offline, zero-dependency install,
- * so the page shows the `otpauth://` URI (openable on a device that has an
- * authenticator) and the formatted manual key, which every authenticator app
- * accepts as a fallback.
- */
 export default function Security() {
   const me = useQuery(api.users.me, {});
   const eligible = me?.role === "admin" || me?.role === "organizer";
 
   return (
-    <div className="container max-w-3xl py-10">
-      <div className="mb-8 flex items-center gap-3">
-        <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <KeyRound size={20} />
-        </span>
-        <div>
-          <h1 className="font-mono text-xl font-bold">Account security</h1>
-          <div className="mono-label">two-factor authentication · self-hosted, offline</div>
-        </div>
+    <div className="max-w-3xl mx-auto py-8 px-4">
+      <div className="mb-8">
+        <h1 className="text-2xl font-extrabold text-[#1d1d1f]">Account Security</h1>
+        <p className="text-xs text-[#6e6e73] mt-1">
+          Configure two-factor authentication and review your security status
+        </p>
       </div>
 
       {me === undefined ? (
-        <div className="font-mono text-sm text-muted-foreground animate-pulse">loading…</div>
-      ) : !eligible ? (
-        <div className="rounded-lg border border-border bg-card p-5">
-          <div className="mb-1 font-mono text-sm">Not available for your role</div>
-          <p className="text-sm text-muted-foreground">
-            Two-factor authentication is limited to <span className="font-mono">admin</span> and{" "}
-            <span className="font-mono">organizer</span> accounts. Participants and judges sign in
-            with a password only.
-          </p>
+        <div className="animate-pulse py-12 text-center text-xs text-[#6e6e73]">
+          Loading security details...
         </div>
+      ) : !eligible ? (
+        <GlassCard className="p-6">
+          <h3 className="text-sm font-bold text-[#1d1d1f] mb-1">
+            Two-Factor Authentication Not Available
+          </h3>
+          <p className="text-xs text-[#6e6e73] leading-relaxed">
+            Two-factor authentication (TOTP) is restricted to <span className="font-bold text-[#1d1d1f]">admin</span> and{" "}
+            <span className="font-bold text-[#1d1d1f]">organizer</span> accounts. Participant and judge accounts sign in with password credentials.
+          </p>
+        </GlassCard>
       ) : (
         <TotpPanel />
       )}
@@ -51,7 +40,6 @@ export default function Security() {
   );
 }
 
-/** Split out so the TOTP query only runs for eligible roles. */
 function TotpPanel() {
   const status = useQuery(api.mfa.status, {});
   const enroll = useMutation(api.mfa.enroll);
@@ -71,9 +59,9 @@ function TotpPanel() {
       const result = await enroll({});
       setEnrollment(result);
       setCode("");
-      toast.success("Scan or save the key, then confirm with a live code");
+      toast.success("Enrolment key generated. Confirm with code.");
     } catch (err: any) {
-      toast.error(err?.message ?? "Could not start enrolment");
+      toast.error(err?.message || "Could not start enrolment");
     } finally {
       setBusy(false);
     }
@@ -85,9 +73,9 @@ function TotpPanel() {
       await confirm({ code });
       setEnrollment(null);
       setCode("");
-      toast.success("Two-factor authentication enabled");
+      toast.success("Two-factor authentication enabled!");
     } catch (err: any) {
-      toast.error(err?.message ?? "That code was not accepted");
+      toast.error(err?.message || "Code not accepted");
     } finally {
       setBusy(false);
     }
@@ -98,9 +86,9 @@ function TotpPanel() {
     try {
       await disable({ code });
       setCode("");
-      toast.success("Two-factor authentication disabled");
+      toast.success("Two-factor authentication disabled.");
     } catch (err: any) {
-      toast.error(err?.message ?? "That code was not accepted");
+      toast.error(err?.message || "Code not accepted");
     } finally {
       setBusy(false);
     }
@@ -109,150 +97,125 @@ function TotpPanel() {
   const copy = async (value: string) => {
     try {
       await navigator.clipboard.writeText(value);
-      toast.success("Copied");
+      toast.success("Copied to clipboard");
     } catch {
-      toast.error("Copy failed — select the text manually");
+      toast.error("Copy failed");
     }
   };
 
   return (
-    <div className="grid gap-4">
-      <div className="rounded-lg border border-border bg-card p-5">
-        <div className="mb-2 flex items-center gap-2">
-          {status?.enabled ? (
-            <ShieldCheck size={16} className="text-primary" />
-          ) : (
-            <ShieldOff size={16} className="text-muted-foreground" />
-          )}
-          <span className="font-mono text-sm font-semibold">
-            {status === undefined
-              ? "checking…"
-              : status.enabled
-                ? "Two-factor authentication is ON"
-                : "Two-factor authentication is OFF"}
-          </span>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          A 6-digit code from an authenticator app (Google Authenticator, 1Password, Aegis, …) is
-          required after your password. Codes rotate every {status?.stepSeconds ?? 30}s and one step
-          of clock skew is tolerated. Repeated wrong codes lock the factor for{" "}
-          {Math.round((status?.lockoutMs ?? 300000) / 60000)} minutes.
-        </p>
-        {status?.enrolledAt && (
-          <div className="mt-3 font-mono text-[11px] text-muted-foreground">
-            enrolled {new Date(status.enrolledAt).toLocaleString()}
-            {status.lastVerifiedAt
-              ? ` · last verified ${new Date(status.lastVerifiedAt).toLocaleString()}`
-              : ""}
+    <div className="flex flex-col gap-6">
+      <GlassCard className="p-6">
+        <div className="flex items-center gap-3 mb-2">
+          <div className={`p-2 rounded-xl ${status?.enabled ? "bg-emerald-500/10 text-emerald-600" : "bg-black/5 text-[#6e6e73]"}`}>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
           </div>
+          <div>
+            <h3 className="text-sm font-bold text-[#1d1d1f]">
+              {status === undefined
+                ? "Checking status..."
+                : status.enabled
+                ? "Two-Factor Authentication is Active"
+                : "Two-Factor Authentication is Disabled"}
+            </h3>
+            <p className="text-xs text-[#6e6e73]">
+              A 6-digit authenticator app code will be required when signing in.
+            </p>
+          </div>
+        </div>
+
+        {status?.enrolledAt && (
+          <p className="text-[11px] font-mono text-[#6e6e73] mt-4 border-t border-black/5 pt-3">
+            Enrolled: {new Date(status.enrolledAt).toLocaleString()}
+          </p>
         )}
-      </div>
+      </GlassCard>
 
       {!status?.enabled && !enrollment && (
-        <button
-          onClick={startEnrollment}
-          disabled={busy || status === undefined}
-          className="flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 font-mono text-sm font-semibold uppercase tracking-wider text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-        >
-          {busy && <Loader2 size={14} className="animate-spin" />}
-          enable two-factor
-        </button>
+        <Button variant="primary" size="md" isLoading={busy} onClick={startEnrollment}>
+          Enable Two-Factor Authentication
+        </Button>
       )}
 
       {enrollment && (
-        <div className="grid gap-3 rounded-lg border border-primary/40 bg-card p-5">
-          <div className="mono-label">step 1 · add this key to your authenticator</div>
-          <div className="rounded-md border border-border bg-muted px-3 py-2">
-            <div className="font-mono text-sm tracking-wider">
-              {enrollment.secretForManualEntry}
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => copy(enrollment.secretForManualEntry)}
-              className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-muted-foreground transition hover:border-primary/50 hover:text-primary"
-            >
-              <Copy size={12} /> copy key
-            </button>
-            <button
-              onClick={() => copy(enrollment.otpauthUri)}
-              className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 font-mono text-[11px] uppercase tracking-wider text-muted-foreground transition hover:border-primary/50 hover:text-primary"
-            >
-              <Copy size={12} /> copy otpauth uri
-            </button>
-          </div>
-          <details className="text-xs text-muted-foreground">
-            <summary className="cursor-pointer font-mono text-[11px] uppercase tracking-wider">
-              otpauth uri
-            </summary>
-            <code className="mt-2 block break-all font-mono text-[11px]">
-              {enrollment.otpauthUri}
-            </code>
-          </details>
+        <GlassCard className="p-6 border-[#ff0055]/30">
+          <h4 className="text-xs font-bold uppercase tracking-wider text-[#ff0055] mb-3">
+            Step 1 — Add key to authenticator app
+          </h4>
 
-          <div className="mono-label mt-2">step 2 · confirm with a live code</div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="p-3 bg-white/80 rounded-input border border-white font-mono text-sm tracking-widest text-[#1d1d1f] mb-3">
+            {enrollment.secretForManualEntry}
+          </div>
+
+          <div className="flex gap-2 mb-4">
+            <Button variant="secondary" size="sm" onClick={() => copy(enrollment.secretForManualEntry)}>
+              Copy Manual Key
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => copy(enrollment.otpauthUri)}>
+              Copy URI
+            </Button>
+          </div>
+
+          <h4 className="text-xs font-bold uppercase tracking-wider text-[#ff0055] mb-2 pt-2 border-t border-black/5">
+            Step 2 — Confirm with code
+          </h4>
+
+          <div className="flex gap-2 items-center">
             <input
               inputMode="numeric"
-              autoComplete="one-time-code"
               maxLength={6}
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
               placeholder="000000"
-              className="w-36 rounded-md border border-input bg-background px-3 py-2 text-center font-mono text-lg tracking-[0.3em] outline-none focus:ring-2 focus:ring-ring"
+              className="w-36 px-3 py-2 text-center font-mono text-base rounded-input bg-white/60 border border-white shadow-sm focus-ring-accent"
             />
-            <button
+            <Button
+              variant="primary"
+              size="md"
+              isLoading={busy}
+              disabled={code.length !== 6}
               onClick={confirmEnrollment}
-              disabled={busy || code.length !== 6}
-              className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 font-mono text-xs font-semibold uppercase tracking-wider text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
             >
-              {busy && <Loader2 size={13} className="animate-spin" />}
-              confirm
-            </button>
-            <button
-              onClick={() => {
-                setEnrollment(null);
-                setCode("");
-              }}
-              className="rounded-md border border-border px-3 py-2 font-mono text-xs uppercase tracking-wider text-muted-foreground transition hover:text-foreground"
-            >
-              cancel
-            </button>
+              Confirm
+            </Button>
+            <Button variant="ghost" size="md" onClick={() => setEnrollment(null)}>
+              Cancel
+            </Button>
           </div>
-          <p className="text-[11px] text-muted-foreground">
-            Nothing is enforced until you confirm, so a mis-scanned key can never lock you out.
-          </p>
-        </div>
+        </GlassCard>
       )}
 
       {status?.enabled && (
-        <div className="grid gap-3 rounded-lg border border-border bg-card p-5">
-          <div className="mono-label">turn off · requires a current code</div>
-          <div className="flex flex-wrap items-center gap-2">
+        <GlassCard className="p-6 border-red-200">
+          <h4 className="text-xs font-bold uppercase tracking-wider text-[#e63946] mb-2">
+            Disable Two-Factor Authentication
+          </h4>
+          <p className="text-xs text-[#6e6e73] mb-4">
+            Enter a live code from your authenticator app to disable TOTP.
+          </p>
+
+          <div className="flex gap-2 items-center">
             <input
               inputMode="numeric"
-              autoComplete="one-time-code"
               maxLength={6}
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
               placeholder="000000"
-              className="w-36 rounded-md border border-input bg-background px-3 py-2 text-center font-mono text-lg tracking-[0.3em] outline-none focus:ring-2 focus:ring-ring"
+              className="w-36 px-3 py-2 text-center font-mono text-base rounded-input bg-white/60 border border-white shadow-sm focus-ring-accent"
             />
-            <button
+            <Button
+              variant="danger"
+              size="md"
+              isLoading={busy}
+              disabled={code.length !== 6}
               onClick={turnOff}
-              disabled={busy || code.length !== 6}
-              className="flex items-center gap-2 rounded-md border border-destructive/50 px-4 py-2 font-mono text-xs font-semibold uppercase tracking-wider text-destructive transition hover:bg-destructive/10 disabled:opacity-50"
             >
-              {busy && <Loader2 size={13} className="animate-spin" />}
-              disable two-factor
-            </button>
+              Disable Factor
+            </Button>
           </div>
-          <p className="text-[11px] text-muted-foreground">
-            Lost your authenticator? Another admin can clear the factor for your account
-            (<span className="font-mono">mfa.adminReset</span>); every reset is written to the audit
-            log.
-          </p>
-        </div>
+        </GlassCard>
       )}
     </div>
   );
