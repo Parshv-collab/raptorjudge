@@ -1,12 +1,124 @@
-import { useQuery } from "convex/react";
+import React from "react";
 import { Link } from "react-router-dom";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { Gavel, CheckCircle2, Circle, ArrowRight } from "lucide-react";
+import { GlassCard } from "@/components/ui/GlassCard";
+import { Button } from "@/components/ui/Button";
+import { ProgressBar } from "@/components/ui/ProgressBar";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 export default function JudgePortal() {
   const event = useQuery(api.events.getBySlug, { slug: "dogfood-2026" });
   const queue = useQuery(api.judging.myQueue, event ? { eventId: event._id } : "skip");
-  if (!event || !queue) return <div className="container py-24 text-center font-mono text-muted-foreground">loading…</div>;
-  const completed = queue.items.filter((i: any) => i.status === "completed").length; const total = queue.items.length; const percent = total ? Math.round((completed / total) * 100) : 0;
-  return <div className="container max-w-4xl py-10"><header className="mb-8"><div className="mono-label mb-1">judge portal</div><h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight"><Gavel className="text-primary" size={28} />Judge Portal</h1><div className="mt-4 flex items-center gap-3"><div className="h-2 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${percent}%` }} /></div><span className="whitespace-nowrap font-mono text-xs text-muted-foreground">You&apos;ve scored {completed} of {total}</span></div>{!queue.judgingOpen && <p className="mt-3 rounded-lg border border-accent/40 bg-accent/10 px-4 py-2 font-mono text-xs">Judging is not open yet — stage: {event.status}</p>}</header><section><div className="mb-3"><h2 className="text-lg font-semibold">Assigned queue</h2><p className="mt-1 text-sm text-muted-foreground">Open one project at a time and submit your rubric scores.</p></div><div className="grid gap-3">{queue.items.map((item: any) => <div key={item.assignmentId} className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-5"><div className="flex items-center gap-3"><span>{item.status === "completed" ? <CheckCircle2 className="text-success" size={20} /> : <Circle className="text-muted-foreground" size={20} />}</span><div><h3 className="font-semibold">{item.submission.title}</h3><p className="font-mono text-xs text-muted-foreground">{item.submission.teamName} · {item.status === "completed" ? "Scored" : "Needs score"}</p></div></div><Link to={`/judge/score/${item.assignmentId}`} className="min-h-11 inline-flex items-center gap-2 rounded-lg bg-primary px-4 font-mono text-xs font-semibold uppercase text-primary-foreground">Score <ArrowRight size={14} /></Link></div>)}{queue.items.length === 0 && <div className="rounded-xl border border-dashed border-border bg-card/50 p-10 text-center text-sm text-muted-foreground">No assignments yet. Ask an organizer to run the assignment engine.</div>}</div></section></div>;
+
+  if (!event || !queue) {
+    return (
+      <div className="py-20 text-center animate-pulse text-xs text-[#6e6e73]">
+        Loading judge portal...
+      </div>
+    );
+  }
+
+  const items = queue.items || [];
+  const completed = items.filter((i: any) => i.status === "completed").length;
+  const total = items.length;
+
+  return (
+    <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-8">
+      {/* Header with Progress Bar */}
+      <GlassCard className="p-8 flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
+              Judging Dashboard
+            </span>
+            <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-0.5">
+              Judge Portal
+            </h1>
+          </div>
+
+          <Link to="/judge/pairwise">
+            <Button variant="secondary" size="sm">
+              Pairwise Comparisons ↗
+            </Button>
+          </Link>
+        </div>
+
+        {/* Progress Bar */}
+        <div className="mt-2">
+          <ProgressBar
+            value={completed}
+            max={total || 1}
+            showLabel
+            label={`${completed} of ${total} Scored`}
+          />
+        </div>
+
+        {!queue.judgingOpen && (
+          <div className="p-3 rounded-input bg-amber-500/10 border border-amber-500/30 text-amber-900 text-xs font-semibold mt-2">
+            Note: Judging stage is not active yet (Event status: {event.status}).
+          </div>
+        )}
+      </GlassCard>
+
+      {/* Assigned Queue List */}
+      <div className="flex flex-col gap-4">
+        <h2 className="text-lg font-bold text-[#1d1d1f]">Assigned Queue</h2>
+
+        {items.length === 0 ? (
+          <EmptyState
+            title="No Assignments Yet"
+            description="You currently have no project submissions assigned to score. Ask the organizer to run auto-assignment."
+          />
+        ) : (
+          <div className="flex flex-col gap-3">
+            {items.map((item: any) => {
+              const isDone = item.status === "completed";
+              return (
+                <GlassCard
+                  key={item.assignmentId}
+                  hoverEffect
+                  className="p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-3 h-3 rounded-full ${
+                        isDone ? "bg-emerald-500" : "bg-[#ff0055]"
+                      }`}
+                    />
+                    <div>
+                      <h3 className="text-sm font-bold text-[#1d1d1f]">
+                        {item.submission.title}
+                      </h3>
+                      <p className="text-xs text-[#6e6e73] mt-0.5">
+                        Team: {item.submission.teamName} · Track: {item.submission.trackName || "General"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 shrink-0 w-full sm:w-auto justify-between sm:justify-end">
+                    <span
+                      className={`px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full ${
+                        isDone
+                          ? "bg-emerald-500/10 text-emerald-600"
+                          : "bg-[#ff0055]/10 text-[#ff0055]"
+                      }`}
+                    >
+                      {isDone ? "Scored ✓" : "Pending"}
+                    </span>
+
+                    <Link to={`/judge/score/${item.assignmentId}`}>
+                      <Button variant={isDone ? "secondary" : "primary"} size="sm">
+                        {isDone ? "Edit Score" : "Score Project →"}
+                      </Button>
+                    </Link>
+                  </div>
+                </GlassCard>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

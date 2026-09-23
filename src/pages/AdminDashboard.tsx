@@ -1,19 +1,139 @@
+import React from "react";
+import { Link, Navigate } from "react-router-dom";
 import { useQuery } from "convex/react";
-import { Navigate, Link, useSearchParams } from "react-router-dom";
 import { api } from "@/convex/_generated/api";
+import { GlassCard } from "@/components/ui/GlassCard";
+import { StatCard } from "@/components/ui/StatCard";
 
 export default function AdminDashboard() {
-  const me = useQuery(api.users.me, {}); const events = useQuery(api.events.listAll, {}); const users = useQuery(api.users.list, {}); const [params] = useSearchParams(); const view = params.get("view") ?? "overview";
-  const event = useQuery(api.events.getBySlug, { slug: "dogfood-2026" }); const submissions = useQuery(api.submissions.byEvent, event ? { eventId: event._id } : "skip"); const audit = useQuery(api.audit.list, { limit: 10 });
-  if (me && me.role !== "admin") return <Navigate to={me.role === "organizer" ? "/organizer" : "/home"} replace />;
-  if (!me || !events || !users) return <div className="container py-24 text-center font-mono text-muted-foreground">loading…</div>;
-  if (view === "users") return <AdminSection title="Users"><UserTable users={users} /></AdminSection>;
-  if (view === "events") return <AdminSection title="Events"><EventTable events={events} /></AdminSection>;
-  if (view === "audit") return <AdminSection title="Audit Log"><AuditList audit={audit ?? []} /></AdminSection>;
-  if (view === "settings") return <AdminSection title="Settings"><p className="text-sm text-muted-foreground">Platform settings are managed through the existing Security page.</p><Link to="/security" className="mt-4 inline-flex min-h-11 items-center text-primary">Open security settings →</Link></AdminSection>;
-  return <div className="container max-w-7xl py-8"><header className="mb-8"><div className="mono-label mb-1">platform administration</div><h1 className="text-3xl font-bold tracking-tight">Admin</h1></header><section className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4">{[["Users", users.length], ["Events", events.length], ["Submissions", submissions?.length ?? "—"], ["Pending invites", "—"]].map(([label, value]) => <div key={label} className="rounded-xl border border-border bg-card p-4 sm:p-5"><div className="font-mono text-2xl font-bold text-primary">{value}</div><div className="mono-label mt-1">{label}</div></div>)}</section><section className="mb-8"><h2 className="mb-3 text-lg font-semibold">Quick links</h2><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[["Users", "View accounts and roles", "/admin?view=users"], ["Events", "Review and manage events", "/admin?view=events"], ["Audit Log", "Inspect recent platform actions", "/admin?view=audit"], ["Settings", "Security and account controls", "/admin?view=settings"]].map(([title, desc, href]) => <Link key={title} to={href} className="rounded-xl border border-border bg-card p-5 transition hover:border-primary/50"><h3 className="font-semibold">{title}</h3><p className="mt-1 text-sm text-muted-foreground">{desc}</p></Link>)}</div></section><section><div className="mb-3 flex items-baseline justify-between"><h2 className="text-lg font-semibold">Recent audit events</h2><Link to="/admin?view=audit" className="font-mono text-xs uppercase text-primary">View all</Link></div><AuditList audit={audit ?? []} /></section></div>;
+  const me = useQuery(api.users.me, {});
+  const events = useQuery(api.events.listAll, {});
+  const users = useQuery(api.users.list, {});
+  const event = useQuery(api.events.getBySlug, { slug: "dogfood-2026" });
+  const submissions = useQuery(api.submissions.byEvent, event ? { eventId: event._id } : "skip");
+  const audit = useQuery(api.audit.list, { limit: 10 });
+
+  if (me && me.role !== "admin") {
+    return (
+      <Navigate
+        to={me.role === "organizer" ? "/organizer" : "/home"}
+        replace
+      />
+    );
+  }
+
+  if (!me || !events || !users) {
+    return (
+      <div className="py-20 text-center animate-pulse text-xs text-[#6e6e73]">
+        Loading administration dashboard...
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-8">
+      {/* Heading */}
+      <div>
+        <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
+          System Administration
+        </span>
+        <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-0.5">
+          Admin
+        </h1>
+      </div>
+
+      {/* Stats Row (4 max) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+        <StatCard label="Total Users" value={users.length} />
+        <StatCard label="Total Events" value={events.length} />
+        <StatCard label="Submissions" value={submissions?.length ?? 0} />
+        <StatCard label="Pending Invites" value="0" />
+      </div>
+
+      {/* Quick Links Grid (4 cards) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Link to="/admin/users">
+          <GlassCard hoverEffect className="p-6 h-full flex flex-col justify-between">
+            <div>
+              <h3 className="text-base font-bold text-[#1d1d1f]">Users</h3>
+              <p className="text-xs text-[#6e6e73] mt-1">Manage accounts and role permissions</p>
+            </div>
+            <span className="text-xs font-bold text-[#ff0055] mt-4 inline-block">
+              Open Users →
+            </span>
+          </GlassCard>
+        </Link>
+
+        <Link to="/admin/events">
+          <GlassCard hoverEffect className="p-6 h-full flex flex-col justify-between">
+            <div>
+              <h3 className="text-base font-bold text-[#1d1d1f]">Events</h3>
+              <p className="text-xs text-[#6e6e73] mt-1">Review all events platform-wide</p>
+            </div>
+            <span className="text-xs font-bold text-[#ff0055] mt-4 inline-block">
+              Open Events →
+            </span>
+          </GlassCard>
+        </Link>
+
+        <Link to="/admin/audit">
+          <GlassCard hoverEffect className="p-6 h-full flex flex-col justify-between">
+            <div>
+              <h3 className="text-base font-bold text-[#1d1d1f]">Audit Log</h3>
+              <p className="text-xs text-[#6e6e73] mt-1">Inspect tamper-evident system logs</p>
+            </div>
+            <span className="text-xs font-bold text-[#ff0055] mt-4 inline-block">
+              Open Audit →
+            </span>
+          </GlassCard>
+        </Link>
+
+        <Link to="/security">
+          <GlassCard hoverEffect className="p-6 h-full flex flex-col justify-between">
+            <div>
+              <h3 className="text-base font-bold text-[#1d1d1f]">Settings</h3>
+              <p className="text-xs text-[#6e6e73] mt-1">Security and 2FA configuration</p>
+            </div>
+            <span className="text-xs font-bold text-[#ff0055] mt-4 inline-block">
+              Open Settings →
+            </span>
+          </GlassCard>
+        </Link>
+      </div>
+
+      {/* Recent Audit Events (Last 10) */}
+      <GlassCard className="p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-bold text-[#1d1d1f]">Recent Audit Trail</h2>
+          <Link to="/admin/audit">
+            <span className="text-xs font-semibold text-[#ff0055] hover:underline">
+              View Full Trail →
+            </span>
+          </Link>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          {(audit || []).map((log: any) => (
+            <div
+              key={log.id}
+              className="p-3 rounded-input bg-white/60 border border-white flex flex-wrap justify-between items-center text-xs gap-2"
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-[#1d1d1f]">{log.action}</span>
+                <span className="text-[10px] text-[#6e6e73] uppercase px-1.5 py-0.5 rounded bg-black/5">
+                  {log.targetType}
+                </span>
+              </div>
+              <span className="font-mono text-[10px] text-[#6e6e73]">
+                {new Date(log.timestamp).toLocaleString()}
+              </span>
+            </div>
+          ))}
+          {(!audit || audit.length === 0) && (
+            <p className="text-xs text-[#6e6e73] text-center py-4">No recent audit logs.</p>
+          )}
+        </div>
+      </GlassCard>
+    </div>
+  );
 }
-function AdminSection({ title, children }: { title: string; children: React.ReactNode }) { return <div className="container max-w-7xl py-8"><header className="mb-6"><div className="mono-label mb-1">platform administration</div><h1 className="text-3xl font-bold">{title}</h1></header><div className="rounded-xl border border-border bg-card p-5">{children}</div></div>; }
-function UserTable({ users }: { users: any[] }) { return <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm"><thead className="border-b border-border font-mono text-[11px] uppercase text-muted-foreground"><tr><th className="p-3">Name</th><th className="p-3">Email</th><th className="p-3">Role</th></tr></thead><tbody>{users.map(u => <tr key={u._id} className="border-b border-border/50"><td className="p-3">{u.name}</td><td className="p-3 text-muted-foreground">{u.email}</td><td className="p-3 font-mono text-xs uppercase">{u.role ?? "participant"}</td></tr>)}</tbody></table></div>; }
-function EventTable({ events }: { events: any[] }) { return <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm"><thead className="border-b border-border font-mono text-[11px] uppercase text-muted-foreground"><tr><th className="p-3">Event</th><th className="p-3">Status</th><th className="p-3">Manage</th></tr></thead><tbody>{events.map(e => <tr key={e._id} className="border-b border-border/50"><td className="p-3 font-semibold">{e.title}</td><td className="p-3">{e.status}</td><td className="p-3"><Link className="text-primary" to={`/organizer/events/${e.slug}`}>Manage</Link></td></tr>)}</tbody></table></div>; }
-function AuditList({ audit }: { audit: any[] }) { return <div className="grid gap-2">{audit.map(item => <div key={item.id} className="flex flex-wrap justify-between gap-2 border-b border-border/50 py-2 text-sm"><span>{item.action} <span className="text-muted-foreground">{item.targetType}</span></span><span className="font-mono text-xs text-muted-foreground">{new Date(item.timestamp).toLocaleString()}</span></div>)}{audit.length === 0 && <p className="text-sm text-muted-foreground">No audit events yet.</p>}</div>; }

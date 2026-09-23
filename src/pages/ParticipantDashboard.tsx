@@ -1,32 +1,143 @@
-import { useMemo } from "react";
+import React, { useMemo } from "react";
 import { useQuery } from "convex/react";
-import { Link, Navigate, useSearchParams } from "react-router-dom";
-import { CalendarClock, Users, ArrowRight, Compass } from "lucide-react";
+import { Link, Navigate } from "react-router-dom";
 import { api } from "@/convex/_generated/api";
+import { GlassCard } from "@/components/ui/GlassCard";
+import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 
-const statusLabel: Record<string, string> = { registration: "Open", hacking: "In progress", judging: "Judging", voting: "Voting", published: "Results", archived: "Archived", draft: "Draft" };
-function formatDeadline(event: any) { const timestamp = event.submissionDeadline ?? event.registrationEnd; return timestamp ? new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "No deadline set"; }
-function EventCard({ event }: { event: any }) { return <Link to={`/e/${event.slug}`} className="group snap-start overflow-hidden rounded-2xl border border-border bg-card transition hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-ring"><div className="relative h-32 overflow-hidden bg-gradient-to-br from-primary/20 via-secondary to-background">{event.bannerUrl ? <img src={event.bannerUrl} alt="" className="h-full w-full object-cover transition duration-300 group-hover:scale-105" /> : <div className="flex h-full items-end p-4"><span className="font-mono text-xs uppercase tracking-[0.18em] text-primary/80">RaptorJudge event</span></div>}<span className="absolute right-3 top-3 rounded-full bg-background/85 px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-foreground backdrop-blur">{statusLabel[event.status] ?? event.status}</span></div><div className="p-4"><h3 className="truncate font-semibold group-hover:text-primary">{event.title}</h3><p className="mt-1 truncate text-sm text-muted-foreground">Hosted by {event.hostName || "Hackathon Raptors"}</p><div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-3 text-xs text-muted-foreground"><span className="flex items-center gap-1.5"><CalendarClock size={13} className="text-primary" />{formatDeadline(event)}</span><span className="flex items-center justify-end gap-1.5"><Users size={13} className="text-primary" />{event.participantCount ?? 0} participants</span></div></div></Link> }
-function EventGrid({ events }: { events: any[] }) { return <div className="grid auto-cols-[82%] grid-flow-col gap-4 overflow-x-auto pb-3 [scrollbar-width:thin] sm:grid-flow-row sm:grid-cols-3 sm:auto-cols-auto sm:overflow-visible lg:grid-cols-4">{events.map((event) => <EventCard key={event._id} event={event} />)}</div> }
 export default function ParticipantDashboard() {
   const me = useQuery(api.users.me, {});
-  // These queries predate the dashboard and are present in existing deployments.
-  // Keep this page compatible while a Convex bundle containing newer helpers is rolled out.
   const publicEvents = useQuery(api.events.listPublic, {});
   const myTeams = useQuery(api.teams.myTeams, {});
-  const [params] = useSearchParams();
-  const myEventsView = params.get("view") === "my-events";
+
   const enrolled = useMemo(() => {
     if (!publicEvents || !myTeams) return undefined;
-    const eventIds = new Set(myTeams.map((team: any) => String(team.eventId)));
-    return publicEvents.filter((event: any) => eventIds.has(String(event._id))).map((event: any) => ({ ...event, participantCount: 0 }));
+    const eventIds = new Set(myTeams.map((t: any) => String(t.eventId)));
+    return publicEvents.filter((e: any) => eventIds.has(String(e._id)));
   }, [publicEvents, myTeams]);
+
   const featured = useMemo(() => {
     if (!publicEvents) return undefined;
-    return publicEvents.filter((event: any) => ["registration", "hacking", "judging", "voting", "published"].includes(event.status)).slice(0, 4).map((event: any) => ({ ...event, participantCount: 0 }));
+    return publicEvents
+      .filter((e: any) => ["registration", "hacking", "judging", "voting", "published"].includes(e.status))
+      .slice(0, 4);
   }, [publicEvents]);
-  if (me === undefined || enrolled === undefined || featured === undefined) return <div className="container flex min-h-[55vh] items-center justify-center"><div className="font-mono text-sm text-muted-foreground animate-pulse">loading your events…</div></div>;
-  if (me?.role && me.role !== "participant") return <Navigate to={me.role === "judge" ? "/judge" : me.role === "organizer" ? "/organizer" : "/admin"} replace />;
+
+  if (me === undefined || enrolled === undefined || featured === undefined) {
+    return (
+      <div className="py-20 text-center animate-pulse text-xs text-[#6e6e73]">
+        Loading dashboard...
+      </div>
+    );
+  }
+
+  if (me?.role && me.role !== "participant") {
+    return (
+      <Navigate
+        to={
+          me.role === "judge"
+            ? "/judge"
+            : me.role === "organizer"
+            ? "/organizer"
+            : "/admin"
+        }
+        replace
+      />
+    );
+  }
+
   const firstName = (me?.name || me?.email?.split("@")[0] || "there").split(/\s+/)[0];
-  return <div className="container max-w-7xl py-8"><div className="mb-9"><div className="mono-label mb-2">participant dashboard</div><h1 className="text-2xl font-semibold tracking-tight text-foreground">Welcome back, {firstName}</h1><p className="mt-2 max-w-xl text-sm text-muted-foreground">Keep an eye on your hackathons and discover what is happening next.</p></div><section id="your-events" className="mb-10 scroll-mt-20"><div className="mb-4 flex items-end justify-between gap-3"><div><h2 className="text-lg font-semibold">{myEventsView ? "My Events" : "Your Events"}</h2><p className="mt-1 text-sm text-muted-foreground">Events where you are currently enrolled.</p></div>{enrolled.length > 0 && <Link to="/workspace" className="hidden items-center gap-1 font-mono text-xs uppercase text-primary sm:flex">Open workspace <ArrowRight size={13} /></Link>}</div>{enrolled.length > 0 ? <EventGrid events={enrolled} /> : <div className="rounded-2xl border border-dashed border-border bg-card/50 p-10 text-center"><Compass size={24} className="mx-auto mb-3 text-primary" /><h3 className="font-semibold">You&apos;re not in any events yet.</h3><p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">Browse open events and join a team to start building.</p><Link to="/e/dogfood-2026" className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 font-mono text-xs font-semibold uppercase text-primary-foreground">Browse events <ArrowRight size={14} /></Link></div>}</section>{featured.length > 0 && <section><div className="mb-4"><h2 className="text-lg font-semibold">Featured</h2><p className="mt-1 text-sm text-muted-foreground">Open events the community is joining now.</p></div><EventGrid events={featured} /></section>}<div className="mt-12 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-6 text-xs text-muted-foreground"><div className="flex flex-wrap gap-x-5 gap-y-2"><a href="mailto:help@raptorjudge.local" className="hover:text-primary">Help</a><a href="mailto:contact@raptorjudge.local" className="hover:text-primary">Contact</a><a href="/terms" className="hover:text-primary">Terms</a><a href="/privacy" className="hover:text-primary">Privacy</a></div><span className="font-mono">© {new Date().getFullYear()} RaptorJudge</span></div></div>;
+
+  return (
+    <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-10">
+      {/* Greeting Header */}
+      <div>
+        <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight">
+          Welcome back, {firstName}
+        </h1>
+        <p className="text-xs text-[#6e6e73] mt-1">
+          Manage your hackathons and explore open events.
+        </p>
+      </div>
+
+      {/* Your Events Section */}
+      <section id="events" className="flex flex-col gap-4">
+        <h2 className="text-lg font-bold text-[#1d1d1f]">Your Events</h2>
+
+        {enrolled.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {enrolled.map((event: any) => (
+              <GlassCard key={event._id} hoverEffect className="p-6 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-[#ff0055]/10 text-[#ff0055]">
+                      {event.status}
+                    </span>
+                  </div>
+                  <h3 className="text-base font-bold text-[#1d1d1f] mb-1">{event.title}</h3>
+                  <p className="text-xs text-[#6e6e73] line-clamp-2 mb-4">
+                    {event.tagline || event.description}
+                  </p>
+                </div>
+
+                <div className="pt-3 border-t border-black/5 flex justify-between items-center">
+                  <Link to={`/workspace?event=${event.slug}`}>
+                    <Button variant="primary" size="sm">
+                      Open Workspace →
+                    </Button>
+                  </Link>
+                  <Link to={`/e/${event.slug}`}>
+                    <span className="text-xs font-semibold text-[#6e6e73] hover:text-[#1d1d1f]">
+                      Event Details
+                    </span>
+                  </Link>
+                </div>
+              </GlassCard>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            title="You're not enrolled in any events yet"
+            description="Browse upcoming and live hackathons to join a team and start building."
+            actionLabel="Browse events"
+            onAction={() => {
+              window.location.href = "/e/dogfood-2026";
+            }}
+          />
+        )}
+      </section>
+
+      {/* Featured Section (Up to 4 open events, hidden if none) */}
+      {featured.length > 0 && (
+        <section className="flex flex-col gap-4">
+          <h2 className="text-lg font-bold text-[#1d1d1f]">Featured Events</h2>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {featured.map((event: any) => (
+              <GlassCard key={event._id} hoverEffect className="p-5 flex flex-col justify-between">
+                <div>
+                  <span className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-full bg-black/5 text-[#6e6e73] mb-2 inline-block">
+                    {event.status}
+                  </span>
+                  <h3 className="text-sm font-bold text-[#1d1d1f] mb-1 line-clamp-1">
+                    {event.title}
+                  </h3>
+                  <p className="text-xs text-[#6e6e73] line-clamp-2 mb-3">
+                    {event.tagline || event.description}
+                  </p>
+                </div>
+
+                <Link to={`/e/${event.slug}`}>
+                  <Button variant="secondary" size="sm" className="w-full text-xs">
+                    View Event
+                  </Button>
+                </Link>
+              </GlassCard>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
 }

@@ -1,4 +1,3 @@
-/** Tailwind config for RaptorJudge — "Terminal Raptor" theme (dark-first, amber/raptor-green accents). */
 import animate from "tailwindcss-animate";
 
 /** @type {import('tailwindcss').Config} */
@@ -9,46 +8,27 @@ export default {
     container: { center: true, padding: "1.5rem", screens: { "2xl": "1400px" } },
     extend: {
       colors: {
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
-        primary: { DEFAULT: "hsl(var(--primary))", foreground: "hsl(var(--primary-foreground))" },
-        secondary: { DEFAULT: "hsl(var(--secondary))", foreground: "hsl(var(--secondary-foreground))" },
-        destructive: { DEFAULT: "hsl(var(--destructive))", foreground: "hsl(var(--destructive-foreground))" },
-        muted: { DEFAULT: "hsl(var(--muted))", foreground: "hsl(var(--muted-foreground))" },
-        accent: { DEFAULT: "hsl(var(--accent))", foreground: "hsl(var(--accent-foreground))" },
-        popover: { DEFAULT: "hsl(var(--popover))", foreground: "hsl(var(--popover-foreground))" },
-        card: { DEFAULT: "hsl(var(--card))", foreground: "hsl(var(--card-foreground))" },
-        success: { DEFAULT: "hsl(var(--success))", foreground: "hsl(var(--success-foreground))" },
-      },
-      fontFamily: {
-        sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        "bg-base": "#f5f5f7",
+        primary: { DEFAULT: "#1d1d1f", foreground: "#ffffff" },
+        secondary: { DEFAULT: "#6e6e73", foreground: "#1d1d1f" },
+        accent: { DEFAULT: "#ff0055", hover: "#e0004b", foreground: "#ffffff" },
+        error: "#e63946",
+        glass: {
+          surface: "rgba(255, 255, 255, 0.55)",
+          border: "rgba(255, 255, 255, 0.7)",
+        },
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        card: "20px",
+        input: "12px",
+        button: "12px",
       },
-      keyframes: {
-        "fade-up": {
-          "0%": { opacity: "0", transform: "translateY(12px)" },
-          "100%": { opacity: "1", transform: "translateY(0)" },
-        },
-        pulseGlow: {
-          "0%, 100%": { boxShadow: "0 0 12px 0 hsl(var(--primary) / 0.35)" },
-          "50%": { boxShadow: "0 0 28px 4px hsl(var(--primary) / 0.55)" },
-        },
-        scanline: {
-          "0%": { backgroundPosition: "0 0" },
-          "100%": { backgroundPosition: "0 100%" },
-        },
+      boxShadow: {
+        glass: "0 8px 32px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9)",
+        "glass-hover": "0 12px 40px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 1)",
       },
-      animation: {
-        "fade-up": "fade-up 0.5s ease-out both",
-        pulseGlow: "pulseGlow 2.4s ease-in-out infinite",
+      fontFamily: {
+        sans: ["Inter", "ui-sans-serif", "system-ui", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
       },
     },
   },
