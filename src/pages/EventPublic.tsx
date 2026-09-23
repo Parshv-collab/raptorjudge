@@ -1,5 +1,5 @@
 import { useParams, Link } from "react-router-dom";
-import { useQuery } from "convex/react";
+import { useQuery, useConvexAuth } from "convex/react";
 import { useEffect, useState } from "react";
 import { api } from "@/convex/_generated/api";
 import {
@@ -46,6 +46,7 @@ function Countdown({ label, target }: { label: string; target: number | undefine
 
 export default function EventPublic() {
   const { slug } = useParams<{ slug: string }>();
+  const { isAuthenticated } = useConvexAuth();
   const event = useQuery(api.events.getBySlug, slug ? { slug } : "skip");
   const tracks = useQuery(
     api.tracks.listByEvent,
@@ -85,10 +86,10 @@ export default function EventPublic() {
               browse projects <ChevronRight size={14} />
             </Link>
             <Link
-              to="/auth"
+              to={isAuthenticated ? `/workspace?event=${event.slug}` : `/auth?returnTo=${encodeURIComponent(`/workspace?event=${event.slug}`)}`}
               className="rounded-lg border border-border px-5 py-2.5 font-mono text-xs uppercase tracking-wider transition hover:border-primary/50"
             >
-              join / sign in
+              join event
             </Link>
           </div>
         </div>

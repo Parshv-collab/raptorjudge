@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from "convex/react";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import {
@@ -16,7 +17,9 @@ import {
 } from "lucide-react";
 
 export default function ParticipantWorkspace() {
-  const event = useQuery(api.events.getBySlug, { slug: "dogfood-2026" });
+  const [searchParams] = useSearchParams();
+  const eventSlug = searchParams.get("event") ?? "dogfood-2026";
+  const event = useQuery(api.events.getBySlug, { slug: eventSlug });
   const tracks = useQuery(api.tracks.listByEvent, event ? { eventId: event._id } : "skip");
   const myTeam = useQuery(api.teams.myTeams, event ? { eventId: event._id } : "skip");
   const data = useQuery(api.submissions.mySubmission, event ? { eventId: event._id } : "skip");
@@ -109,7 +112,7 @@ export default function ParticipantWorkspace() {
           <div>
             <h2 className="mb-1 flex items-center gap-2 font-semibold"><Users size={16} className="text-primary" /> Create a team</h2>
             <p className="mb-3 text-xs text-muted-foreground">You'll be the leader and get an invite code.</p>
-            <CreateTeamForm onCreate={async (name) => { try { await createTeam({ eventId: event!._id, name }); toast.success("Team created"); } catch (e: any) { toast.error(e.message); } }} />
+            <CreateTeamForm onCreate={async (name) => { try { const result = await createTeam({ eventId: event!._id, name }); toast.success(`Team created — invite code: ${result.inviteCode}`); } catch (e: any) { toast.error(e.message); } }} />
           </div>
           <div className="sm:border-l sm:border-border sm:pl-6">
             <h2 className="mb-1 flex items-center gap-2 font-semibold"><UserPlus size={16} className="text-primary" /> Join with invite code</h2>
@@ -117,15 +120,18 @@ export default function ParticipantWorkspace() {
             <div className="flex gap-2">
               <input
                 value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value)}
+                onChange={(e) => setInviteCode(e.target.value.replace(/\s/g, "").toLowerCase())}
                 placeholder="invite code"
+                autoCapitalize="none"
+                spellCheck={false}
                 className="flex-1 rounded-md border border-input bg-background px-3 py-2 font-mono text-sm uppercase outline-none focus:ring-2 focus:ring-ring"
               />
               <button
+                disabled={!inviteCode.trim()}
                 onClick={async () => {
-                  try { await joinTeam({ inviteCode }); toast.success("Joined team"); } catch (e: any) { toast.error(e.message); }
+                  try { const result = await joinTeam({ inviteCode: inviteCode.trim().toLowerCase() }); setInviteCode(""); toast.success(`Joined ${result.teamName}`); } catch (e: any) { toast.error(e.message); }
                 }}
-                className="rounded-md bg-primary px-4 py-2 font-mono text-xs font-semibold uppercase text-primary-foreground"
+                className="rounded-md bg-primary px-4 py-2 font-mono text-xs font-semibold uppercase text-primary-foreground disabled:opacity-40"
               >
                 join
               </button>
