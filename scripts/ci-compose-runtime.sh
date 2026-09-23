@@ -202,13 +202,42 @@ else
   esac
 fi
 
-counts="$(curl -sS --max-time 10 "${API}/api/v1/gallery/${SLUG}" |
-  node -e 'let s="";process.stdin.on("data",(d)=>(s+=d)).on("end",()=>{try{process.stdout.write(String((JSON.parse(s).cards??[]).length))}catch{process.stdout.write("0")}})')"
-if [ "${counts}" -gt 0 ]; then
-  pass "public gallery serves ${counts} seeded submissions"
-else
-  fail "public gallery returned no submissions — the seed did not run"
-fi
+say "seeded data is reachable through the public read path"
+detail="$(curl -sS --max-time 10 "${API}/api/v1/events/${SLUG}")"
+for pair in tracks rubric; do
+  n="$(printf '%s' "${detail}" | node -e \
+    "let s='';process.stdin.on('data',(d)=>(s+=d)).on('end',()=>{try{process.stdout.write(String((JSON.parse(s).${pair}??[]).length))}catch{process.stdout.write('0')}})")"
+  if [ "${n}" -gt 0 ]; then
+    pass "event detail exposes ${n} seeded ${pair}"
+  else
+    fail "event detail has no ${pair} — the seed did not run"
+  fi
+done
+
+# The gallery is deliberately hidden until judging starts (it would otherwise
+# publish every team's work during the hacking stage). The seeded event sits in
+# `hacking`, so an empty gallery here is the *correct* answer — and if the event
+# ever is past that point, the seeded submissions must show up.
+case "${event_status}" in
+  judging | voting | published | archived)
+    cards="$(curl -sS --max-time 10 "${API}/api/v1/gallery/${SLUG}" |
+      node -e 'let s="";process.stdin.on("data",(d)=>(s+=d)).on("end",()=>{try{process.stdout.write(String((JSON.parse(s).cards??[]).length))}catch{process.stdout.write("0")}})')"
+    if [ "${cards}" -gt 0 ]; then
+      pass "public gallery serves ${cards} submissions (event is ${event_status})"
+    else
+      fail "gallery is empty although the event is ${event_status}"
+    fi
+    ;;
+  *)
+    hidden="$(curl -sS --max-time 10 "${API}/api/v1/gallery/${SLUG}" |
+      node -e 'let s="";process.stdin.on("data",(d)=>(s+=d)).on("end",()=>{try{process.stdout.write(String((JSON.parse(s).cards??[]).length))}catch{process.stdout.write("0")}})')"
+    if [ "${hidden}" -eq 0 ]; then
+      pass "gallery stays hidden during ${event_status} (submissions are not published early)"
+    else
+      fail "gallery exposed ${hidden} submissions while the event is ${event_status}"
+    fi
+    ;;
+esac
 
 # ----------------------------------------------------------------- outcome ----
 if [ "${failures}" -eq 0 ]; then
