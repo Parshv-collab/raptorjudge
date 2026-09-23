@@ -3,31 +3,20 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --background: 224 33% 97%; --foreground: 224 32% 15%; --card: 0 0% 100%; --card-foreground: 224 32% 15%;
-    --primary: 247 82% 60%; --primary-foreground: 0 0% 100%; --secondary: 226 40% 94%; --secondary-foreground: 224 24% 22%;
-    --muted: 225 30% 93%; --muted-foreground: 224 16% 48%; --accent: 174 66% 46%; --accent-foreground: 224 32% 12%;
-    --destructive: 0 72% 55%; --success: 152 60% 39%; --border: 225 26% 86%; --input: 225 26% 86%; --ring: 247 82% 60%; --radius: 1rem;
-  }
-  .dark { --background: 228 38% 8%; --foreground: 225 30% 94%; --card: 228 34% 12%; --card-foreground: 225 30% 94%; --primary: 247 88% 72%; --primary-foreground: 228 38% 8%; --secondary: 228 28% 17%; --secondary-foreground: 225 30% 90%; --muted: 228 24% 16%; --muted-foreground: 225 14% 64%; --accent: 174 70% 54%; --accent-foreground: 228 38% 8%; --destructive: 0 72% 60%; --success: 152 62% 48%; --border: 228 22% 24%; --input: 228 22% 24%; --ring: 247 88% 72%; }
+  :root { --background: 220 18% 96%; --foreground: 220 18% 12%; --card: 0 0% 100%; --card-foreground: 220 18% 12%; --primary: 220 18% 12%; --primary-foreground: 0 0% 100%; --secondary: 220 14% 91%; --secondary-foreground: 220 18% 12%; --muted: 220 14% 92%; --muted-foreground: 220 9% 44%; --accent: 220 18% 12%; --accent-foreground: 0 0% 100%; --destructive: 0 40% 40%; --border: 220 14% 82%; --input: 220 14% 82%; --ring: 220 18% 12%; --radius: 1.25rem; }
+  .dark { --background: 220 18% 8%; --foreground: 220 12% 94%; --card: 220 16% 12%; --card-foreground: 220 12% 94%; --primary: 220 12% 94%; --primary-foreground: 220 18% 8%; --secondary: 220 13% 17%; --secondary-foreground: 220 12% 94%; --muted: 220 13% 16%; --muted-foreground: 220 9% 64%; --accent: 220 12% 94%; --accent-foreground: 220 18% 8%; --destructive: 0 40% 65%; --border: 220 12% 24%; --input: 220 12% 24%; --ring: 220 12% 94%; }
   * { @apply border-border; }
-  html { scroll-behavior: smooth; }
   body { @apply bg-background text-foreground antialiased; font-family: Inter, ui-sans-serif, system-ui, sans-serif; overflow-x: hidden; }
   button, a, input, textarea, select { outline-color: hsl(var(--ring)); }
 }
-
 @layer components {
-  .glass { @apply border border-white/40 bg-white/55 shadow-[0_20px_70px_-30px_rgba(65,76,160,.35)] backdrop-blur-2xl dark:border-white/10 dark:bg-white/[.07] dark:shadow-[0_20px_70px_-30px_rgba(0,0,0,.8)]; }
-  .glass-strong { @apply border border-white/50 bg-white/75 shadow-[0_24px_90px_-35px_rgba(65,76,160,.45)] backdrop-blur-3xl dark:border-white/10 dark:bg-white/[.11]; }
-  .pill { @apply rounded-full border border-white/50 bg-white/45 px-3 py-1 text-xs font-semibold tracking-wide text-muted-foreground backdrop-blur-xl dark:border-white/10 dark:bg-white/[.08]; }
-  .eyebrow { @apply text-[11px] font-bold uppercase tracking-[.24em] text-primary; }
-  .display { @apply text-4xl font-bold tracking-[-.05em] sm:text-6xl; }
-  .btn-primary { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/20 transition hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/25 disabled:cursor-not-allowed disabled:opacity-50; }
-  .btn-quiet { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-border/80 bg-white/40 px-5 text-sm font-semibold transition hover:-translate-y-0.5 hover:bg-white/70 dark:bg-white/[.06] dark:hover:bg-white/[.12]; }
-  .input-glass { @apply min-h-11 w-full rounded-2xl border border-border/80 bg-white/55 px-4 text-sm outline-none transition placeholder:text-muted-foreground/70 focus:border-primary focus:ring-4 focus:ring-primary/10 dark:bg-white/[.06]; }
+  .glass { @apply border border-white/60 bg-white/40 shadow-[0_24px_80px_-36px_rgba(20,30,45,.35)] backdrop-blur-2xl dark:border-white/10 dark:bg-white/[.07] dark:shadow-[0_24px_80px_-36px_rgba(0,0,0,.8)]; }
+  .glass-strong { @apply border border-white/75 bg-white/65 shadow-[0_30px_100px_-42px_rgba(20,30,45,.45)] backdrop-blur-3xl dark:border-white/10 dark:bg-white/[.12]; }
+  .glass-button { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-white/70 bg-white/45 px-5 text-sm font-semibold shadow-sm backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-white/70 dark:border-white/10 dark:bg-white/[.08] dark:hover:bg-white/[.14]; }
+  .glass-input { @apply min-h-11 w-full rounded-2xl border border-white/70 bg-white/45 px-4 text-sm shadow-inner outline-none backdrop-blur-xl placeholder:text-muted-foreground focus:border-foreground focus:ring-4 focus:ring-foreground/10 dark:border-white/10 dark:bg-white/[.07]; }
+  .eyebrow { @apply text-[11px] font-bold uppercase tracking-[.24em] text-muted-foreground; }
 }
-
-body::before { content: ""; position: fixed; inset: 0; z-index: -2; background: radial-gradient(circle at 10% 0%, hsl(247 82% 60% / .16), transparent 30%), radial-gradient(circle at 95% 10%, hsl(174 66% 46% / .14), transparent 28%), radial-gradient(circle at 50% 100%, hsl(306 72% 70% / .10), transparent 32%); pointer-events: none; }
-.dark body::before { background: radial-gradient(circle at 10% 0%, hsl(247 82% 60% / .20), transparent 30%), radial-gradient(circle at 95% 10%, hsl(174 66% 46% / .12), transparent 28%); }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
-@media (prefers-reduced-transparency: reduce) { .backdrop-blur-2xl, .backdrop-blur-3xl, .backdrop-blur-xl { backdrop-filter: none !important; } }
+body::before { content:""; position:fixed; inset:0; z-index:-1; pointer-events:none; background:radial-gradient(circle at 12% 0%,rgba(255,255,255,.8),transparent 32%),radial-gradient(circle at 92% 8%,rgba(210,216,224,.65),transparent 30%); }
+.dark body::before { background:radial-gradient(circle at 12% 0%,rgba(255,255,255,.08),transparent 32%),radial-gradient(circle at 92% 8%,rgba(255,255,255,.04),transparent 30%); }
+@media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration:.01ms!important; transition-duration:.01ms!important; scroll-behavior:auto!important; } }
+@media (prefers-reduced-transparency: reduce) { .backdrop-blur-xl,.backdrop-blur-2xl,.backdrop-blur-3xl { backdrop-filter:none!important; } }
