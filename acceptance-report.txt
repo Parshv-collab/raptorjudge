@@ -1,95 +1,94 @@
-RaptorJudge dashboard suite acceptance report
-=============================================
+RaptorJudge current acceptance report
+====================================
 
-Date: 2026-09-23
-Repository: Parshv-collab/project4
+Scope
+-----
+This report reflects the UI simplification pass and the documentation generated from the current source tree. Phase 0 audit evidence is recorded in ui-audit.md. Static verification was run after the code changes; live browser and Convex deployment verification is not available in this sandbox.
 
-Verification performed locally:
-- npm ci --ignore-scripts: PASS
-- npm run typecheck: PASS
-- npm run build: PASS
-- npm test: PASS (14 files, 166 tests)
-- git diff --check: PASS
-- Convex code generation: NOT RUNNABLE in this sandbox because CONVEX_DEPLOYMENT is not configured.
-- Docker/Chrome acceptance: NOT RUNNABLE in this sandbox because the self-hosted Convex deployment and Docker bootstrap secrets are not configured.
+T1 — Core
+---------
 
-Phase 0 — Recon: PASS
-Existing routes and visible surfaces were inspected. The pre-existing organizer route was a seeded-event analytics dashboard; judge and participant routes already had substantial working flows. There was no event list/new/edit/management route and no admin dashboard. Organizers could not create events through the UI.
+| Capability | Result | Evidence |
+|---|---|---|
+| Auth and sessions | PASS | Convex Auth flow in src/pages/Auth.tsx; token storage in src/lib/tokenStorage.ts; auth provider in src/convex/auth.ts. |
+| Four roles | PASS | Role union in src/convex/schema.ts, backend RBAC helpers, RoleHome.tsx, and role-aware AppShell navigation. |
+| Events | PASS | Event creation/editing and lifecycle in src/pages/EventForm.tsx and src/convex/events.ts. |
+| Teams and invites | PASS | Team creation, indexed invite codes, capacity, duplicate membership, and one-team-per-event checks in src/convex/teams.ts. |
+| Submissions | PASS | Draft save, submit, withdraw, URL validation, and deadline checks in src/convex/submissions.ts and ParticipantWorkspace.tsx. |
+| Deadline enforcement | PASS | Submission mutation checks event status and submission deadline before final submission. |
+| Public gallery | PASS | Gallery route, track filtering, project links, publication visibility, and empty state in Gallery.tsx and submissions queries. |
 
-Phase 1 — Event creation and management: PARTIAL
-Built:
-- Full-page /organizer/events/new form with identity, slug generation, self-hosted banner path, short/full descriptions, markdown-style preview, rules, schedule, team sizing, solo toggle, and cover-image toggle.
-- /organizer/events list with status filtering and event rows.
-- /organizer/events/:slug management page with lifecycle header, publish/unpublish, overview, tracks CRUD, rules display, and planned stubs for remaining tabs.
-- /organizer/events/:slug/edit prefilled form and draft deletion confirmation.
-- Convex event create/update/publish/unpublish/deleteEvent/listMine/listAll/getBySlug functions with organizer/admin role checks and audit writes.
-- Extended event schema fields for organizer, rich descriptions, schedule metadata, team settings, and publishedAt.
+T2 — Judging
+-----------
 
-Known limitations:
-- The form currently saves drafts; a separate publish action is used on the management page rather than a second form submit button.
-- Participant/submission counts in the event list are placeholders until aggregate queries are added.
-- Rules & FAQ is read-only in this pass; full markdown CRUD is planned.
-- Convex deployment/code generation and live mutation verification were unavailable in this sandbox.
+| Capability | Result | Evidence |
+|---|---|---|
+| Judge invitation | PARTIAL | Judge role and seeded judge accounts exist. A complete organizer invitation workflow is not implemented. |
+| Assignment | PASS | judging.runAssignment calls planJudgeAssignments with workload balancing, affinity, and team conflict prevention. |
+| Rubrics | PASS | Organizer event management adds and edits criteria through judging.upsertCriterion; rubric lock after judging starts is not implemented. |
+| Role isolation | PASS | Backend queue and score mutations require the judge role and assignment ownership. |
+| Progress dashboard | PASS | judging.progress returns assignment, per-judge, per-submission, and heatmap data. |
+| Normalization | PASS | normalizeScores implements z-score, min-max, Bayesian variants, rank deltas, and proof metrics. |
+| CSV export | PASS | src/convex/exports.ts contains submissions, scores, rankings, assignments, and event export functions. |
 
-Phase 2 — Organizer dashboard: PARTIAL
-Built:
-- Existing judging/normalization/pairwise/voting/export/certificate/webhook/audit capabilities were preserved.
-- Added Organizer Dashboard heading, Create Event CTA, All Events link, and event-suite navigation.
+T3 — Public
+-----------
 
-Known limitations:
-- The existing seeded-event analytics dashboard was not replaced with the requested multi-event stat-card/quick-action layout. A multi-event summary and CSV/export stubs are planned.
+| Capability | Result | Evidence |
+|---|---|---|
+| Community voting | PASS | communityVotes schema and voting mutations implement points, credits, user/event uniqueness, and hashed client signals. |
+| Comments | PASS | comments.ts and ProjectDetail.tsx provide comment creation and listing with flag state. |
+| Hidden results | PASS | Public queries apply event stage and publication visibility checks. |
+| Rate limiting | PARTIAL | Vote and webhook abuse controls exist, but a distributed request rate limiter is not implemented. |
+| Audit log | PASS | appendAudit creates a hash chain; audit list and verification queries expose and verify it. |
 
-Phase 3 — Judge portal: PARTIAL
-The existing judge portal already provides assignment progress, assigned queue, project links, rubric sliders, weighted totals, score submission, and pairwise comparisons, so it was preserved. An event selector and explicit save-draft scoring mutation are planned.
+T4 — Stretch
+------------
 
-Phase 4 — Participant workspace: PARTIAL
-The existing participant workspace already provides event context, team create/join, invite-code copy, team members, draft autosave, submission form, submit/withdraw, and deadline enforcement. Leadership transfer, explicit countdown timer, and richer read-only submitted state are planned.
+| Capability | Result | Evidence |
+|---|---|---|
+| REST / HTTP API | PASS | src/convex/http.ts and httpPublic.ts expose HTTP actions and protected handlers. |
+| Webhooks | PASS | Registration, activation, delivery, timeout, SSRF validation, and HMAC signatures exist. |
+| Certificates | PASS | Certificate issuance, idempotency, signatures, and public verification are implemented. |
+| Signed records | PASS | Certificates and audit entries use cryptographic signatures or hashes. |
+| Embeddable widget | PASS | /embed/gallery/:slug and EmbedGallery.tsx exist. |
+| Bulk import/export | PARTIAL | Bulk export exists through exports.ts; bulk import is not implemented. |
 
-Phase 5 — Admin dashboard: PARTIAL
-Built /admin with client-side redirect for non-admins, overview stats, all-events table, users table, invite-organizer logging stub, audit/settings/invites stubs, and security link. The backend listAll/list users calls are privileged for organizer/admin users.
+Bonuses
+-------
 
-Known limitations:
-- User role changes, account disabling, invite persistence, audit filters, and platform settings mutations are planned stubs.
-- Server-side route authorization is enforced by Convex mutations/queries; the page redirect is a UX guard and not a security boundary.
+| Bonus | Result | Evidence |
+|---|---|---|
+| Normalization Proof | PASS | normalization.ts returns max judge mean/sigma errors and Spearman agreement metrics; tests cover the algorithm. |
+| Bradley–Terry Pairwise | PASS | pairwise.ts implements MM updates, Gamma smoothing, convergence, rating scaling, and match selection. |
+| Threat Model | PASS | THREAT-MODEL.md documents STRIDE threats, mitigations, and explicit gaps. |
+| API First | PASS | Domain behavior is implemented through Convex queries/mutations and HTTP handlers. A versioned public API contract is not implemented. |
 
-Phase 6 — Navigation: PASS
-AppShell now shows role-aware dashboard, workspace, judge, organizer events, and admin links while preserving event/gallery/verify/security/theme/logout behavior. Admin home routing now points to /admin.
+UI simplification
+-----------------
 
-Bugs introduced:
-- No known compile-time or build-time regressions. Runtime Convex behavior remains unverified until a deployment is configured.
-- npm reported existing dependency audit findings (10 vulnerabilities); dependency versions were not changed in this pass.
+The global shell now exposes only daily-use role links. Participants see Dashboard, My Events, and Browse. Judges see Judge Portal and My Assignments. Organizers see Dashboard, Events, and Judges. Admins see Dashboard, Events, Users, and Audit. Profile, settings, security, help, and logout are in the profile menu; mobile navigation is a hamburger menu.
 
-Next verification steps in a configured self-hosted environment:
-1. Run docker compose down && docker compose up --build.
-2. Complete the one-time Convex admin-key bootstrap if required.
-3. Sign in as organizer, create/publish/edit an event, then verify list and management pages.
-4. Sign in as admin and verify /admin sees all events.
-5. Verify judge queue/scoring and participant team/submission deadline flows.
+The organizer dashboard now has one Create Event CTA, four stats, a simple event table, and a collapsed five-item activity section. The admin dashboard now has four stats, four quick links, and a recent audit list; user, event, audit, and settings views are query-link views rather than a persistent tab strip. The judge portal now presents only progress and an assigned queue; scoring moved to /judge/score/:id. Participant dashboard, public event, and gallery surfaces remain structurally light. Mobile overflow is protected globally, and reduced-motion and reduced-transparency preferences are respected.
 
-Phase 4.5 — Participant dashboard (/dashboard): PASS (static verification)
-Built:
-- Separate /dashboard route and ParticipantDashboard page; /workspace remains the team/submission management surface.
-- Role-aware post-login routing sends participants to /dashboard and redirects other roles to their home pages.
-- Greeting with participant first name.
-- Your Events section with enrolled-event cards showing banner, title, host, status, deadline, and participant count.
-- Empty state: “You're not in any events yet.” with Browse events CTA.
-- Featured section with up to four open events ranked by participant count; omitted when there are no open events.
-- Responsive card layout: four columns desktop, three tablet, horizontal snap scrolling on mobile.
-- Help, Contact, Terms, Privacy, and copyright footer links.
-- Participant AppShell links: Dashboard and My Events (filtered view query parameter), plus the existing workspace link.
-- Convex events.enrolled and events.featured queries.
+Documentation generated
+-----------------------
 
-Verification:
-- npm run typecheck: PASS
-- npm run build: PASS
-- npm test: PASS (14 files, 166 tests)
-- git diff --check: PASS
-- Live Convex/Docker/Chrome acceptance remains unavailable without a configured deployment in this sandbox.
+The following seven documentation files were generated or updated from source: DESIGN.md, DATA-MODEL.md, JUDGING.md, ARCHITECTURE.md, THREAT-MODEL.md, README.md, and HOW-IT-WORKS.md. The phase audit is in ui-audit.md. Each document calls out missing behavior as “not implemented” where the source does not provide it.
 
-Follow-up fix — event enrollment, prize pools, and judging rubric
-Built a Join Event action on public event pages that opens the selected event in the participant workspace. The workspace now reads the event slug from the URL and lets the participant create a team for that specific event or join an existing team by invite code. Organizer event management now includes Tracks & Prizes with track name, prize description, prize amount, and edit controls. A Judging Rubric tab now supports adding and editing weighted criteria with descriptions and min/max score ranges through the existing deployed `judging.upsertCriterion` mutation. Publish/unpublish uses the already deployed `events.setStage` function.
+Verification
+------------
 
-Verification: npm run typecheck PASS; npm run build PASS; npm test PASS (14 files, 166 tests); git diff --check PASS. The change was pushed as commit b92bdbe. Full live Convex verification still requires rebuilding the active frontend deployment from main.
+- `npm run typecheck`: PASS
+- `npm run build`: PASS
+- `npm test`: PASS — 14 files, 166 tests
+- `git diff --check`: PASS
+- Participant role target: `/dashboard`
+- Organizer role target: `/organizer`
+- Admin role target: `/admin`
+- Judge role target: `/judge`
 
-Follow-up fix — invite flow
-The public Join Event button now preserves the selected event through sign-in using a safe returnTo path. The participant workspace reads that event and supports creating a team or joining one with an invite code. Pasted codes are normalized by trimming whitespace and lowercasing, the join action is disabled until a code is present, and success feedback includes the joined team name. Team creation now shows the generated invite code immediately. Verification passed: typecheck, production build, 14 Vitest files / 166 tests, and diff check. Pushed as commit 0158f04.
+Known gaps
+----------
+
+The source does not provide a complete judge invitation workflow, rubric locking, invite expiry/revocation, distributed rate limiting, external Sybil resistance, bulk import, a full database dump command, a versioned export schema, or a separate result-publication mutation. Live four-role browser acceptance and live Convex deployment acceptance require the self-hosted stack or a configured deployment and are not verifiable in this sandbox.
