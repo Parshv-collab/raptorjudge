@@ -1,8 +1,13 @@
 import { v } from "convex/values";
-import { action, internalMutation, internalQuery } from "./_generated/server";
-import { api, internal } from "./_generated/api";
+import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { createAccount, modifyAccountCredentials, retrieveAccount } from "@convex-dev/auth/server";
+import {
+  createAccount,
+  getAuthUserId,
+  modifyAccountCredentials,
+  retrieveAccount,
+} from "@convex-dev/auth/server";
 import { sha256Hex, hmacSha256Hex, randomHex, mulberry32 } from "./crypto";
 import { appendAudit } from "./lib/audit";
 import { planJudgeAssignments } from "../lib/algorithms/assignment";
@@ -81,9 +86,54 @@ const TEAM_NAMES = ["Raptor Flow", "The Judges' Assistants", "OSS Medics", "Pixe
 /** Deterministic seed — same database every time (reproducible demo). */
 const SEED = 20260420;
 
+/**
+ * Is the database still empty? Used to decide who may seed.
+ * `wipeAll` deliberately keeps `users` and `authAccounts`, so the user count is
+ * the signal that a real installation already exists.
+ */
+export const seedState = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const users = await ctx.db.query("users").collect();
+    return { userCount: users.length, isEmpty: users.length === 0 };
+  },
+});
+
+/** Role of a user id, for the seed guard (null when the id is unknown/malformed). */
+export const userRoleById = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    try {
+      const user = await ctx.db.get(args.userId as Id<"users">);
+      return user?.role ?? null;
+    } catch {
+      return null;
+    }
+  },
+});
+
 export const seed = action({
   args: {},
   handler: async (ctx) => {
+    // Security items 65 + 70: seeding is destructive — `wipeAll` clears every
+    // table below. It used to be a public action callable by anyone, so a
+    // stranger could wipe a live event. It stays one-click on a genuinely empty
+    // install (the sign-in page's "seed demo data" button) and requires an
+    // authenticated admin afterwards; everyone else is refused.
+    const state = await ctx.runQuery(internal.seed.seedState, {});
+    if (!state.isEmpty) {
+      const authUserId = await getAuthUserId(ctx);
+      const role = authUserId
+        ? await ctx.runQuery(internal.seed.userRoleById, { userId: String(authUserId) })
+        : null;
+      if (role !== "admin") {
+        throw new Error(
+          "Demo data already exists — reseeding is an admin-only operation. " +
+            "Sign in as admin@raptors.dev and use the organizer dashboard, or start from a fresh database.",
+        );
+      }
+    }
+
     const rng = mulberry32(SEED);
 
     // ---- wipe existing data (idempotent reseed) --------------------------
@@ -102,7 +152,7 @@ export const seed = action({
     // signs in through Convex Auth (see Auth page demo accounts).
     let repaired = 0;
     for (const u of SEED_USERS) {
-      const res = await ctx.runAction(api.seed.ensureSeedUser, {
+      const res = await ctx.runAction(internal.seed.ensureSeedUser, {
         email: u.email,
         password: SEED_PASSWORD,
       });
@@ -318,7 +368,10 @@ export const seed = action({
       eventId,
       targetUrl: "https://hooks.raptors.dev/dogfood-2026",
       events: "submission.submit,submission.draft_create,team.join,vote.cast",
-      secretKey: `whsec_seed_${randomHex(16)}`,
+      // Same shape the register() mutation mints: a 256-bit HMAC key, so the
+      // seeded fixture exercises the real signing path (and satisfies the T4
+      // webhook-secret strength check) instead of a short demo string.
+      secretKey: `whsec_${randomHex(32)}`,
     });
 
     const certSecret = `raptor-cert-${randomHex(32)}`;
@@ -424,8 +477,14 @@ export const upsertSeedUser = internalMutation({
  * credential that could never be signed in with (the browser reported a bare
  * "InvalidSecret") and that re-seeding could never repair. Resetting the secret
  * makes the seeded password authoritative by construction.
+ *
+ * **Internal on purpose** (security item 70): as a public action this was a
+ * complete authentication bypass — anyone could call
+ * `seed:ensureSeedUser` with `admin@raptors.dev` and have the admin password
+ * rewritten to the documented demo value. It is only ever called by the guarded
+ * `seed` action, so it is no longer reachable from a client.
  */
-export const ensureSeedUser = action({
+export const ensureSeedUser = internalAction({
   args: { email: v.string(), password: v.string() },
   handler: async (ctx, args) => {
     const account = { id: args.email, secret: args.password };

@@ -1,10 +1,12 @@
 import { internalQuery, internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
-import { sha256Hex, hmacSha256Hex, seededShuffle, seedFromString } from "./crypto";
+import { sha256Hex, hmacSha256Hex, safeEqualHex, seededShuffle, seedFromString } from "./crypto";
 import { normalizeScores, type JudgeScoreSet } from "../lib/algorithms/normalization";
 import { bradleyTerry, type PairwiseMatchRecord } from "../lib/algorithms/pairwise";
 import { appendAudit } from "./lib/audit";
+import { assertRoleChangeAllowed } from "./lib/rbac";
+import { runSecurityChecks } from "./lib/securityChecks";
 
 /**
  * Internal helpers backing the public REST routes in http.ts.
@@ -13,45 +15,25 @@ import { appendAudit } from "./lib/audit";
  * userId resolved from the session token).
  */
 
-/** Decode a JWT payload (part 2 of a 3-part token) without verifying it. */
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  const parts = token.split(".");
-  const b64 = parts.length === 3 ? parts[1] : parts[0];
-  if (!b64) return null;
-  try {
-    const normalized = b64.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-    return JSON.parse(atob(padded));
-  } catch {
-    return null;
-  }
-}
-
-export const userByToken = internalQuery({
-  args: { token: v.string() },
+/**
+ * Load a user by id, for the HTTP layer.
+ *
+ * The previous `userByToken` decoded the JWT payload *without verifying the
+ * signature* and looked the subject up — so a forged token was enough to act
+ * as any user, including an admin (security items 63 + 70). Verification now
+ * happens in the httpAction, which passes only the signature-verified `sub`
+ * here; this function therefore never sees attacker-controlled input beyond
+ * an id that has already been authenticated.
+ */
+export const userById = internalQuery({
+  args: { userId: v.string() },
   handler: async (ctx, args) => {
-    // Convex Auth session JWTs are standard 3-part JWTs whose `sub` is
-    // "<users._id>|<sessionId>". We only need the subject to resolve the
-    // caller; every privileged bridge re-checks the role against that row.
-    const payload = decodeJwtPayload(args.token);
-    if (!payload) return null;
-    const sub = (payload.sub ?? payload.tokenIdentifier) as string | undefined;
-    if (!sub) return null;
-    const userId = sub.split("|")[0];
-    if (userId) {
-      try {
-        const byId = await ctx.db.get(userId as Id<"users">);
-        if (byId) return byId;
-      } catch {
-        /* malformed id — fall through to the token index */
-      }
+    try {
+      return await ctx.db.get(args.userId as Id<"users">);
+    } catch {
+      // Malformed id (not a users table id) — no user, no error.
+      return null;
     }
-    return (
-      (await ctx.db
-        .query("users")
-        .withIndex("by_token", (q) => q.eq("tokenIdentifier", sub))
-        .unique()) ?? null
-    );
   },
 });
 
@@ -158,7 +140,10 @@ export const verifyCertPublic = internalQuery({
     // canonical payload must match certificates.ts canonicalPayload exactly
     const payload = [cert.certUuid, cert.recipientName, cert.certType, cert.title, cert.trackName, cert.rank, cert.issuedAt].join("|");
     const signatureHash = await hmacSha256Hex(secretRow.value, payload);
-    const valid = signatureHash === args.signature;
+    // Constant-time comparison (security item 65): `===` short-circuits on the
+    // first differing character, which leaks the expected digest byte by byte
+    // to anyone able to time the endpoint.
+    const valid = safeEqualHex(signatureHash, args.signature);
     return {
       valid,
       reason: valid ? null : "signature mismatch — certificate may be forged",
@@ -475,26 +460,61 @@ export const acceptanceBridge = internalMutation({
         })() },
       { tier: "T4", id: "t4.certificates", description: "Signed certificates exist", pass: certs.every((c) => c.signatureHash.length === 64) && certs.length > 0 },
     ];
+
+    // Shared with acceptance.runSuite so the REST report and the dashboard
+    // report can never disagree about the hardening checks (T5).
+    for (const check of await runSecurityChecks(ctx)) {
+      checks.push(check);
+    }
+
     const passed = checks.filter((c) => c.pass).length;
     return { runAt: Date.now(), summary: `${passed}/${checks.length} checks passed`, checks };
   },
 });
 
-/** Role switch (reviewer convenience): admin can switch any user; users can switch themselves. */
+/**
+ * Role switch bridge for the REST API.
+ *
+ * Security item 57: this used to be self-service, so any authenticated caller
+ * could POST their own id with `role: "admin"` and escalate. It now goes
+ * through exactly the same policy as `users.setRole` (lib/rbac.ts): admin-only,
+ * audited, and refused while the account is committed to an event.
+ */
 export const switchRoleBridge = internalMutation({
   args: { userId: v.id("users"), role: v.string() },
   handler: async (ctx, args) => {
-    const allowed = ["participant", "judge", "organizer", "admin"];
-    if (!allowed.includes(args.role)) return { ok: false, error: "invalid role" };
-    const user = await ctx.db.get(args.userId);
-    if (!user) return { ok: false, error: "user not found" };
+    const actor = await ctx.db.get(args.userId);
+    if (!actor) return { ok: false, error: "user not found" };
+    if ((actor.role ?? "participant") !== "admin") {
+      // Includes self-promotion: an admin may only be appointed by an admin.
+      await appendAudit(ctx, {
+        actorId: args.userId,
+        action: "user.role_switch_denied",
+        targetType: "user",
+        targetId: String(args.userId),
+        afterState: JSON.stringify({ requested: args.role }),
+      });
+      return { ok: false, error: "forbidden: admin only" };
+    }
+
+    try {
+      await assertRoleChangeAllowed(ctx, {
+        actorRole: "admin",
+        targetUserId: args.userId,
+        currentRole: actor.role,
+        nextRole: args.role,
+      });
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : "role change refused" };
+    }
+
     await ctx.db.patch(args.userId, { role: args.role as never });
     await appendAudit(ctx, {
       actorId: args.userId,
       action: "user.role_switch",
       targetType: "user",
       targetId: String(args.userId),
-      beforeState: user.role,
+      beforeState: actor.role ?? "",
       afterState: args.role,
     });
     return { ok: true, role: args.role };

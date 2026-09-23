@@ -1,41 +1,121 @@
 name: CI
 
+# Security items 60 + 61.
+#
+#   * Every action is pinned to a **commit SHA**, not a mutable version tag, so
+#     a compromised or re-pointed tag cannot change what runs in this repo's
+#     name. The trailing comment records the human-readable version.
+#   * Every job declares an explicit, least-privilege `permissions:` block. The
+#     workflow-level default is `contents: read`, which is the narrowest things
+#     need (no `write`, no `id-token`, no packages).
+#   * Triggers are `pull_request` (never `pull_request_target`), so a PR from a
+#     fork runs with **no repository secrets** and a read-only token. No step
+#     here consumes secrets, deploys, publishes, or auto-merges.
+#
+# If you add a step, keep it inside these rules: build + test only, no secrets,
+# no write scopes, and pin any new action to a SHA.
+
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
+  # The runtime job boots the whole Compose stack; allow an explicit re-run.
+  workflow_dispatch:
+
+# Least privilege for every job unless a job narrows it further.
+permissions:
+  contents: read
+
+# Cancel superseded runs for the same ref (saves CI minutes, no security effect).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   checks:
     name: typecheck & tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      # actions/checkout v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          # PR code is reviewed, not trusted: never persist the token into the
+          # workspace where later steps could read it.
+          persist-credentials: false
 
+      # actions/setup-node v4.4.0
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "20"
           cache: npm
 
+      # `npm ci` installs strictly from package-lock.json (exact versions), so
+      # the dependency graph that is tested is the one that ships.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Typecheck
         run: npm run typecheck
 
       - name: Unit tests
-        run: npm test
+        run: npm test -- --reporter=basic
 
   docker:
     name: docker compose builds
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      # actions/checkout v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
+      # Build-only check: validates the compose file and that every image
+      # builds. Nothing is started, so no service is exposed and no secret is
+      # needed (the stack's admin key is a one-time, per-install bootstrap).
       - name: Validate compose file
         run: docker compose config --quiet
 
       - name: Build images
         run: docker compose build
+
+  runtime:
+    name: docker compose runtime verification
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Booting the stack, waiting for health and asserting the API surface takes
+    # a few minutes; the cap is there so a wedged container cannot hang a run.
+    timeout-minutes: 20
+    steps:
+      # actions/checkout v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      # actions/setup-node v4.4.0
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "20"
+
+      # Boots db + backend, mints the one-time self-hosted admin key from the
+      # backend itself (no repository secret involved), lets bootstrap push the
+      # schema and seed, then asserts health, the OIDC discovery document, the
+      # SPA's hardened headers, and that privileged endpoints fail closed.
+      # Dumps container logs on failure and always tears the stack down.
+      - name: Boot the stack and verify it at runtime
+        run: sh ./scripts/ci-compose-runtime.sh
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker compose logs --no-color || true
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v --remove-orphans || true

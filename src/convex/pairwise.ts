@@ -22,10 +22,23 @@ async function loadMatches(ctx: any, eventId: string): Promise<PairwiseMatchReco
   }));
 }
 
+/**
+ * Bradley-Terry leaderboard.
+ *
+ * Staff-only until results publish (security item 70) — the latent strengths
+ * are effectively the answer key while judging is still running.
+ */
 export const leaderboard = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
+    const user = await requireUser(ctx);
+    const event = await ctx.db.get(args.eventId);
+    if (!event) throw new Error("Event not found");
+    const published = event.status === "published" || event.status === "archived";
+    const isStaff = user.role === "judge" || user.role === "organizer" || user.role === "admin";
+    if (!published && !isStaff) {
+      throw new Error("Rankings are not published yet");
+    }
     const subs = await ctx.db
       .query("submissions")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))

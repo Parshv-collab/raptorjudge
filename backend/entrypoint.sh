@@ -8,13 +8,59 @@
 #
 # Always invoked as `sh ./backend/entrypoint.sh` so it does not depend on the
 # executable bit surviving a copy.
+#
+# Fail-closed contract (security items 63 + 64)
+# --------------------------------------------
+# Every step here is a gate the frontend waits on (`service_completed_successfully`),
+# so a step that *appears* to succeed while doing nothing leaves the stack
+# serving an app whose backend has no functions — the exact "Could not find
+# public function for 'users:me'" failure this script exists to prevent.
+# Therefore:
+#
+#   * every network probe has an explicit connect/read timeout, so a hung TCP
+#     connection can never block a check forever (a wait loop without one never
+#     reaches its own retry cap);
+#   * every CLI step that must succeed is explicitly checked and exits non-zero
+#     on any error, partial or unexpected output — nothing is `|| true`-ed
+#     except diagnostics;
+#   * the bundle is verified by calling real functions afterwards, rather than
+#     trusting the deploy's exit code alone.
 set -eu
 
 BACKEND_URL="${CONVEX_SELF_HOSTED_URL:-http://backend:3210}"
 
+# Upper bound for a single Convex CLI round-trip (deploy, run, env). Generous,
+# but finite: a wedged CLI must fail the bootstrap rather than hang the stack.
+STEP_TIMEOUT="${STEP_TIMEOUT:-300}"
+
+# curl options shared by every probe: fail on HTTP errors, and bound both the
+# TCP connect and the whole request.
+CURL_OPTS="-fsS --connect-timeout 3 --max-time 5"
+
+# `timeout` also kills grandchildren if the CLI spawns children.
+run_step() {
+  timeout -k 5 "${STEP_TIMEOUT}" "$@"
+}
+
+# Is a deployment environment variable actually set?
+#
+# `npx convex env get` exits 0 for a missing variable — it just prints
+# `✖ Environment variable "X" not found` to stdout. Testing only the exit code
+# therefore reports *every* variable as present, which is exactly how a fresh
+# stack ended up skipping the auth keypair and serving a sign-in page that
+# cannot mint a session. Presence = exit 0, non-empty output, no "not found".
+env_var_present() {
+  out="$(run_step npx convex env get "$1" 2>/dev/null)" || return 1
+  [ -n "${out}" ] || return 1
+  case "${out}" in
+    *"not found"*) return 1 ;;
+  esac
+  return 0
+}
+
 echo "==> waiting for the self-hosted Convex backend at ${BACKEND_URL} ..."
 attempt=0
-until curl -fsS "${BACKEND_URL}/version" >/dev/null 2>&1; do
+until curl ${CURL_OPTS} "${BACKEND_URL}/version" >/dev/null 2>&1; do
   attempt=$((attempt + 1))
   if [ "${attempt}" -ge 60 ]; then
     echo "ERROR: Convex backend was not ready after 120s" >&2
@@ -48,42 +94,97 @@ fi
 # --- Convex Auth signing keys ----------------------------------------------
 # `npx @convex-dev/auth` does not support self-hosted deployments, so we mint
 # the RS256 keypair locally and publish it to the deployment ourselves.
+#
+# Publishing these keys is mandatory: without JWT_PRIVATE_KEY/JWKS every sign-in
+# fails (sessions cannot be signed or verified), and the API's bearer-token
+# verification has no key material to check against. So a failure here aborts
+# the bootstrap instead of leaving a stack that serves a login page nobody can
+# use.
 if [ "${SKIP_AUTH_KEYS:-false}" != "true" ]; then
-  if npx convex env get JWT_PRIVATE_KEY >/dev/null 2>&1; then
+  if env_var_present JWT_PRIVATE_KEY; then
     echo "==> Convex Auth signing keys already present, skipping."
   else
     echo "==> generating and publishing Convex Auth signing keys ..."
-    node scripts/generate-auth-keys.mjs --emit-env-set > /tmp/auth-keys.sh
+    run_step node scripts/generate-auth-keys.mjs --emit-env-set > /tmp/auth-keys.sh
+    if [ ! -s /tmp/auth-keys.sh ]; then
+      echo "ERROR: key generation produced no env-set commands." >&2
+      exit 1
+    fi
     sh /tmp/auth-keys.sh
+    # Both halves must land: without JWT_PRIVATE_KEY sessions cannot be signed,
+    # and without JWKS the API's bearer-token verification has no key material.
+    for required in JWT_PRIVATE_KEY JWKS; do
+      if ! env_var_present "${required}"; then
+        echo "ERROR: ${required} is still missing after publishing the keypair." >&2
+        exit 1
+      fi
+    done
+    echo "    auth signing keys published."
   fi
   if [ -n "${SITE_URL:-}" ]; then
-    npx convex env set SITE_URL "${SITE_URL}" >/dev/null 2>&1 || true
+    # No `|| true` here: a wrong SITE_URL breaks the OAuth redirect and the
+    # sign-in page silently, so an operator must see the failure.
+    if ! run_step npx convex env set SITE_URL "${SITE_URL}" >/dev/null 2>&1; then
+      echo "ERROR: could not set SITE_URL on the deployment." >&2
+      exit 1
+    fi
   fi
 fi
 
 # --- migrations ------------------------------------------------------------
 echo "==> deploying Convex functions (schema migration) ..."
-npx convex deploy
+run_step npx convex deploy
 
 # --- verify the bundle is actually live ------------------------------------
-# Convex deploy is a no-op if it silently targets the wrong deployment, which
+# `convex deploy` is a no-op if it silently targets the wrong deployment, which
 # leaves the SPA throwing "Could not find public function for 'users:me'".
-# Probe a known query so a partial deploy fails here instead of in the browser.
+# Probe real functions (a query and a mutation-free read) so a partial deploy
+# fails here instead of in the browser. Both the exit status and the output are
+# checked: a CLI that prints an error but exits 0 must not pass the gate.
 echo "==> verifying the deployed function bundle ..."
-verify_out=$(npx convex run users:me '{}' 2>&1 || true)
-case "${verify_out}" in
-  *"Could not find public function"*)
-    echo "ERROR: functions did not land on the backend — 'users:me' is missing." >&2
-    echo "       See the 'npx convex deploy' output above." >&2
+verify_bundle() {
+  fn="$1"
+  # A query that legitimately returns null prints nothing at all, so expecting
+  # output unconditionally would fail on a healthy deployment.
+  require_output="${2:-true}"
+  if ! out="$(run_step npx convex run "${fn}" '{}' 2>&1)"; then
+    echo "ERROR: '${fn}' could not be invoked after deploy." >&2
+    echo "       ${out}" >&2
     exit 1
-    ;;
-esac
+  fi
+  case "${out}" in
+    *"Could not find public function"* | *"Could not find function"* | *"is not a Convex function"*)
+      echo "ERROR: functions did not land on the backend — '${fn}' is missing." >&2
+      echo "       See the 'npx convex deploy' output above." >&2
+      exit 1
+      ;;
+    *"ERROR"* | *"Failed to "* | *"error:"* | *"InvalidSecret"* | *"Unauthorized"*)
+      echo "ERROR: '${fn}' reported an error after deploy:" >&2
+      echo "       ${out}" >&2
+      exit 1
+      ;;
+  esac
+  if [ "${require_output}" = "true" ] && [ -z "${out}" ]; then
+    echo "ERROR: '${fn}' returned no output — the deployment is not answering." >&2
+    exit 1
+  fi
+}
+# `users:me` is the function the SPA calls on boot; it returns null for an
+# anonymous caller, so an empty result is a success here.
+verify_bundle "users:me" false
+# A public list query that always serialises something (`[]` when empty) — this
+# is the one that proves the deployment is really answering.
+verify_bundle "events:listPublic" true
 echo "    functions are live."
 
 # --- seed ------------------------------------------------------------------
 if [ "${SEED_ON_START:-true}" = "true" ]; then
   echo "==> seeding Dogfood 2026 fixtures ..."
-  npx convex run seed:seed
+  # seed:seed is idempotent (it upserts by key), so re-running is safe; a real
+  # failure still aborts the bootstrap rather than booting an empty event.
+  run_step npx convex run seed:seed
+else
+  echo "==> SEED_ON_START=false, skipping fixtures."
 fi
 
 echo "==> backend bootstrap complete."

@@ -3,12 +3,25 @@ import { mutation, query } from "./_generated/server";
 import { requireOrganizer, requireUser } from "./lib/common";
 import { appendAudit } from "./lib/audit";
 import { hmacSha256Hex, randomHex, safeEqualHex } from "./crypto";
+import type { Doc, Id } from "./_generated/dataModel";
 
 /**
  * Verifiable certificates (T4).
  * Signature = HMAC-SHA256(secret, canonical payload). The secret lives in the
  * platform KV table (`cert_secret`), generated on first use. Anyone can verify
  * a certificate with its UUID + signature via the public /verify page.
+ *
+ * Race conditions (security item 58)
+ * ---------------------------------
+ * Convex mutations are serializable and use optimistic concurrency control, so
+ * the read-then-write sequences here ("is there already a certificate for this
+ * recipient?", "is this the first issuance of the cert secret?") cannot
+ * interleave: a conflicting mutation is retried, not merged. Issuance is
+ * therefore also made *idempotent* on top of that — a repeated
+ * `issue`/`issueAll` for the same (event, recipient, type, title, rank) returns
+ * the existing certificate instead of minting a second one. Idempotency (not
+ * just serializability) is what makes a retried request — or an organizer
+ * clicking "issue certificates" twice — safe.
  */
 
 async function getCertSecret(ctx: any): Promise<string> {
@@ -34,6 +47,30 @@ function canonicalPayload(p: {
   return [p.certUuid, p.recipientName, p.certType, p.title, p.trackName, p.rank, p.issuedAt].join("|");
 }
 
+/**
+ * Existing certificate for a recipient/type/title, if any — the idempotency key.
+ * `rank` participates so a gold and a silver award are distinct certificates.
+ */
+async function findExistingCertificate(
+  ctx: any,
+  eventId: Id<"events">,
+  userId: Id<"users">,
+  certType: string,
+  title: string,
+  rank: number,
+): Promise<Doc<"certificates"> | null> {
+  const rows = await ctx.db
+    .query("certificates")
+    .withIndex("by_event", (q: any) => q.eq("eventId", eventId))
+    .collect();
+  return (
+    rows.find(
+      (c: Doc<"certificates">) =>
+        c.userId === userId && c.certType === certType && c.title === title && c.rank === rank,
+    ) ?? null
+  );
+}
+
 export const issue = mutation({
   args: {
     eventId: v.id("events"),
@@ -47,6 +84,26 @@ export const issue = mutation({
     const actor = await requireOrganizer(ctx);
     const user = await ctx.db.get(args.userId);
     if (!user) throw new Error("User not found");
+
+    // Idempotent: re-issuing the same certificate returns the original one, so
+    // its UUID and signature stay stable and verification links keep working.
+    const existing = await findExistingCertificate(
+      ctx,
+      args.eventId,
+      args.userId,
+      args.certType,
+      args.title,
+      args.rank ?? 0,
+    );
+    if (existing) {
+      return {
+        certificateId: existing._id,
+        certUuid: existing.certUuid,
+        signatureHash: existing.signatureHash,
+        reused: true,
+      };
+    }
+
     const secret = await getCertSecret(ctx);
     const certUuid = randomHex(16);
     const issuedAt = Date.now();
@@ -75,7 +132,7 @@ export const issue = mutation({
       targetId: certUuid,
       afterState: JSON.stringify({ certType: args.certType, recipient: user.email }),
     });
-    return { certificateId: id, certUuid, signatureHash };
+    return { certificateId: id, certUuid, signatureHash, reused: false };
   },
 });
 
@@ -95,37 +152,54 @@ export const issueAll = mutation({
     const participantIds = [...new Set(memberRows.filter((m) => eventTeamIds.has(String(m.teamId))).map((m) => String(m.userId)))];
     const judges = (await ctx.db.query("users").collect()).filter((u) => u.role === "judge");
 
-    const created: string[] = [];
+    const certUuids: string[] = [];
+    let reused = 0;
+    const mint = async (userId: Id<"users">, certType: string, title: string) => {
+      const res = await issueCertInternal(ctx, args.eventId, userId, certType, title);
+      if (res.reused) reused++;
+      certUuids.push(res.certUuid);
+    };
+
     for (const pid of participantIds) {
-      const res = await issueCertInternal(ctx, args.eventId, pid, "participant", `${event.title} — Participant`);
-      created.push(res.certUuid);
+      await mint(
+        pid as Id<"users">,
+        "participant",
+        `${event.title} — Participant`,
+      );
     }
     for (const j of judges) {
-      const res = await issueCertInternal(ctx, args.eventId, String(j._id), "judge", `${event.title} — Judge`);
-      created.push(res.certUuid);
+      await mint(j._id, "judge", `${event.title} — Judge`);
     }
     await appendAudit(ctx, {
       eventId: args.eventId,
       action: "certificate.bulk_issue",
       targetType: "event",
       targetId: String(args.eventId),
-      afterState: JSON.stringify({ count: created.length }),
+      afterState: JSON.stringify({ count: certUuids.length, reused }),
     });
-    return { issued: created.length, certUuids: created };
+    // `issued` stays the total for the dashboard; `reused` makes a re-run visible.
+    return { issued: certUuids.length, reused, certUuids };
   },
 });
 
 async function issueCertInternal(
   ctx: any,
-  eventId: string,
-  userId: string,
+  eventId: Id<"events">,
+  userId: Id<"users">,
   certType: string,
   title: string,
   rank = 0,
   trackName = "",
-): Promise<{ certUuid: string; signatureHash: string }> {
+): Promise<{ certUuid: string; signatureHash: string; reused: boolean }> {
   const user = await ctx.db.get(userId);
   if (!user) throw new Error("User not found");
+
+  // Same idempotency key as `issue`, so `issueAll` is safe to re-run.
+  const existing = await findExistingCertificate(ctx, eventId, userId, certType, title, rank);
+  if (existing) {
+    return { certUuid: existing.certUuid, signatureHash: existing.signatureHash, reused: true };
+  }
+
   const secret = await getCertSecret(ctx);
   const certUuid = randomHex(16);
   const issuedAt = Date.now();
@@ -138,7 +212,7 @@ async function issueCertInternal(
     signatureHash,
     issuedAt,
   });
-  return { certUuid, signatureHash };
+  return { certUuid, signatureHash, reused: false };
 }
 
 /** Public verification: recompute HMAC and compare in constant time. */

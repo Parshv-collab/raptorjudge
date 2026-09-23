@@ -22,6 +22,14 @@ export default defineSchema({
     bio: v.optional(v.string()),
     avatarUrl: v.optional(v.string()),
     tokenIdentifier: v.optional(v.string()),
+    /**
+     * Optional TOTP second factor (admin/organizer only). The secret is stored
+     * AES-256-GCM sealed (see src/convex/lib/secretBox.ts) — never in the clear.
+     */
+    totpSecret: v.optional(v.string()),
+    totpEnabled: v.optional(v.boolean()),
+    totpEnrolledAt: v.optional(v.number()),
+    totpLastVerifiedAt: v.optional(v.number()),
     /** Seeded users get this so Convex Auth can link credential accounts. */
     emailVerificationTime: v.optional(v.number()),
   })

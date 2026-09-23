@@ -8,8 +8,49 @@ import {
 } from "./lib/common";
 import { appendAudit } from "./lib/audit";
 import { seededShuffle, seedFromString } from "./crypto";
+import {
+  MAX_DESCRIPTION_LENGTH,
+  MAX_TAGLINE_LENGTH,
+  MAX_TITLE_LENGTH,
+  MAX_URL_LENGTH,
+  normalizeTags,
+  requireText,
+  validateUrl,
+} from "../lib/validation";
 
 /** Submissions (T1). Drafts autosave until deadline; gallery is public. */
+
+/**
+ * Validate the fields of a draft submission (security item 66).
+ *
+ * Every one of these values is authored by a participant and later rendered —
+ * as a link, a heading or a card — to teammates, judges and the public gallery.
+ * A stored `javascript:` URL is therefore a stored XSS payload, and unbounded
+ * text is a cheap way to bloat the database and every export. URLs must be
+ * http(s); text is trim/control-character cleaned and length-capped.
+ */
+function validateSubmissionFields(input: {
+  title: string;
+  tagline: string;
+  description: string;
+  repositoryUrl: string;
+  videoUrl: string;
+  demoUrl: string;
+  tags: string;
+}): typeof input {
+  return {
+    title: requireText("Title", input.title, { max: MAX_TITLE_LENGTH }),
+    tagline: requireText("Tagline", input.tagline, { max: MAX_TAGLINE_LENGTH }),
+    description: requireText("Description", input.description, {
+      max: MAX_DESCRIPTION_LENGTH,
+      singleLine: false,
+    }),
+    repositoryUrl: validateUrl("Repository URL", input.repositoryUrl),
+    videoUrl: validateUrl("Video URL", input.videoUrl),
+    demoUrl: validateUrl("Demo URL", input.demoUrl),
+    tags: normalizeTags(input.tags),
+  };
+}
 
 interface GalleryCard {
   id: string;
@@ -217,18 +258,31 @@ export const saveDraft = mutation({
       throw new Error("Already submitted — withdraw or contact an organizer to edit");
     }
 
+    // Validate the whole payload up-front against the incoming values, falling
+    // back to the stored ones so a partial autosave cannot silently blank a
+    // field (or bypass validation by omitting it).
+    const clean = validateSubmissionFields({
+      title: args.title ?? draft?.title ?? "",
+      tagline: args.tagline ?? draft?.tagline ?? "",
+      description: args.description ?? draft?.description ?? "",
+      repositoryUrl: args.repositoryUrl ?? draft?.repositoryUrl ?? "",
+      videoUrl: args.videoUrl ?? draft?.videoUrl ?? "",
+      demoUrl: args.demoUrl ?? draft?.demoUrl ?? "",
+      tags: args.tags ?? draft?.tags ?? "",
+    });
+
     if (!draft) {
       const id = await ctx.db.insert("submissions", {
         eventId: args.eventId,
         teamId,
         trackId: args.trackId,
-        title: args.title ?? "",
-        tagline: args.tagline ?? "",
-        description: args.description ?? "",
-        repositoryUrl: args.repositoryUrl ?? "",
-        videoUrl: args.videoUrl ?? "",
-        demoUrl: args.demoUrl ?? "",
-        tags: args.tags ?? "",
+        title: clean.title,
+        tagline: clean.tagline,
+        description: clean.description,
+        repositoryUrl: clean.repositoryUrl,
+        videoUrl: clean.videoUrl,
+        demoUrl: clean.demoUrl,
+        tags: clean.tags,
         customFields: args.customFields ?? "{}",
         status: "draft",
         updatedAt: Date.now(),
@@ -245,13 +299,13 @@ export const saveDraft = mutation({
 
     await ctx.db.patch(draft._id, {
       trackId: args.trackId ?? draft.trackId,
-      title: args.title ?? draft.title,
-      tagline: args.tagline ?? draft.tagline,
-      description: args.description ?? draft.description,
-      repositoryUrl: args.repositoryUrl ?? draft.repositoryUrl,
-      videoUrl: args.videoUrl ?? draft.videoUrl,
-      demoUrl: args.demoUrl ?? draft.demoUrl,
-      tags: args.tags ?? draft.tags,
+      title: clean.title,
+      tagline: clean.tagline,
+      description: clean.description,
+      repositoryUrl: clean.repositoryUrl,
+      videoUrl: clean.videoUrl,
+      demoUrl: clean.demoUrl,
+      tags: clean.tags,
       customFields: args.customFields ?? draft.customFields,
       updatedAt: Date.now(),
     });
@@ -291,6 +345,20 @@ export const submit = mutation({
 
     if (!draft.title.trim() || !draft.description.trim()) {
       throw new Error("Title and description are required before submitting");
+    }
+    // Re-validate at submit time too: a row written before the validators
+    // existed (or patched by hand) must not be published as-is.
+    const clean = validateSubmissionFields({
+      title: draft.title,
+      tagline: draft.tagline,
+      description: draft.description,
+      repositoryUrl: draft.repositoryUrl,
+      videoUrl: draft.videoUrl,
+      demoUrl: draft.demoUrl,
+      tags: draft.tags,
+    });
+    if (clean.title !== draft.title || clean.description !== draft.description) {
+      throw new Error("Title or description contains unsupported content — edit and resubmit");
     }
 
     await ctx.db.patch(draft._id, {

@@ -31,9 +31,18 @@ const jwtPrivateKey = privateKey
 const jwks = JSON.stringify({ keys: [{ use: "sig", ...publicJwk }] });
 
 // Base64/JWKS contain no single quotes, so single-quoting is shell-safe.
+//
+// The value goes in over **stdin**, not as an argument: a PEM private key starts
+// with `-----BEGIN PRIVATE KEY-----`, and the CLI parses an argument that begins
+// with `--` as an option (`error: unknown option '-----BEGIN PRIVATE KEY-----…'`).
+// Piping is also what the CLI documents for secrets, since it keeps the value
+// out of the process list and shell history.
 if (emitEnvSet) {
-  process.stdout.write(`npx convex env set JWT_PRIVATE_KEY '${jwtPrivateKey}'\n`);
-  process.stdout.write(`npx convex env set JWKS '${jwks}'\n`);
+  const pipe = (name, value) =>
+    `printf '%s' '${value}' | npx convex env set ${name}\n`;
+  process.stdout.write("set -eu\n");
+  process.stdout.write(pipe("JWT_PRIVATE_KEY", jwtPrivateKey));
+  process.stdout.write(pipe("JWKS", jwks));
 } else {
   process.stdout.write(`JWT_PRIVATE_KEY="${jwtPrivateKey}"\n`);
   process.stdout.write(`JWKS=${jwks}\n`);

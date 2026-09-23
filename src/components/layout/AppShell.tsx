@@ -15,6 +15,7 @@ import {
   Users,
   LayoutDashboard,
   Repeat,
+  ShieldCheck,
 } from "lucide-react";
 import { useTheme } from "../theme/ThemeProvider";
 
@@ -115,6 +116,16 @@ export function AppShell() {
             </button>
             {isAuthenticated && me ? (
               <>
+                {(me.role === "admin" || me.role === "organizer") && (
+                  <Link
+                    to="/security"
+                    className="hidden items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 font-mono text-[11px] uppercase tracking-wider text-muted-foreground transition hover:border-primary/50 hover:text-primary sm:flex"
+                    title="Account security — two-factor authentication"
+                  >
+                    <ShieldCheck size={13} />
+                    security
+                  </Link>
+                )}
                 {me.role === "admin" && <RoleSwitcher current={me.role} userId={me._id} />}
                 <Link
                   to={homeHref}
