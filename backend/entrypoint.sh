@@ -42,6 +42,22 @@ run_step() {
   timeout -k 5 "${STEP_TIMEOUT}" "$@"
 }
 
+# Is a deployment environment variable actually set?
+#
+# `npx convex env get` exits 0 for a missing variable — it just prints
+# `✖ Environment variable "X" not found` to stdout. Testing only the exit code
+# therefore reports *every* variable as present, which is exactly how a fresh
+# stack ended up skipping the auth keypair and serving a sign-in page that
+# cannot mint a session. Presence = exit 0, non-empty output, no "not found".
+env_var_present() {
+  out="$(run_step npx convex env get "$1" 2>/dev/null)" || return 1
+  [ -n "${out}" ] || return 1
+  case "${out}" in
+    *"not found"*) return 1 ;;
+  esac
+  return 0
+}
+
 echo "==> waiting for the self-hosted Convex backend at ${BACKEND_URL} ..."
 attempt=0
 until curl ${CURL_OPTS} "${BACKEND_URL}/version" >/dev/null 2>&1; do
@@ -85,7 +101,7 @@ fi
 # the bootstrap instead of leaving a stack that serves a login page nobody can
 # use.
 if [ "${SKIP_AUTH_KEYS:-false}" != "true" ]; then
-  if run_step npx convex env get JWT_PRIVATE_KEY >/dev/null 2>&1; then
+  if env_var_present JWT_PRIVATE_KEY; then
     echo "==> Convex Auth signing keys already present, skipping."
   else
     echo "==> generating and publishing Convex Auth signing keys ..."
@@ -95,10 +111,14 @@ if [ "${SKIP_AUTH_KEYS:-false}" != "true" ]; then
       exit 1
     fi
     sh /tmp/auth-keys.sh
-    if ! run_step npx convex env get JWT_PRIVATE_KEY >/dev/null 2>&1; then
-      echo "ERROR: JWT_PRIVATE_KEY is still missing after publishing the keypair." >&2
-      exit 1
-    fi
+    # Both halves must land: without JWT_PRIVATE_KEY sessions cannot be signed,
+    # and without JWKS the API's bearer-token verification has no key material.
+    for required in JWT_PRIVATE_KEY JWKS; do
+      if ! env_var_present "${required}"; then
+        echo "ERROR: ${required} is still missing after publishing the keypair." >&2
+        exit 1
+      fi
+    done
     echo "    auth signing keys published."
   fi
   if [ -n "${SITE_URL:-}" ]; then
@@ -124,6 +144,9 @@ run_step npx convex deploy
 echo "==> verifying the deployed function bundle ..."
 verify_bundle() {
   fn="$1"
+  # A query that legitimately returns null prints nothing at all, so expecting
+  # output unconditionally would fail on a healthy deployment.
+  require_output="${2:-true}"
   if ! out="$(run_step npx convex run "${fn}" '{}' 2>&1)"; then
     echo "ERROR: '${fn}' could not be invoked after deploy." >&2
     echo "       ${out}" >&2
@@ -141,13 +164,17 @@ verify_bundle() {
       exit 1
       ;;
   esac
-  if [ -z "${out}" ]; then
+  if [ "${require_output}" = "true" ] && [ -z "${out}" ]; then
     echo "ERROR: '${fn}' returned no output — the deployment is not answering." >&2
     exit 1
   fi
 }
-verify_bundle "users:me"
-verify_bundle "events:listPublic"
+# `users:me` is the function the SPA calls on boot; it returns null for an
+# anonymous caller, so an empty result is a success here.
+verify_bundle "users:me" false
+# A public list query that always serialises something (`[]` when empty) — this
+# is the one that proves the deployment is really answering.
+verify_bundle "events:listPublic" true
 echo "    functions are live."
 
 # --- seed ------------------------------------------------------------------
