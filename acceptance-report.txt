@@ -1,0 +1,67 @@
+RaptorJudge dashboard suite acceptance report
+=============================================
+
+Date: 2026-09-23
+Repository: Parshv-collab/project4
+
+Verification performed locally:
+- npm ci --ignore-scripts: PASS
+- npm run typecheck: PASS
+- npm run build: PASS
+- npm test: PASS (14 files, 166 tests)
+- git diff --check: PASS
+- Convex code generation: NOT RUNNABLE in this sandbox because CONVEX_DEPLOYMENT is not configured.
+- Docker/Chrome acceptance: NOT RUNNABLE in this sandbox because the self-hosted Convex deployment and Docker bootstrap secrets are not configured.
+
+Phase 0 — Recon: PASS
+Existing routes and visible surfaces were inspected. The pre-existing organizer route was a seeded-event analytics dashboard; judge and participant routes already had substantial working flows. There was no event list/new/edit/management route and no admin dashboard. Organizers could not create events through the UI.
+
+Phase 1 — Event creation and management: PARTIAL
+Built:
+- Full-page /organizer/events/new form with identity, slug generation, self-hosted banner path, short/full descriptions, markdown-style preview, rules, schedule, team sizing, solo toggle, and cover-image toggle.
+- /organizer/events list with status filtering and event rows.
+- /organizer/events/:slug management page with lifecycle header, publish/unpublish, overview, tracks CRUD, rules display, and planned stubs for remaining tabs.
+- /organizer/events/:slug/edit prefilled form and draft deletion confirmation.
+- Convex event create/update/publish/unpublish/deleteEvent/listMine/listAll/getBySlug functions with organizer/admin role checks and audit writes.
+- Extended event schema fields for organizer, rich descriptions, schedule metadata, team settings, and publishedAt.
+
+Known limitations:
+- The form currently saves drafts; a separate publish action is used on the management page rather than a second form submit button.
+- Participant/submission counts in the event list are placeholders until aggregate queries are added.
+- Rules & FAQ is read-only in this pass; full markdown CRUD is planned.
+- Convex deployment/code generation and live mutation verification were unavailable in this sandbox.
+
+Phase 2 — Organizer dashboard: PARTIAL
+Built:
+- Existing judging/normalization/pairwise/voting/export/certificate/webhook/audit capabilities were preserved.
+- Added Organizer Dashboard heading, Create Event CTA, All Events link, and event-suite navigation.
+
+Known limitations:
+- The existing seeded-event analytics dashboard was not replaced with the requested multi-event stat-card/quick-action layout. A multi-event summary and CSV/export stubs are planned.
+
+Phase 3 — Judge portal: PARTIAL
+The existing judge portal already provides assignment progress, assigned queue, project links, rubric sliders, weighted totals, score submission, and pairwise comparisons, so it was preserved. An event selector and explicit save-draft scoring mutation are planned.
+
+Phase 4 — Participant workspace: PARTIAL
+The existing participant workspace already provides event context, team create/join, invite-code copy, team members, draft autosave, submission form, submit/withdraw, and deadline enforcement. Leadership transfer, explicit countdown timer, and richer read-only submitted state are planned.
+
+Phase 5 — Admin dashboard: PARTIAL
+Built /admin with client-side redirect for non-admins, overview stats, all-events table, users table, invite-organizer logging stub, audit/settings/invites stubs, and security link. The backend listAll/list users calls are privileged for organizer/admin users.
+
+Known limitations:
+- User role changes, account disabling, invite persistence, audit filters, and platform settings mutations are planned stubs.
+- Server-side route authorization is enforced by Convex mutations/queries; the page redirect is a UX guard and not a security boundary.
+
+Phase 6 — Navigation: PASS
+AppShell now shows role-aware dashboard, workspace, judge, organizer events, and admin links while preserving event/gallery/verify/security/theme/logout behavior. Admin home routing now points to /admin.
+
+Bugs introduced:
+- No known compile-time or build-time regressions. Runtime Convex behavior remains unverified until a deployment is configured.
+- npm reported existing dependency audit findings (10 vulnerabilities); dependency versions were not changed in this pass.
+
+Next verification steps in a configured self-hosted environment:
+1. Run docker compose down && docker compose up --build.
+2. Complete the one-time Convex admin-key bootstrap if required.
+3. Sign in as organizer, create/publish/edit an event, then verify list and management pages.
+4. Sign in as admin and verify /admin sees all events.
+5. Verify judge queue/scoring and participant team/submission deadline flows.

@@ -55,7 +55,7 @@ function RoleSwitcher({ current, userId }: { current: string; userId: any }) {
               onClick={async () => {
                 setOpen(false);
                 await switchRole({ userId, role: r });
-                navigate(r === "participant" ? "/workspace" : r === "judge" ? "/judge" : "/organizer");
+                navigate(r === "participant" ? "/workspace" : r === "judge" ? "/judge" : r === "admin" ? "/admin" : "/organizer");
               }}
             >
               {icons[r]}
@@ -78,7 +78,7 @@ export function AppShell() {
   const navLink = ({ isActive }: { isActive: boolean }) =>
     `font-mono text-[13px] transition hover:text-primary ${isActive ? "text-primary" : "text-muted-foreground"}`;
 
-  const homeHref = me?.role === "judge" ? "/judge" : me?.role === "organizer" || me?.role === "admin" ? "/organizer" : "/workspace";
+  const homeHref = me?.role === "judge" ? "/judge" : me?.role === "organizer" ? "/organizer" : me?.role === "admin" ? "/admin" : "/workspace";
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -103,6 +103,10 @@ export function AppShell() {
               <NavLink to="/verify" className={navLink}>
                 verify
               </NavLink>
+              {me?.role === "participant" && <NavLink to="/workspace" className={navLink}>workspace</NavLink>}
+              {me?.role === "judge" && <NavLink to="/judge" className={navLink}>judge portal</NavLink>}
+              {(me?.role === "organizer" || me?.role === "admin") && <><NavLink to="/organizer" className={navLink}>dashboard</NavLink><NavLink to="/organizer/events" className={navLink}>events</NavLink></>}
+              {me?.role === "admin" && <NavLink to="/admin" className={navLink}>admin</NavLink>}
             </nav>
           </div>
 
