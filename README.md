@@ -318,7 +318,7 @@ Design principles: strict server-side RBAC on every Convex function, deadlines e
 npm run dev            # Vite dev server
 npm run build          # production build (dist/)
 npm run typecheck      # tsc -b --noEmit
-npm test               # vitest unit suite (162 tests)
+npm test               # vitest unit suite (166 tests)
 npm run seed           # (re)seed the deterministic Dogfood 2026 fixtures
 node scripts/auth-verify.mjs   # live: sign in each demo account + no-enumeration check
 npm run acceptance     # server-side acceptance suite as the organizer (exits non-zero on failure)
@@ -336,7 +336,7 @@ Three layers, each one runnable offline:
 
 | Layer | Command | What it proves |
 |---|---|---|
-| Unit | `npm test` | algorithms (normalization, Bradley-Terry, assignment), TOTP/secret box, JWT verification, RBAC, input validation, redirect sanitizer, webhook signatures + replay, OIDC discovery, token storage (162 tests) |
+| Unit | `npm test` | algorithms (normalization, Bradley-Terry, assignment), TOTP/secret box, JWT verification, RBAC, input validation, redirect sanitizer, webhook signatures + replay, OIDC discovery, token storage, auth-key script shape (166 tests) |
 | In-app | `npm run acceptance` (or the dashboard button) | tier-by-tier T1–T5 report computed against the live database; `T5` covers the hardening items, and a check with no input to inspect is reported as *skipped*, never as a pass |
 | Runtime | `npm run docker:verify` | boots the whole Compose stack, mints the one-time admin key, waits for the schema push + seed, then asserts `/api/health`, the complete discovery document, the SPA's security headers, a non-empty public gallery, and that exports / the acceptance report / unsigned tokens / unpublished judging results all fail closed |
 
