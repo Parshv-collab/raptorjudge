@@ -1,0 +1,6 @@
+import { useQuery } from "convex/react";
+import { Link } from "react-router-dom";
+import { ArrowRight } from "lucide-react";
+import { api } from "../convex/_generated/api";
+import { EventCard, Empty, Section } from "../components/ui";
+export default function ParticipantDashboard(){const me=useQuery(api.users.me,{});const enrolled=useQuery(api.events.enrolled,{});const featured=useQuery(api.events.featured,{});return <><section className="mx-auto max-w-7xl px-5 pb-4 pt-14 lg:px-8"><div className="eyebrow mb-3">Participant home</div><h1 className="text-4xl font-bold tracking-tight">Welcome back, {me?.name?.split(" ")[0]??"builder"}.</h1><p className="mt-2 text-muted-foreground">Your events, your work, and the next room to join.</p></section><Section title="Your events" action={<Link to="/workspace" className="glass-button">Workspace <ArrowRight size={15}/></Link>}>{enrolled?.length?<div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">{enrolled.map((e:any)=><EventCard key={e._id} event={e}/>)}</div>:<Empty title="You’re not in any events yet." body="Browse the open event and join a team when you’re ready." href="/e/dogfood-2026" label="Browse events"/>}</Section><Section title="Featured"><div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">{(featured??[]).map((e:any)=><EventCard key={e._id} event={e}/>)}</div></Section></>}
