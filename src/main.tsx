@@ -8,5 +8,7 @@ import { Toaster } from "sonner";
 import App from "./App";
 import "./index.css";
 import { createTokenStorage, purgeLegacyTokenStorage } from "./lib/tokenStorage";
-const client=new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string); purgeLegacyTokenStorage();
+const convexUrl = import.meta.env.VITE_CONVEX_URL || "http://localhost:3210";
+document.documentElement.classList.remove("dark");
+const client=new ConvexReactClient(convexUrl); purgeLegacyTokenStorage();
 createRoot(document.getElementById("root")!).render(<StrictMode><ConvexProvider client={client}><ConvexAuthProvider client={client} storage={createTokenStorage()} storageNamespace="raptorjudge"><BrowserRouter><App/><Toaster richColors position="top-right"/></BrowserRouter></ConvexAuthProvider></ConvexProvider></StrictMode>);
