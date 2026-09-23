@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from "convex/react";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import {
@@ -16,7 +17,9 @@ import {
 } from "lucide-react";
 
 export default function ParticipantWorkspace() {
-  const event = useQuery(api.events.getBySlug, { slug: "dogfood-2026" });
+  const [searchParams] = useSearchParams();
+  const eventSlug = searchParams.get("event") ?? "dogfood-2026";
+  const event = useQuery(api.events.getBySlug, { slug: eventSlug });
   const tracks = useQuery(api.tracks.listByEvent, event ? { eventId: event._id } : "skip");
   const myTeam = useQuery(api.teams.myTeams, event ? { eventId: event._id } : "skip");
   const data = useQuery(api.submissions.mySubmission, event ? { eventId: event._id } : "skip");

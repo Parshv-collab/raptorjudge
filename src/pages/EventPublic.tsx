@@ -85,10 +85,10 @@ export default function EventPublic() {
               browse projects <ChevronRight size={14} />
             </Link>
             <Link
-              to="/auth"
+              to={`/workspace?event=${event.slug}`}
               className="rounded-lg border border-border px-5 py-2.5 font-mono text-xs uppercase tracking-wider transition hover:border-primary/50"
             >
-              join / sign in
+              join event
             </Link>
           </div>
         </div>
