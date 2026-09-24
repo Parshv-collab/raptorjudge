@@ -119,7 +119,7 @@ export const galleryPublic = internalQuery({
   handler: async (ctx, args) => {
     const event = await ctx.db.get(args.eventId);
     if (!event) return [];
-    const visible = ["judging", "voting", "published", "archived"].includes(event.status);
+    const visible = ["closed", "judging", "voting", "published", "archived"].includes(event.status);
     const subs = await ctx.db
       .query("submissions")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))

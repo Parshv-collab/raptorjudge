@@ -70,7 +70,7 @@ export const publicGallery = query({
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("Event not found");
     // Gallery becomes visible once hacking closes (judging stage onward).
-    const visible = ["judging", "voting", "published", "archived"].includes(event.status);
+    const visible = ["closed", "judging", "voting", "published", "archived"].includes(event.status);
     const subs = await ctx.db
       .query("submissions")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
