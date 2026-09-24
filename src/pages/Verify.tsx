@@ -11,17 +11,24 @@ export default function Verify() {
   const { uuid: uuidParam } = useParams<{ uuid?: string }>();
   const [searchParams] = useSearchParams();
   const sigParam = searchParams.get("signature") ?? "";
+  const isJudge = window.location.pathname.includes("/judge/");
 
   const [uuid, setUuid] = useState(uuidParam ?? "");
   const [signature, setSignature] = useState(sigParam);
   const [submitted, setSubmitted] = useState({ uuid: uuidParam ?? "", signature: sigParam });
 
-  const result = useQuery(
+  const certResult = useQuery(
     api.certificates.verify,
-    submitted.uuid && submitted.signature
+    !isJudge && submitted.uuid && submitted.signature
       ? { certUuid: submitted.uuid.trim(), signature: submitted.signature.trim() }
       : "skip"
   );
+
+  const judgeName = searchParams.get("judgeName") ?? "";
+  const eventName = searchParams.get("eventName") ?? "";
+  const projectsScored = searchParams.get("projectsScored") ?? "0";
+  const totalScores = searchParams.get("totalScores") ?? "0";
+  const isJudgeValid = isJudge && Boolean(sigParam) && Boolean(uuidParam);
 
   return (
     <div className="max-w-2xl mx-auto py-12 px-4 flex flex-col gap-8">
@@ -64,32 +71,55 @@ export default function Verify() {
         </div>
       </GlassCard>
 
-      {result && (
+      {isJudge && isJudgeValid && (
+        <Alert variant="success" title="Judge Record Verified">
+          <div className="flex flex-col gap-1.5 mt-2 text-xs">
+            <div>
+              <span className="font-semibold text-[#1d1d1f]">Judge: </span>
+              {judgeName || "Verified Judge"}
+            </div>
+            <div>
+              <span className="font-semibold text-[#1d1d1f]">Event: </span>
+              {eventName || "RaptorJudge Event"}
+            </div>
+            <div>
+              <span className="font-semibold text-[#1d1d1f]">Projects Scored: </span>
+              {projectsScored}
+            </div>
+            <div>
+              <span className="font-semibold text-[#1d1d1f]">Total Scores Submitted: </span>
+              {totalScores}
+            </div>
+          </div>
+        </Alert>
+      )}
+
+      {!isJudge && certResult && (
         <div>
-          {result.valid ? (
+          {certResult.valid ? (
             <Alert variant="success" title="Certificate Verified">
               <div className="flex flex-col gap-1.5 mt-2 text-xs">
                 <div>
                   <span className="font-semibold text-[#1d1d1f]">Recipient: </span>
-                  {result.certificate?.recipientName}
+                  {certResult.certificate?.recipientName}
                 </div>
                 <div>
                   <span className="font-semibold text-[#1d1d1f]">Type: </span>
-                  <span className="uppercase">{result.certificate?.certType}</span>
+                  <span className="uppercase">{certResult.certificate?.certType}</span>
                 </div>
                 <div>
                   <span className="font-semibold text-[#1d1d1f]">Title: </span>
-                  {result.certificate?.title}
+                  {certResult.certificate?.title}
                 </div>
                 <div>
                   <span className="font-semibold text-[#1d1d1f]">Issued: </span>
-                  {new Date(result.certificate?.issuedAt ?? 0).toLocaleDateString()}
+                  {new Date(certResult.certificate?.issuedAt ?? 0).toLocaleDateString()}
                 </div>
               </div>
             </Alert>
           ) : (
             <Alert variant="error" title="Certificate Invalid">
-              {result.reason || "The provided certificate UUID or signature does not match records."}
+              {certResult.reason || "The provided certificate UUID or signature does not match records."}
             </Alert>
           )}
         </div>

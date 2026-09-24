@@ -17,23 +17,33 @@ export default function EmbedGallery() {
 
   return (
     <div className="min-h-screen p-4 bg-[#f5f5f7]">
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-lg bg-[#ff0055] text-white font-black text-xs flex items-center justify-center">
-            R
+      <div className="flex flex-col gap-2 mb-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-lg bg-[#ff0055] text-white font-black text-xs flex items-center justify-center">
+              R
+            </div>
+            <span className="text-xs font-bold text-[#1d1d1f]">
+              {event?.title || "RaptorJudge"} Gallery
+            </span>
           </div>
-          <span className="text-xs font-bold text-[#1d1d1f]">
-            {event?.title || "RaptorJudge"} Gallery
-          </span>
+
+          <div className="w-48">
+            <Input
+              placeholder="Search..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
         </div>
 
-        <div className="w-48">
-          <Input
-            placeholder="Search..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
+        {/* Snippet display for organizers */}
+        <details className="text-[10px] text-[#6e6e73] bg-white/60 p-2 rounded border border-white">
+          <summary className="cursor-pointer font-semibold hover:text-[#1d1d1f]">Get Embed Code</summary>
+          <code className="block mt-1 font-mono text-[10px] select-all bg-black/5 p-1 rounded">
+            {`<iframe src="${window.location.origin}/embed/gallery/${slug || "dogfood-2026"}" width="100%" height="600" frameborder="0"></iframe>`}
+          </code>
+        </details>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

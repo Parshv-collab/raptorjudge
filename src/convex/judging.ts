@@ -10,6 +10,16 @@ import { assertWithinWindow } from "./lib/timeWindows";
 import { appendAudit } from "./lib/audit";
 import { planJudgeAssignments } from "../lib/algorithms/assignment";
 import { DEFAULT_RUBRIC } from "./lib/defaultRubric";
+import { hmacSha256Hex, randomHex } from "./crypto";
+
+async function getCertSecretReadOnly(ctx: any): Promise<string> {
+  const row = await ctx.db
+    .query("platform")
+    .withIndex("by_key", (q: any) => q.eq("key", "cert_secret"))
+    .unique();
+  if (row) return row.value;
+  return "raptor-cert-default-secret-key-fallback";
+}
 
 /**
  * Judging engine (T2): rubrics, algorithmic assignments, score capture,
@@ -625,6 +635,58 @@ export const progress = query({
 });
 
 /** All scores for an event (organizer view — feeds normalization + exports). */
+/** Verifiable signed judge participation record (T4.4). */
+export const judgeRecord = query({
+  args: { eventId: v.id("events"), judgeId: v.id("users") },
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get(args.eventId);
+    if (!event) throw new Error("Event not found");
+
+    const judge = await ctx.db.get(args.judgeId);
+    if (!judge) throw new Error("Judge not found");
+
+    const assignments = await ctx.db
+      .query("judgeAssignments")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    const judgeAssignments = assignments.filter((a) => a.judgeId === args.judgeId);
+
+    const scores = await ctx.db
+      .query("judgeScores")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    const judgeScores = scores.filter((s) => s.judgeId === args.judgeId);
+
+    const projectsScoredCount = new Set(judgeScores.map((s) => String(s.submissionId))).size;
+    const issuedAt = Date.now();
+    const uuid = randomHex(16);
+
+    const secret = await getCertSecretReadOnly(ctx);
+    const payloadStr = [
+      judge._id,
+      event._id,
+      judge.name,
+      event.title,
+      projectsScoredCount,
+      judgeScores.length,
+    ].join("|");
+
+    const signature = await hmacSha256Hex(secret, payloadStr);
+
+    return {
+      uuid: String(judge._id),
+      judgeName: judge.name,
+      eventName: event.title,
+      eventSlug: event.slug,
+      projectsScored: projectsScoredCount,
+      totalScoresSubmitted: judgeScores.length,
+      issuedAt,
+      signature,
+      verificationUrl: `/verify/judge/${judge._id}?signature=${signature}&eventId=${event._id}&projectsScored=${projectsScoredCount}&totalScores=${judgeScores.length}&judgeName=${encodeURIComponent(judge.name)}&eventName=${encodeURIComponent(event.title)}`,
+    };
+  },
+});
+
 export const allScores = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
