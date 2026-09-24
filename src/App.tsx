@@ -119,6 +119,7 @@ export default function App() {
           <Route path="/home" element={<Protected><RoleHome /></Protected>} />
           <Route path="/verify" element={<Verify />} />
           <Route path="/verify/:uuid" element={<Verify />} />
+          <Route path="/verify/judge/:uuid" element={<Verify />} />
           <Route path="/dashboard" element={<Protected><ParticipantDashboard /></Protected>} />
           <Route path="/workspace" element={<Protected><ParticipantWorkspace /></Protected>} />
           <Route path="/judge" element={<Protected><JudgePortal /></Protected>} />

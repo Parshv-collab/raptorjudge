@@ -33,9 +33,95 @@ export function OrganizerEventManage() {
   const customizeRubric = useMutation(api.judging.customizeRubric);
   const deleteCriterion = useMutation(api.judging.deleteCriterion);
 
+  const voteStatusData = useQuery(api.voting.voteStatus, skip || !event ? "skip" : { eventId: event._id });
+  const flaggedComments = useQuery((api.comments as any).listFlagged, skip || !event ? "skip" : { eventId: event._id });
+  const deleteComment = useMutation(api.comments.deleteComment);
+
+  const flagsData = useQuery((api.submissions as any).listFlags, skip || !event ? "skip" : { eventId: event._id });
+  const dismissFlag = useMutation((api.submissions as any).dismissFlag);
+  const removeFlaggedSub = useMutation((api.submissions as any).removeFlaggedSubmission);
+
+  const webhooks = useQuery(api.webhooks.list, skip || !event ? "skip" : { eventId: event._id });
+  const webhookDeliveries = useQuery(api.webhooks.deliveries, skip || !event ? "skip" : { eventId: event._id });
+  const registerWebhook = useMutation(api.webhooks.register);
+  const testDelivery = useMutation(api.webhooks.testDelivery);
+
   const [activeTab, setActiveTab] = useState("overview");
   const [busy, setBusy] = useState(false);
   const [unpublishConfirmOpen, setUnpublishConfirmOpen] = useState(false);
+
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookEvents, setWebhookEvents] = useState("*");
+  const [newSecretKey, setNewSecretKey] = useState<string | null>(null);
+
+  async function handleRegisterWebhook(e: React.FormEvent) {
+    e.preventDefault();
+    if (!webhookUrl.trim() || !event) return;
+    setBusy(true);
+    try {
+      const res = await registerWebhook({
+        eventId: event._id,
+        targetUrl: webhookUrl.trim(),
+        events: webhookEvents.trim(),
+      });
+      setNewSecretKey(res.secretKey);
+      toast.success("Webhook registered!");
+      setWebhookUrl("");
+    } catch (err: any) {
+      toast.error(humanizeConvexError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleTestDelivery(webhookId: string) {
+    setBusy(true);
+    try {
+      await testDelivery({ webhookId: webhookId as never });
+      toast.success("Test event queued for delivery!");
+    } catch (err: any) {
+      toast.error(humanizeConvexError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDismissFlag(flagId: string) {
+    setBusy(true);
+    try {
+      await dismissFlag({ flagId: flagId as never });
+      toast.success("Flag dismissed.");
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemoveFlaggedSub(flagId: string) {
+    if (!confirm("Are you sure you want to remove/withdraw this flagged submission?")) return;
+    setBusy(true);
+    try {
+      await removeFlaggedSub({ flagId: flagId as never });
+      toast.success("Flagged submission removed.");
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteComment(commentId: string) {
+    setBusy(true);
+    try {
+      await deleteComment({ commentId: commentId as never });
+      toast.success("Comment deleted.");
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   // New track state
   const [newTrackName, setNewTrackName] = useState("");
@@ -105,6 +191,10 @@ export function OrganizerEventManage() {
     { id: "tracks", label: "Tracks & Prizes", badge: tracks?.length },
     { id: "rubric", label: "Rubric", badge: rubricData?.criteria?.length },
     { id: "judges", label: "Judges" },
+    { id: "voting", label: "Community Voting", badge: voteStatusData?.totalVotes },
+    { id: "webhooks", label: "Webhooks", badge: webhooks?.length },
+    { id: "comments", label: "Flagged Comments", badge: flaggedComments?.length },
+    { id: "duplicates", label: "Duplicate Flags", badge: flagsData?.filter((f: any) => f.status === "flagged")?.length },
     { id: "submissions", label: "Submissions", badge: submissions?.length },
     { id: "results", label: "Results" },
     { id: "audit", label: "Audit" },
@@ -238,6 +328,255 @@ export function OrganizerEventManage() {
       )}
 
       {activeTab === "judges" && <JudgesTab eventId={event._id} />}
+
+      {activeTab === "voting" && (
+        <GlassCard className="p-6">
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h3 className="text-base font-bold text-[#1d1d1f]">Live Community Voting Tallies</h3>
+              <p className="text-xs text-[#6e6e73] mt-0.5">
+                Mode: <span className="font-semibold text-[#1d1d1f] capitalize">{voteStatusData?.votingType || "quadratic"}</span> | Total Votes: <strong className="text-[#1d1d1f]">{voteStatusData?.totalVotes || 0}</strong>
+              </p>
+            </div>
+            <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-amber-500/10 text-amber-700">
+              Organizer Live Preview
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            {(voteStatusData?.tally || []).map((t: any) => {
+              const sub = (submissions || []).find((s: any) => String(s._id) === String(t.submissionId));
+              return (
+                <div
+                  key={t.submissionId}
+                  className="p-3.5 rounded-input bg-white/60 border border-white flex justify-between items-center text-xs"
+                >
+                  <div>
+                    <Link to={`/project/${t.submissionId}`} className="font-bold text-[#1d1d1f] hover:underline">
+                      {sub?.title || `Project #${t.submissionId}`}
+                    </Link>
+                    <p className="text-[#6e6e73]">Team: {sub?.teamName || "—"}</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-sm font-black text-[#ff0055]">{t.points} pts</span>
+                  </div>
+                </div>
+              );
+            })}
+            {(!voteStatusData?.tally || voteStatusData.tally.length === 0) && (
+              <p className="text-xs text-[#6e6e73] text-center py-6">No community votes recorded yet.</p>
+            )}
+          </div>
+        </GlassCard>
+      )}
+
+      {activeTab === "webhooks" && (
+        <div className="flex flex-col gap-6">
+          <GlassCard className="p-6">
+            <h3 className="text-base font-bold text-[#1d1d1f] mb-3">Register New Webhook Endpoint</h3>
+            <form onSubmit={handleRegisterWebhook} className="flex flex-col gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Input
+                  label="Target Endpoint URL *"
+                  placeholder="https://your-server.com/webhook"
+                  value={webhookUrl}
+                  onChange={(e) => setWebhookUrl(e.target.value)}
+                  required
+                />
+                <Input
+                  label="Subscribed Events (* for all)"
+                  placeholder="project.submitted, results.published"
+                  value={webhookEvents}
+                  onChange={(e) => setWebhookEvents(e.target.value)}
+                />
+                <div className="flex items-end">
+                  <Button variant="primary" size="md" isLoading={busy} type="submit" className="w-full">
+                    Register Webhook
+                  </Button>
+                </div>
+              </div>
+            </form>
+
+            {newSecretKey && (
+              <div className="mt-4 p-4 rounded-card bg-amber-500/10 border border-amber-500/30 text-xs">
+                <p className="font-bold text-amber-900">⚠️ Save this Webhook Secret Key (Shown Once):</p>
+                <code className="block mt-1 p-2 rounded bg-black/5 font-mono text-[#ff0055] font-bold text-xs select-all">
+                  {newSecretKey}
+                </code>
+              </div>
+            )}
+          </GlassCard>
+
+          <GlassCard className="p-6">
+            <h3 className="text-base font-bold text-[#1d1d1f] mb-4">Active Webhooks ({webhooks?.length || 0})</h3>
+            <div className="flex flex-col gap-3">
+              {(webhooks || []).map((w: any) => (
+                <div key={w._id} className="p-4 rounded-input bg-white/60 border border-white flex justify-between items-center text-xs">
+                  <div>
+                    <span className="font-bold font-mono text-[#1d1d1f]">{w.targetUrl}</span>
+                    <p className="text-[#6e6e73] mt-0.5">Events: {w.events}</p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isLoading={busy}
+                    onClick={() => handleTestDelivery(w._id)}
+                  >
+                    Send Test Event
+                  </Button>
+                </div>
+              ))}
+              {(!webhooks || webhooks.length === 0) && (
+                <p className="text-xs text-[#6e6e73] text-center py-4">No webhooks registered.</p>
+              )}
+            </div>
+          </GlassCard>
+
+          <GlassCard className="p-6">
+            <h3 className="text-base font-bold text-[#1d1d1f] mb-4">Recent Delivery Logs</h3>
+            <div className="flex flex-col gap-2">
+              {(webhookDeliveries || []).map((d: any) => (
+                <div key={d._id} className="p-3.5 rounded-input bg-white/60 border border-white flex justify-between items-center text-xs">
+                  <div>
+                    <span className="font-bold text-[#1d1d1f]">{d.eventType}</span>
+                    <span className="text-[#6e6e73] ml-2 font-mono">→ {d.targetUrl}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded-full ${
+                      d.success ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-600"
+                    }`}>
+                      {d.statusCode ? `HTTP ${d.statusCode}` : "Failed"}
+                    </span>
+                    <span className="text-[10px] text-[#6e6e73]">
+                      {new Date(d.deliveredAt).toLocaleTimeString()}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {(!webhookDeliveries || webhookDeliveries.length === 0) && (
+                <p className="text-xs text-[#6e6e73] text-center py-4">No delivery history yet.</p>
+              )}
+            </div>
+          </GlassCard>
+        </div>
+      )}
+
+      {activeTab === "comments" && (
+        <GlassCard className="p-6">
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h3 className="text-base font-bold text-[#1d1d1f]">Flagged Comments for Moderation</h3>
+              <p className="text-xs text-[#6e6e73] mt-0.5">
+                Review user-reported comments across all submissions in this event.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            {(flaggedComments || []).map((c: any) => (
+              <div
+                key={c.id}
+                className="p-4 rounded-input bg-white/60 border border-white flex flex-col gap-2 text-xs"
+              >
+                <div className="flex justify-between items-center">
+                  <div>
+                    <span className="font-bold text-[#1d1d1f]">{c.authorName}</span>
+                    <span className="text-[#6e6e73] ml-2">
+                      on project{" "}
+                      <Link to={`/project/${c.submissionId}`} className="font-semibold text-[#ff0055] hover:underline">
+                        {c.submissionTitle}
+                      </Link>
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-[#6e6e73]">
+                    {new Date(c.createdAt).toLocaleString()}
+                  </span>
+                </div>
+                <p className="text-[#1d1d1f] leading-relaxed bg-amber-500/5 p-2 rounded border border-amber-500/20">
+                  {c.body || c.content}
+                </p>
+                <div className="flex justify-end pt-1">
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    isLoading={busy}
+                    onClick={() => handleDeleteComment(c.id)}
+                  >
+                    Delete Comment
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {(!flaggedComments || flaggedComments.length === 0) && (
+              <p className="text-xs text-[#6e6e73] text-center py-6">No flagged comments to moderate.</p>
+            )}
+          </div>
+        </GlassCard>
+      )}
+
+      {activeTab === "duplicates" && (
+        <GlassCard className="p-6">
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h3 className="text-base font-bold text-[#1d1d1f]">Flagged Duplicate Submissions</h3>
+              <p className="text-xs text-[#6e6e73] mt-0.5">
+                Review automated flags for projects with matching titles or repository URLs.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            {(flagsData || []).map((f: any) => (
+              <div
+                key={f.id}
+                className="p-4 rounded-input bg-white/60 border border-white flex flex-col gap-2 text-xs"
+              >
+                <div className="flex justify-between items-center">
+                  <div>
+                    <Link to={`/project/${f.submissionId}`} className="font-bold text-[#ff0055] hover:underline">
+                      {f.submissionTitle}
+                    </Link>
+                    <span className="text-[#6e6e73] ml-2">Team: {f.teamName}</span>
+                  </div>
+                  <span className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded-full ${
+                    f.status === "flagged" ? "bg-amber-500/10 text-amber-700" : "bg-gray-200 text-gray-700"
+                  }`}>
+                    {f.status}
+                  </span>
+                </div>
+
+                <p className="text-[#1d1d1f] font-mono bg-amber-500/10 p-2 rounded border border-amber-500/20 text-[11px]">
+                  ⚠️ {f.reason}
+                </p>
+
+                {f.status === "flagged" && (
+                  <div className="flex justify-end gap-2 pt-1">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      isLoading={busy}
+                      onClick={() => handleDismissFlag(f.id)}
+                    >
+                      Dismiss Flag
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      isLoading={busy}
+                      onClick={() => handleRemoveFlaggedSub(f.id)}
+                    >
+                      Remove Submission
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+            {(!flagsData || flagsData.length === 0) && (
+              <p className="text-xs text-[#6e6e73] text-center py-6">No duplicate flags recorded.</p>
+            )}
+          </div>
+        </GlassCard>
+      )}
 
       {activeTab === "submissions" && (
         <GlassCard className="p-6">
