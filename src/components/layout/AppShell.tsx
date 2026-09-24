@@ -5,6 +5,63 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "@/convex/_generated/api";
 import { Avatar } from "@/components/ui/Avatar";
 
+function HeaderSearch() {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedQuery(searchTerm.trim());
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
+
+  const events = useQuery(api.events.listPublic, {});
+  const matchedEvents = (events || [])
+    .filter((e: any) => debouncedQuery && e.title.toLowerCase().includes(debouncedQuery.toLowerCase()))
+    .slice(0, 5);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && searchTerm.trim()) {
+      setOpen(false);
+      navigate(`/search?q=${encodeURIComponent(searchTerm.trim())}`);
+    }
+  };
+
+  return (
+    <div className="relative hidden lg:block w-48 xl:w-60">
+      <input
+        type="text"
+        placeholder="Search events..."
+        value={searchTerm}
+        onChange={(e) => {
+          setSearchTerm(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={handleKeyDown}
+        className="w-full px-3 py-1.5 text-xs rounded-full bg-white/50 border border-white/80 focus-ring-accent text-[#1d1d1f]"
+      />
+      {open && debouncedQuery && matchedEvents.length > 0 && (
+        <div className="absolute left-0 top-full mt-2 w-full glass-panel rounded-card border-white/90 shadow-xl p-2 z-50 flex flex-col gap-1 text-xs">
+          {matchedEvents.map((evt: any) => (
+            <Link
+              key={evt._id}
+              to={`/e/${evt.slug}`}
+              onClick={() => setOpen(false)}
+              className="p-2 rounded-input hover:bg-white/80 font-bold text-[#1d1d1f] truncate"
+            >
+              {evt.title}
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AppShell() {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const { signOut } = useAuthActions();
@@ -35,12 +92,12 @@ export function AppShell() {
 
   const role = me?.role ?? "participant";
 
-  // Role-based navigation links (max 3 per role, exact matching specs)
+  // Role-based navigation links
   const navLinksByRole = {
     participant: [
       { label: "Dashboard", href: "/dashboard" },
       { label: "My Events", href: "/dashboard#events" },
-      { label: "Browse", href: "/" },
+      { label: "Browse", href: "/events" },
     ],
     judge: [
       { label: "Judge Portal", href: "/judge" },
@@ -87,6 +144,9 @@ export function AppShell() {
               Raptor<span className="text-[#ff0055]">Judge</span>
             </span>
           </Link>
+
+          {/* Persistent Search Input for Authenticated Users */}
+          {isAuthenticated && <HeaderSearch />}
 
           {/* Role-based Center Nav Links (Desktop) */}
           <nav className="hidden md:flex items-center gap-1 bg-white/40 p-1 rounded-full border border-white/70 backdrop-blur-md">
@@ -156,9 +216,6 @@ export function AppShell() {
                       role="menuitem"
                       className="px-3 py-2 rounded-input hover:bg-white/80 text-[#1d1d1f] flex items-center gap-2 transition-colors"
                     >
-                      <svg className="w-4 h-4 text-[#6e6e73]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                      </svg>
                       Profile
                     </Link>
 
@@ -167,10 +224,6 @@ export function AppShell() {
                       role="menuitem"
                       className="px-3 py-2 rounded-input hover:bg-white/80 text-[#1d1d1f] flex items-center gap-2 transition-colors"
                     >
-                      <svg className="w-4 h-4 text-[#6e6e73]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
                       Settings
                     </Link>
 
@@ -179,9 +232,6 @@ export function AppShell() {
                       role="menuitem"
                       className="px-3 py-2 rounded-input hover:bg-white/80 text-[#1d1d1f] flex items-center gap-2 transition-colors"
                     >
-                      <svg className="w-4 h-4 text-[#6e6e73]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                      </svg>
                       Security
                     </Link>
 
@@ -190,9 +240,6 @@ export function AppShell() {
                       role="menuitem"
                       className="px-3 py-2 rounded-input hover:bg-white/80 text-[#1d1d1f] flex items-center gap-2 transition-colors"
                     >
-                      <svg className="w-4 h-4 text-[#6e6e73]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
                       Help
                     </Link>
 
@@ -204,9 +251,6 @@ export function AppShell() {
                       onClick={handleSignOut}
                       className="w-full px-3 py-2 rounded-input hover:bg-[#e63946]/10 text-[#e63946] font-semibold text-left flex items-center gap-2 transition-colors"
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                      </svg>
                       Sign out
                     </button>
                   </div>

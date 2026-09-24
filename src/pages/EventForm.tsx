@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/Checkbox";
 const slugify = (s: string) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
-const toTs = (s: string) => (s ? new Date(s).getTime() : Date.now());
+const toTs = (s: string, fallback = Date.now()) => (s ? new Date(s).getTime() : fallback);
 const fromTs = (n?: number) => (n ? new Date(n).toISOString().slice(0, 16) : "");
 
 type FormState = {
@@ -95,24 +95,46 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
   const setField = (key: keyof FormState, value: any) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  const payload = useMemo(
-    () => ({
+  const buildPayload = useMemo(() => {
+    const regStart = toTs(form.registrationOpens);
+    const regEnd = toTs(form.registrationCloses);
+    const subOpens = toTs(form.submissionOpens, regStart);
+    const subDeadline = toTs(form.submissionDeadline, regEnd);
+    const judgeStart = toTs(form.judgingStarts, subDeadline);
+    const judgeEnd = toTs(form.judgingEnds, judgeStart);
+    const resAnnounced = toTs(form.resultsAnnounced, judgeEnd);
+
+    return {
       slug: form.slug,
       title: form.title,
       tagline: form.shortDescription,
       description: form.fullDescription,
-      registrationStart: toTs(form.registrationOpens),
-      registrationEnd: toTs(form.registrationCloses),
-      submissionDeadline: toTs(form.submissionDeadline),
-      judgingStart: toTs(form.judgingStarts),
-      judgingEnd: toTs(form.judgingEnds),
-      votingStart: toTs(form.resultsAnnounced),
-      votingEnd: toTs(form.resultsAnnounced),
+      registrationStart: regStart,
+      registrationEnd: regEnd,
+      submissionDeadline: subDeadline,
+      judgingStart: judgeStart,
+      judgingEnd: judgeEnd,
+      votingStart: resAnnounced,
+      votingEnd: resAnnounced,
+      registrationOpens: regStart,
+      registrationCloses: regEnd,
+      submissionOpens: subOpens,
+      judgingStarts: judgeStart,
+      judgingEnds: judgeEnd,
+      resultsAnnounced: resAnnounced,
+      hostName: form.hostName,
+      bannerUrl: form.bannerUrl,
+      shortDescription: form.shortDescription,
+      fullDescription: form.fullDescription,
+      rules: form.rules,
+      minTeamSize: form.minTeamSize,
+      maxTeamSize: form.maxTeamSize,
+      soloAllowed: form.soloAllowed,
+      coverImageRequired: form.coverImageRequired,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       settings: `max_team_size=${Number(form.maxTeamSize)},voting_type=quadratic`,
-    }),
-    [form]
-  );
+    };
+  }, [form]);
 
   async function handleSaveDraft() {
     if (!form.title.trim() || !form.slug.trim()) {
@@ -124,15 +146,11 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
       if (edit && event) {
         await update({
           eventId: event._id,
-          title: form.title,
-          tagline: form.shortDescription,
-          description: form.fullDescription,
-          submissionDeadline: toTs(form.submissionDeadline),
-          settings: `max_team_size=${Number(form.maxTeamSize)},voting_type=quadratic`,
-        } as any);
+          ...buildPayload,
+        });
         toast.success("Event updated successfully!");
       } else {
-        await create(payload);
+        await create(buildPayload);
         toast.success("Event draft saved!");
       }
       navigate(`/organizer/events/${form.slug}`);
@@ -159,7 +177,7 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
-            label="Event Title"
+            label="Event Title *"
             required
             value={form.title}
             onChange={(e) => {
@@ -170,7 +188,7 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
           />
 
           <Input
-            label="URL Slug"
+            label="URL Slug *"
             required
             value={form.slug}
             onChange={(e) => setField("slug", slugify(e.target.value))}
@@ -237,8 +255,9 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
             onChange={(e) => setField("registrationOpens", e.target.value)}
           />
           <Input
-            label="Registration Closes"
+            label="Registration Closes *"
             type="datetime-local"
+            required
             value={form.registrationCloses}
             onChange={(e) => setField("registrationCloses", e.target.value)}
           />
@@ -268,8 +287,9 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
             onChange={(e) => setField("judgingEnds", e.target.value)}
           />
           <Input
-            label="Results Announced"
+            label="Results Announced *"
             type="datetime-local"
+            required
             value={form.resultsAnnounced}
             onChange={(e) => setField("resultsAnnounced", e.target.value)}
           />

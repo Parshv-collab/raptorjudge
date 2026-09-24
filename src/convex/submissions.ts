@@ -20,15 +20,6 @@ import {
 
 /** Submissions (T1). Drafts autosave until deadline; gallery is public. */
 
-/**
- * Validate the fields of a draft submission (security item 66).
- *
- * Every one of these values is authored by a participant and later rendered —
- * as a link, a heading or a card — to teammates, judges and the public gallery.
- * A stored `javascript:` URL is therefore a stored XSS payload, and unbounded
- * text is a cheap way to bloat the database and every export. URLs must be
- * http(s); text is trim/control-character cleaned and length-capped.
- */
 function validateSubmissionFields(input: {
   title: string;
   tagline: string;
@@ -258,9 +249,6 @@ export const saveDraft = mutation({
       throw new Error("Already submitted — withdraw or contact an organizer to edit");
     }
 
-    // Validate the whole payload up-front against the incoming values, falling
-    // back to the stored ones so a partial autosave cannot silently blank a
-    // field (or bypass validation by omitting it).
     const clean = validateSubmissionFields({
       title: args.title ?? draft?.title ?? "",
       tagline: args.tagline ?? draft?.tagline ?? "",
@@ -327,14 +315,20 @@ export const submit = mutation({
       .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect();
     let teamId: Id<"teams"> | null = null;
+    let memberRole: string | null = null;
     for (const m of memberships) {
       const t = await ctx.db.get(m.teamId);
       if (t && t.eventId === args.eventId) {
         teamId = m.teamId;
+        memberRole = m.memberRole;
         break;
       }
     }
     if (!teamId) throw new Error("Join or create a team first");
+
+    if (memberRole && memberRole !== "leader") {
+      throw new Error("Only the team leader can submit the project.");
+    }
 
     const existing = await ctx.db
       .query("submissions")
@@ -346,8 +340,7 @@ export const submit = mutation({
     if (!draft.title.trim() || !draft.description.trim()) {
       throw new Error("Title and description are required before submitting");
     }
-    // Re-validate at submit time too: a row written before the validators
-    // existed (or patched by hand) must not be published as-is.
+
     const clean = validateSubmissionFields({
       title: draft.title,
       tagline: draft.tagline,

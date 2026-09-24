@@ -14,35 +14,29 @@ import { appendAudit } from "./lib/audit";
 export const me = query({
   args: {},
   handler: async (ctx) => {
-    // 1) Convex Auth session JWT: `sub = "<users._id>|<sessionId>"`.
     const authUserId = await getAuthUserId(ctx);
     if (authUserId) {
       const byId = await ctx.db.get(authUserId);
-      if (byId) return byId;
+      if (byId && byId.role !== undefined) return byId;
     }
 
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return null;
 
-    // 2) direct tokenIdentifier match (other providers / seeded users).
     const byToken = await ctx.db
       .query("users")
       .withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
       .unique();
-    if (byToken) return byToken;
+    if (byToken && byToken.role !== undefined) return byToken;
 
     if (!identity.email) return null;
 
-    // 3) fall back to matching by email
     const byEmail = await ctx.db
       .query("users")
       .withIndex("email", (q) => q.eq("email", identity.email!))
       .unique();
-    if (byEmail) return byEmail;
+    if (byEmail && byEmail.role !== undefined) return byEmail;
 
-    // Self-provisioning on first login: the user row is created by Convex Auth
-    // sign-up itself, so surface a transient participant view here (queries
-    // cannot write). The role lands on the row via auth's profile insert.
     return {
       _id: "" as never,
       _creationTime: 0,
@@ -62,13 +56,6 @@ export const list = query({
   },
 });
 
-/**
- * Change a user's role — used by the admin role manager.
- *
- * Security item 57: the policy lives in lib/rbac.ts and is shared with the REST
- * role-switch bridge, which previously allowed any authenticated caller to
- * promote themselves to admin. Every change is audited with before/after state.
- */
 export const setRole = mutation({
   args: { userId: v.id("users"), role: v.string() },
   handler: async (ctx, args) => {
@@ -97,7 +84,6 @@ export const setRole = mutation({
   },
 });
 
-/** Update own profile (bio / avatar). */
 export const updateProfile = mutation({
   args: { bio: v.optional(v.string()), avatarUrl: v.optional(v.string()) },
   handler: async (ctx, args) => {
@@ -105,6 +91,28 @@ export const updateProfile = mutation({
     await ctx.db.patch(user._id, {
       bio: args.bio ?? user.bio,
       avatarUrl: args.avatarUrl ?? user.avatarUrl,
+    });
+    return { ok: true };
+  },
+});
+
+/** Delete / disable own account (GDPR consent withdrawal). */
+export const deleteAccount = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    await ctx.db.patch(user._id, {
+      role: undefined,
+      tokenIdentifier: undefined,
+      bio: "Account scheduled for deletion",
+    });
+    await appendAudit(ctx, {
+      actorId: user._id,
+      action: "user.delete",
+      targetType: "user",
+      targetId: String(user._id),
+      beforeState: JSON.stringify({ email: user.email, role: user.role }),
+      afterState: "deleted",
     });
     return { ok: true };
   },

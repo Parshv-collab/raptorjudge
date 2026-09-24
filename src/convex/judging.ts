@@ -66,6 +66,45 @@ export const upsertCriterion = mutation({
 
 // ------------------------------------------------------------ assignments ---
 
+/** Assign projects to a specific judge manually/batch. */
+export const assignProjects = mutation({
+  args: {
+    eventId: v.id("events"),
+    judgeId: v.id("users"),
+    submissionIds: v.array(v.id("submissions")),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    const now = Date.now();
+    let count = 0;
+    for (const subId of args.submissionIds) {
+      const existing = await ctx.db
+        .query("judgeAssignments")
+        .withIndex("by_judge", (q) => q.eq("judgeId", args.judgeId))
+        .collect();
+      if (!existing.some((a) => a.submissionId === subId)) {
+        await ctx.db.insert("judgeAssignments", {
+          eventId: args.eventId,
+          judgeId: args.judgeId,
+          submissionId: subId,
+          status: "assigned",
+          assignedAt: now,
+        });
+        count++;
+      }
+    }
+    await appendAudit(ctx, {
+      eventId: args.eventId,
+      actorId: actor._id,
+      action: "judging.assign_manual",
+      targetType: "judge",
+      targetId: String(args.judgeId),
+      afterState: JSON.stringify({ count }),
+    });
+    return { ok: true, count };
+  },
+});
+
 /** Trigger the algorithmic assignment engine (organizer/admin only, audited). */
 export const runAssignment = mutation({
   args: {

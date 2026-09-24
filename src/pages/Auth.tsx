@@ -13,6 +13,7 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { ChipGroup } from "@/components/ui/ChipGroup";
 import { Alert } from "@/components/ui/Alert";
 import { resolveReturnTo } from "@/lib/safeRedirect";
+import { humanizeConvexError } from "@/lib/errors";
 
 const DEMO_ACCOUNTS = [
   { email: "admin@raptors.dev", label: "Admin", role: "admin" },
@@ -111,7 +112,7 @@ export default function Auth() {
       } else if (/Invalid email or password/i.test(raw) || /InvalidSecret|InvalidAccountId/i.test(raw)) {
         setError("Invalid email or password. Default demo password is 'dogfood2026'.");
       } else {
-        setError(raw || "Sign in failed");
+        setError(humanizeConvexError(err));
       }
     } finally {
       setBusy(false);
@@ -147,7 +148,7 @@ export default function Auth() {
       toast.success("Account created successfully!");
       navigate(returnTo, { replace: true });
     } catch (err: any) {
-      setError(String(err?.message || "Sign up failed. Email may already be in use."));
+      setError(humanizeConvexError(err));
     } finally {
       setBusy(false);
     }
