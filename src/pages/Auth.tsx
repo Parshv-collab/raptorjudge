@@ -48,7 +48,7 @@ const EXPERIENCE_LEVELS = [
   { value: "advanced", label: "Advanced (5+ years)" },
 ];
 
-import { useQuery } from "convex/react";
+import { useQuery, useConvexAuth } from "convex/react";
 
 export default function Auth() {
   const { signIn } = useAuthActions();
