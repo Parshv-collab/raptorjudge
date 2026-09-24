@@ -10,12 +10,11 @@ import {
 } from "@convex-dev/auth/server";
 import { sha256Hex, hmacSha256Hex, randomHex } from "./crypto";
 import { appendAudit } from "./lib/audit";
-import fs from "node:fs";
-import path from "node:path";
+import { FIXTURES } from "./lib/fixturesData";
 
 /**
  * DOGFOOD 2026 Fixture Seeder.
- * Reads fixtures.json from the repo root and populates the Convex database
+ * Reads FIXTURES from ./lib/fixturesData and populates the Convex database
  * according to DOGFOOD 2026 specifications.
  */
 
@@ -56,13 +55,6 @@ export const userRoleById = internalQuery({
 export const seed = action({
   args: {},
   handler: async (ctx) => {
-    // Read fixtures.json from repo root
-    const fixturesPath = path.join(process.cwd(), "fixtures.json");
-    if (!fs.existsSync(fixturesPath)) {
-      throw new Error(`fixtures.json not found at ${fixturesPath}`);
-    }
-    const fixtures = JSON.parse(fs.readFileSync(fixturesPath, "utf-8"));
-
     // Check seed flags for idempotency
     const alreadySeeded = await ctx.runQuery(internal.seed.getSeedFlag, { key: "fixture-seeded-2026" });
     if (alreadySeeded) {
@@ -94,22 +86,22 @@ export const seed = action({
       status: "closed",
     });
 
-    // 3. Create 8 tracks from fixtures.tracks
+    // 3. Create 8 tracks from FIXTURES.tracks
     const trackMap = new Map<string, Id<"tracks">>();
-    for (const t of fixtures.tracks) {
+    for (const t of FIXTURES.tracks) {
       const id = await ctx.runMutation(internal.seed.createTrack, {
         eventId,
         name: t.name,
-        description: t.description || "",
-        prizeDescription: t.prize || "",
+        description: `${t.name} track`,
+        prizeDescription: `${t.name} prize`,
         prizeAmount: 1000,
       });
       trackMap.set(t.id, id);
     }
 
-    // 4. Create 30 judges from fixtures.judges
+    // 4. Create 30 judges from FIXTURES.judges
     const judgeMap = new Map<string, Id<"users">>();
-    for (const j of fixtures.judges) {
+    for (const j of FIXTURES.judges) {
       const { id } = await ctx.runMutation(internal.seed.upsertSeedUser, {
         email: j.email,
         name: j.name,
@@ -120,11 +112,11 @@ export const seed = action({
       judgeMap.set(j.id, id as Id<"users">);
     }
 
-    // 5. Create teams and participants from fixtures.teams
+    // 5. Create teams and participants from FIXTURES.teams
     const teamMap = new Map<string, Id<"teams">>();
     const userMapByEmail = new Map<string, Id<"users">>();
 
-    for (const tm of fixtures.teams) {
+    for (const tm of FIXTURES.teams) {
       let leaderId: Id<"users"> | null = null;
       const memberIds: Id<"users">[] = [];
 
@@ -161,9 +153,9 @@ export const seed = action({
       }
     }
 
-    // 6. Create projects from fixtures.projects
+    // 6. Create projects from FIXTURES.projects
     const projectMap = new Map<string, Id<"submissions">>();
-    for (const p of fixtures.projects) {
+    for (const p of FIXTURES.projects) {
       const dbTeamId = teamMap.get(p.team);
       const dbTrackId = p.track ? trackMap.get(p.track) : undefined;
       const id = await ctx.runMutation(internal.seed.createSubmission, {
@@ -183,9 +175,9 @@ export const seed = action({
       projectMap.set(p.id, id);
     }
 
-    // 7. Create rubric criteria from unique criteria keys in fixtures.scores
+    // 7. Create rubric criteria from unique criteria keys in FIXTURES.scores
     const criteriaNames = new Set<string>();
-    for (const sc of fixtures.scores) {
+    for (const sc of FIXTURES.scores) {
       if (sc.criteria) {
         for (const k of Object.keys(sc.criteria)) {
           criteriaNames.add(k);
@@ -210,8 +202,8 @@ export const seed = action({
       criterionMap.set(name, id);
     }
 
-    // 8. Create judge assignments and scores from fixtures.scores
-    for (const sc of fixtures.scores) {
+    // 8. Create judge assignments and scores from FIXTURES.scores
+    for (const sc of FIXTURES.scores) {
       const dbJudgeId = judgeMap.get(sc.judge);
       const dbSubId = projectMap.get(sc.project);
       if (!dbJudgeId || !dbSubId) continue;
