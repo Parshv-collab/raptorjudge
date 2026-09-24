@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from "react";
-import { Link } from "react-router-dom";
-import { useQuery } from "convex/react";
+import { Link, Navigate } from "react-router-dom";
+import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 
@@ -15,7 +16,8 @@ const STATUS_OPTIONS = [
 ];
 
 export function OrganizerEvents() {
-  const events = useQuery(api.events.listAll, {});
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const events = useQuery(api.events.listAll, authLoading || !isAuthenticated ? "skip" : {});
   const [statusFilter, setStatusFilter] = useState("all");
 
   const filteredEvents = useMemo(() => {
@@ -23,6 +25,16 @@ export function OrganizerEvents() {
       (e: any) => statusFilter === "all" || e.status === statusFilter
     );
   }, [events, statusFilter]);
+
+  if (authLoading) {
+    return (
+      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={6} />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">

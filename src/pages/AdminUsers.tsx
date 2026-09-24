@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from "react";
-import { Link } from "react-router-dom";
-import { useQuery, useMutation } from "convex/react";
+import { Link, Navigate } from "react-router-dom";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
+import { humanizeConvexError } from "@/lib/errors";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
@@ -18,7 +20,8 @@ const ROLE_OPTIONS = [
 ];
 
 export default function AdminUsers() {
-  const users = useQuery(api.users.list, {});
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const users = useQuery(api.users.list, authLoading || !isAuthenticated ? "skip" : {});
   const setRole = useMutation(api.users.setRole);
   const disableUser = useMutation(api.users.adminDisable);
   const enableUser = useMutation(api.users.adminEnable);
@@ -41,7 +44,7 @@ export default function AdminUsers() {
         toast.success("User enabled.");
       }
     } catch (e: any) {
-      toast.error(e.message || "Failed to update user status");
+      toast.error(humanizeConvexError(e));
     }
   }
 
@@ -50,7 +53,7 @@ export default function AdminUsers() {
       await forceLogout({ userId: u._id });
       toast.success(`Force logout executed for ${u.email}`);
     } catch (e: any) {
-      toast.error(e.message || "Failed to force logout");
+      toast.error(humanizeConvexError(e));
     }
   }
 
@@ -60,7 +63,7 @@ export default function AdminUsers() {
       await deleteUser({ userId: u._id });
       toast.success(`User ${u.email} deleted.`);
     } catch (e: any) {
-      toast.error(e.message || "Failed to delete user");
+      toast.error(humanizeConvexError(e));
     }
   }
 
@@ -86,11 +89,21 @@ export default function AdminUsers() {
       toast.success(`Role updated to ${targetRole} for ${selectedUser.name || selectedUser.email}`);
       setSelectedUser(null);
     } catch (e: any) {
-      toast.error(e.message || "Failed to update role");
+      toast.error(humanizeConvexError(e));
     } finally {
       setBusy(false);
     }
   }
+
+  if (authLoading) {
+    return (
+      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={6} />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { Navigate } from "react-router-dom";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -39,7 +40,10 @@ const EXPERIENCE_LEVELS = [
 ];
 
 export default function Profile() {
-  const me = useQuery(api.users.me, {});
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
+  const me = useQuery(api.users.me, skip ? "skip" : {});
   const updateProfile = useMutation(api.users.updateProfile);
   const deleteAccount = useMutation(api.users.deleteAccount);
   const generateUploadUrl = useMutation(api.events.generateUploadUrl);
@@ -74,7 +78,7 @@ export default function Profile() {
       await updateProfile({ avatarUrl: storageId });
       toast.success("Avatar updated!");
     } catch (err: any) {
-      toast.error(err.message || "Upload failed");
+      toast.error(humanizeConvexError(err));
     } finally {
       setUploading(false);
     }
@@ -126,6 +130,16 @@ export default function Profile() {
       setBusy(false);
     }
   }
+
+  if (authLoading) {
+    return (
+      <div className="max-w-3xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={4} />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   if (me === undefined) {
     return (

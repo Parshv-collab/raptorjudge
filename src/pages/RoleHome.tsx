@@ -5,7 +5,7 @@ import { SkeletonCard } from "@/components/ui/SkeletonCard";
 
 export default function RoleHome() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
-  const me = useQuery(api.users.me, {});
+  const me = useQuery(api.users.me, authLoading || !isAuthenticated ? "skip" : {});
 
   if (authLoading || me === undefined) {
     return (

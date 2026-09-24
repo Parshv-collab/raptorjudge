@@ -38,7 +38,7 @@ import InviteAccept from "@/pages/InviteAccept";
 import ParticipantDashboard from "@/pages/ParticipantDashboard";
 import { Link, Outlet } from "react-router-dom";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
-import { Toaster } from "sonner";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 
@@ -67,7 +67,9 @@ function MinimalLayout() {
       </header>
 
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Outlet />
+        <ErrorBoundary>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   );
@@ -143,7 +145,6 @@ export default function App() {
         </Route>
         <Route path="/embed/gallery/:slug" element={<EmbedGallery />} />
       </Routes>
-      <Toaster richColors position="top-right" />
     </ThemeProvider>
   );
 }

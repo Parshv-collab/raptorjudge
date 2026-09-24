@@ -162,12 +162,12 @@ const json = (body: unknown, status = 200, headers: Record<string, string> = {})
  * privileged endpoints: no wildcard, `no-store`, and no cross-origin read
  * unless the origin is explicitly allowlisted.
  */
-const csvResponse = (body: string, request: Request): Response =>
+const csvResponse = (body: string, request: Request, filename = "export.csv"): Response =>
   new Response(body, {
     headers: {
       ...privateHeaders(request),
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": "attachment",
+      "Content-Disposition": `attachment; filename="${filename}"`,
     },
   });
 
@@ -412,19 +412,19 @@ routePrefix("/api/v1/export/", "GET", async (ctx, request) => {
   switch (kind) {
     case "submissions": {
       const csv: string = await ctx.runQuery(internal.httpPublic.exportSubmissionsCsv, { eventId: event._id });
-      return csvResponse(csv, request);
+      return csvResponse(csv, request, `${slug}-submissions.csv`);
     }
     case "scores": {
       const csv: string = await ctx.runQuery(internal.httpPublic.exportScoresCsv, { eventId: event._id });
-      return csvResponse(csv, request);
+      return csvResponse(csv, request, `${slug}-scores.csv`);
     }
     case "rankings": {
       const csv: string = await ctx.runQuery(internal.httpPublic.exportRankingsCsv, { eventId: event._id });
-      return csvResponse(csv, request);
+      return csvResponse(csv, request, `${slug}-rankings.csv`);
     }
     case "assignments": {
       const csv: string = await ctx.runQuery(internal.httpPublic.exportAssignmentsCsv, { eventId: event._id });
-      return csvResponse(csv, request);
+      return csvResponse(csv, request, `${slug}-assignments.csv`);
     }
     case "json": {
       const data: string = await ctx.runQuery(internal.httpPublic.exportEventJson, { eventId: event._id });

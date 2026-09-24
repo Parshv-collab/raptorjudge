@@ -1,15 +1,19 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
-import { useQuery, useMutation } from "convex/react";
+import { Link, Navigate } from "react-router-dom";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
+import { humanizeConvexError } from "@/lib/errors";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 
 export default function JudgePairwise() {
-  const event = useQuery(api.events.getBySlug, { slug: "dogfood-2026" });
-  const pair = useQuery(api.pairwise.nextPair, event ? { eventId: event._id } : "skip");
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
+  const event = useQuery(api.events.getBySlug, skip ? "skip" : { slug: "dogfood-2026" });
+  const pair = useQuery(api.pairwise.nextPair, skip || !event ? "skip" : { eventId: event._id });
   const submitMatch = useMutation(api.pairwise.submitMatch);
 
   const [busy, setBusy] = useState(false);
@@ -34,7 +38,7 @@ export default function JudgePairwise() {
       });
       toast.success("Match submitted!");
     } catch (e: any) {
-      toast.error(e.message || "Failed to submit comparison");
+      toast.error(humanizeConvexError(e));
     } finally {
       setBusy(false);
     }

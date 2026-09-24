@@ -1,18 +1,22 @@
 import React, { useState, useMemo } from "react";
 import { useParams, Link, Navigate } from "react-router-dom";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
+import { humanizeConvexError } from "@/lib/errors";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 
 export default function JudgeScore() {
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
   const { id } = useParams<{ id: string }>();
 
-  const event = useQuery(api.events.getBySlug, { slug: "dogfood-2026" });
-  const queue = useQuery(api.judging.myQueue, event ? { eventId: event._id } : "skip");
-  const rubric = useQuery(api.judging.rubricForEvent, event ? { eventId: event._id } : "skip");
+  const event = useQuery(api.events.getBySlug, skip ? "skip" : { slug: "dogfood-2026" });
+  const queue = useQuery(api.judging.myQueue, skip || !event ? "skip" : { eventId: event._id });
+  const rubric = useQuery(api.judging.rubricForEvent, skip || !event ? "skip" : { eventId: event._id });
   const submitScores = useMutation(api.judging.submitScores);
 
   const item = queue?.items.find(
@@ -72,7 +76,7 @@ export default function JudgeScore() {
       });
       toast.success("Scores submitted successfully!");
     } catch (e: any) {
-      toast.error(e.message || "Failed to submit scores");
+      toast.error(humanizeConvexError(e));
     } finally {
       setBusy(false);
     }

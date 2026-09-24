@@ -1,16 +1,21 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
-import { useQuery, useMutation } from "convex/react";
+import { Link, Navigate } from "react-router-dom";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
+import { humanizeConvexError } from "@/lib/errors";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Modal } from "@/components/ui/Modal";
 
 export default function AdminJudging() {
-  const assignments = useQuery(api.admin.listAllAssignments, {});
-  const users = useQuery(api.users.list, {});
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
+  const assignments = useQuery(api.admin.listAllAssignments, skip ? "skip" : {});
+  const users = useQuery(api.users.list, skip ? "skip" : {});
   const reassign = useMutation(api.admin.reassignJudge);
 
   const [selectedAssignment, setSelectedAssignment] = useState<any>(null);
@@ -28,9 +33,19 @@ export default function AdminJudging() {
       toast.success("Judge reassigned successfully.");
       setSelectedAssignment(null);
     } catch (err: any) {
-      toast.error(err.message || "Reassignment failed");
+      toast.error(humanizeConvexError(err));
     }
   }
+
+  if (authLoading) {
+    return (
+      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={6} />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">

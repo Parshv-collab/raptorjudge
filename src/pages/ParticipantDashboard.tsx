@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { useQuery } from "convex/react";
+import { useQuery, useConvexAuth } from "convex/react";
 import { Link, Navigate } from "react-router-dom";
 import { api } from "@/convex/_generated/api";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -8,9 +8,12 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 
 export default function ParticipantDashboard() {
-  const me = useQuery(api.users.me, {});
-  const publicEvents = useQuery(api.events.listPublic, {});
-  const myTeams = useQuery(api.teams.myTeams, {});
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
+  const me = useQuery(api.users.me, skip ? "skip" : {});
+  const publicEvents = useQuery(api.events.listPublic, skip ? "skip" : {});
+  const myTeams = useQuery(api.teams.myTeams, skip ? "skip" : {});
 
   const enrolled = useMemo(() => {
     if (!publicEvents || !myTeams) return undefined;
@@ -24,6 +27,19 @@ export default function ParticipantDashboard() {
       .filter((e: any) => ["registration", "hacking", "judging", "voting", "published"].includes(e.status))
       .slice(0, 4);
   }, [publicEvents]);
+
+  if (authLoading) {
+    return (
+      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={2} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <SkeletonCard lines={3} /><SkeletonCard lines={3} /><SkeletonCard lines={3} />
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   if (me === undefined || enrolled === undefined || featured === undefined) {
     return (

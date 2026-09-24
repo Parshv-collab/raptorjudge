@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { useQuery, useMutation } from "convex/react";
+import { useNavigate, useParams, Navigate } from "react-router-dom";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
+import { humanizeConvexError } from "@/lib/errors";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Checkbox } from "@/components/ui/Checkbox";
@@ -57,10 +59,13 @@ const blankForm: FormState = {
 };
 
 export default function EventForm({ edit = false }: { edit?: boolean }) {
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
   const { slug } = useParams<{ slug?: string }>();
   const navigate = useNavigate();
 
-  const event = useQuery(api.events.getBySlug, edit && slug ? { slug } : "skip");
+  const event = useQuery(api.events.getBySlug, skip || !edit || !slug ? "skip" : { slug });
   const create = useMutation(api.events.create);
   const update = useMutation(api.events.update);
   const generateUploadUrl = useMutation(api.events.generateUploadUrl);
@@ -92,7 +97,7 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
       setField("bannerUrl", storageId);
       toast.success("Banner image uploaded successfully!");
     } catch (err: any) {
-      toast.error(err.message || "Failed to upload image");
+      toast.error(humanizeConvexError(err));
     } finally {
       setUploading(false);
     }
@@ -186,11 +191,21 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
       }
       navigate(`/organizer/events/${form.slug}`);
     } catch (e: any) {
-      toast.error(e.message || "Failed to save event");
+      toast.error(humanizeConvexError(e));
     } finally {
       setBusy(false);
     }
   }
+
+  if (authLoading) {
+    return (
+      <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-8">
+        <SkeletonCard lines={6} />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-8">

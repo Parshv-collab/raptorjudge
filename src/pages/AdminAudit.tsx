@@ -1,17 +1,22 @@
 import React, { useState, useMemo } from "react";
-import { Link } from "react-router-dom";
-import { useQuery } from "convex/react";
+import { Link, Navigate } from "react-router-dom";
+import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
+import { downloadCsv } from "@/lib/csv";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
 
 export default function AdminAudit() {
-  const auditLogs = useQuery(api.audit.list, { limit: 100 });
-  const actionsList = useQuery(api.audit.actions, {});
-  const verifyChain = useQuery(api.audit.verifyChain, {});
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
+  const auditLogs = useQuery(api.audit.list, skip ? "skip" : { limit: 100 });
+  const actionsList = useQuery(api.audit.actions, skip ? "skip" : {});
+  const verifyChain = useQuery(api.audit.verifyChain, skip ? "skip" : {});
 
   const [selectedAction, setSelectedAction] = useState("all");
   const [searchActor, setSearchActor] = useState("");
@@ -29,28 +34,33 @@ export default function AdminAudit() {
 
   function handleExportCSV() {
     if (!filteredLogs || filteredLogs.length === 0) {
-      toast.error("No audit logs to export.");
+      toast.error("No data to export yet");
       return;
     }
-    const headers = "ID,Timestamp,Actor,Action,TargetType,TargetID,IP\n";
-    const rows = filteredLogs
-      .map(
-        (l: any) =>
-          `"${l.id}","${new Date(l.timestamp).toISOString()}","${l.actorEmail || l.actorId}","${
-            l.action
-          }","${l.targetType}","${l.targetId}","${l.ipAddress || "127.0.0.1"}"`
-      )
-      .join("\n");
+    const headers = ["ID", "Timestamp", "Actor", "Action", "TargetType", "TargetID", "IP"];
+    const rows = filteredLogs.map((l: any) => [
+      l.id,
+      new Date(l.timestamp).toISOString(),
+      l.actorEmail || l.actorId || "",
+      l.action,
+      l.targetType,
+      l.targetId,
+      l.ipAddress || "127.0.0.1",
+    ]);
 
-    const blob = new Blob([headers + rows], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `audit-log-${Date.now()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadCsv(`audit-log-${Date.now()}.csv`, headers, rows);
     toast.success("Audit log exported to CSV");
   }
+
+  if (authLoading) {
+    return (
+      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={6} />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
