@@ -66,8 +66,16 @@ export function AppShell() {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const { signOut } = useAuthActions();
   const me = useQuery(api.users.me, {}) ?? null;
+  const settings = useQuery(api.admin.getSettings, {}) ?? {};
   const navigate = useNavigate();
   const location = useLocation();
+
+  const siteName = settings["site_name"] || "RaptorJudge";
+  const copyrightText = settings["footer_copyright"] || "© 2026 RaptorJudge";
+
+  useEffect(() => {
+    document.title = siteName;
+  }, [siteName]);
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -142,10 +150,10 @@ export function AppShell() {
             className="flex items-center gap-2.5 font-extrabold text-lg text-[#1d1d1f] hover:opacity-90 transition-opacity focus-ring-accent rounded-button p-1"
           >
             <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#ff0055] to-[#ff5588] text-white flex items-center justify-center font-black text-sm shadow-sm shadow-[#ff0055]/30">
-              R
+              {siteName.charAt(0)}
             </div>
             <span className="tracking-tight">
-              Raptor<span className="text-[#ff0055]">Judge</span>
+              {siteName}
             </span>
           </Link>
 
@@ -324,7 +332,7 @@ export function AppShell() {
       <footer className="w-full glass-panel border-t border-white/60 py-8 mt-12 text-xs text-[#6e6e73]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-1.5 font-bold text-[#1d1d1f]">
-            <span>© 2026 RaptorJudge.</span>
+            <span>{copyrightText}.</span>
             <span className="font-normal text-[#6e6e73]">All rights reserved.</span>
           </div>
           <div className="flex items-center gap-6 font-medium">

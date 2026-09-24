@@ -2,20 +2,24 @@ import { Navigate } from "react-router-dom";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
+
 export default function RoleHome() {
   const me = useQuery(api.users.me, {});
 
   if (me === undefined) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="font-semibold text-xs text-[#6e6e73] animate-pulse">
-          Resolving your workspace...
-        </div>
+      <div className="max-w-xl mx-auto py-12">
+        <SkeletonCard lines={4} />
       </div>
     );
   }
 
-  switch (me?.role) {
+  if (me === null) {
+    return <Navigate to="/auth" replace />;
+  }
+
+  switch (me.role) {
     case "admin":
       return <Navigate to="/admin" replace />;
     case "organizer":

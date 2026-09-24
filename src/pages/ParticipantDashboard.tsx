@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 
 export default function ParticipantDashboard() {
   const me = useQuery(api.users.me, {});
@@ -26,8 +27,11 @@ export default function ParticipantDashboard() {
 
   if (me === undefined || enrolled === undefined || featured === undefined) {
     return (
-      <div className="py-20 text-center animate-pulse text-xs text-[#6e6e73]">
-        Loading dashboard...
+      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={2} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <SkeletonCard lines={3} /><SkeletonCard lines={3} /><SkeletonCard lines={3} />
+        </div>
       </div>
     );
   }

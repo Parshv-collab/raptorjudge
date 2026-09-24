@@ -21,6 +21,7 @@ export default function AdminUsers() {
   const users = useQuery(api.users.list, {});
   const setRole = useMutation(api.users.setRole);
   const disableUser = useMutation(api.users.adminDisable);
+  const enableUser = useMutation(api.users.adminEnable);
   const forceLogout = useMutation(api.users.adminForceLogout);
   const deleteUser = useMutation(api.users.adminDelete);
 
@@ -30,12 +31,17 @@ export default function AdminUsers() {
   const [targetRole, setTargetRole] = useState("participant");
   const [busy, setBusy] = useState(false);
 
-  async function handleDisable(u: any) {
+  async function handleToggleDisable(u: any) {
     try {
-      await disableUser({ userId: u._id });
-      toast.success(`User ${u.email} disabled.`);
+      if (u.role) {
+        await disableUser({ userId: u._id });
+        toast.success("User disabled.");
+      } else {
+        await enableUser({ userId: u._id, role: "participant" });
+        toast.success("User enabled.");
+      }
     } catch (e: any) {
-      toast.error(e.message || "Failed to disable user");
+      toast.error(e.message || "Failed to update user status");
     }
   }
 
@@ -156,8 +162,12 @@ export default function AdminUsers() {
                     >
                       Role
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDisable(user)}>
-                      Disable
+                    <Button
+                      variant={user.role ? "ghost" : "primary"}
+                      size="sm"
+                      onClick={() => handleToggleDisable(user)}
+                    >
+                      {user.role ? "Disable" : "Enable"}
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => handleForceLogout(user)}>
                       Logout

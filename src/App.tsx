@@ -34,18 +34,30 @@ import AdminAudit from "@/pages/AdminAudit";
 import AdminInvites from "@/pages/AdminInvites";
 import AdminSettings from "@/pages/AdminSettings";
 import AdminJudging from "@/pages/AdminJudging";
+import InviteAccept from "@/pages/InviteAccept";
 import ParticipantDashboard from "@/pages/ParticipantDashboard";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { Toaster } from "sonner";
 
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
+
 function Protected({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
-  if (isLoading) {
+  const [settled, setSettled] = React.useState(false);
+
+  React.useEffect(() => {
+    if (isAuthenticated) {
+      const timer = setTimeout(() => setSettled(true), 100);
+      return () => clearTimeout(timer);
+    } else {
+      setSettled(false);
+    }
+  }, [isAuthenticated]);
+
+  if (isLoading || (isAuthenticated && !settled)) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-xs font-semibold text-[#6e6e73] animate-pulse">
-          Establishing session...
-        </div>
+      <div className="max-w-xl mx-auto py-12">
+        <SkeletonCard lines={4} />
       </div>
     );
   }
@@ -69,6 +81,7 @@ export default function App() {
           <Route path="/gallery/:slug" element={<Gallery />} />
           <Route path="/project/:id" element={<ProjectDetail />} />
           <Route path="/home" element={<Protected><RoleHome /></Protected>} />
+          <Route path="/invite/:token" element={<InviteAccept />} />
           <Route path="/verify" element={<Verify />} />
           <Route path="/verify/:uuid" element={<Verify />} />
           <Route path="/dashboard" element={<Protected><ParticipantDashboard /></Protected>} />

@@ -104,6 +104,27 @@ export const adminDisable = mutation({
   },
 });
 
+export const adminEnable = mutation({
+  args: { userId: v.id("users"), role: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    if (actor.role !== "admin") throw new Error("Admin required");
+    const target = await ctx.db.get(args.userId);
+    if (!target) throw new Error("User not found");
+    const newRole = (args.role as Role) ?? "participant";
+    await ctx.db.patch(args.userId, { role: newRole });
+    await appendAudit(ctx, {
+      actorId: actor._id,
+      action: "user.admin_enable",
+      targetType: "user",
+      targetId: String(args.userId),
+      beforeState: JSON.stringify({ email: target.email, role: target.role }),
+      afterState: JSON.stringify({ role: newRole }),
+    });
+    return { ok: true };
+  },
+});
+
 export const adminForceLogout = mutation({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {

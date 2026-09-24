@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Alert } from "@/components/ui/Alert";
 import { Avatar } from "@/components/ui/Avatar";
@@ -157,8 +158,9 @@ export default function ParticipantWorkspace() {
 
   if (myTeam === undefined || event === undefined) {
     return (
-      <div className="py-20 text-center animate-pulse text-xs text-[#6e6e73]">
-        Loading workspace...
+      <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={2} />
+        <SkeletonCard lines={4} />
       </div>
     );
   }

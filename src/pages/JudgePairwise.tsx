@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 
 export default function JudgePairwise() {
   const event = useQuery(api.events.getBySlug, { slug: "dogfood-2026" });
@@ -15,8 +16,8 @@ export default function JudgePairwise() {
 
   if (!event) {
     return (
-      <div className="py-20 text-center animate-pulse text-xs text-[#6e6e73]">
-        Loading pairwise comparisons...
+      <div className="max-w-5xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={4} />
       </div>
     );
   }

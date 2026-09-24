@@ -4,6 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { humanizeConvexError } from "@/lib/errors";
 
 export default function Security() {
@@ -20,9 +21,7 @@ export default function Security() {
       </div>
 
       {me === undefined ? (
-        <div className="animate-pulse py-12 text-center text-xs text-[#6e6e73]">
-          Loading security details...
-        </div>
+        <SkeletonCard lines={3} />
       ) : !eligible ? (
         <GlassCard className="p-6">
           <h3 className="text-sm font-bold text-[#1d1d1f] mb-1">

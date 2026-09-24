@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Modal, ConfirmDialog } from "@/components/ui/Modal";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { humanizeConvexError } from "@/lib/errors";
 
 export function OrganizerEventManage() {
@@ -31,8 +32,9 @@ export function OrganizerEventManage() {
 
   if (!event) {
     return (
-      <div className="py-20 text-center animate-pulse text-xs text-[#6e6e73]">
-        Loading event management...
+      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={3} />
+        <SkeletonCard lines={5} />
       </div>
     );
   }

@@ -3,7 +3,7 @@ RaptorJudge Final Acceptance Report
 
 Scope
 -----
-This report reflects the complete portability pass (PART A / PART G) and full T1–T4 feature completion & bug fixes (PART B through PART L).
+This report reflects the complete portability pass (PART A / PART G), full T1–T4 feature completion & bug fixes (PART B through PART L), and additional testing issue fixes (ISSUES 15–19).
 
 PART A — Portability & Runtime Config: PASS
 --------------------------------------------
@@ -17,6 +17,14 @@ PART A — Portability & Runtime Config: PASS
 PART G — Auto-Generate JWT Keys on First Boot: PASS
 --------------------------------------------------
 - `backend/entrypoint.sh` invokes `scripts/generate-auth-keys.mjs` to auto-mint RS256 keypairs when `JWT_PRIVATE_KEY` and `JWKS` are missing from the deployment.
+
+ISSUES 15–19 (Testing Fixes): PASS
+-----------------------------------
+- ISSUE 15 (Admin Disable/Enable Button): FIXED — adminDisable and adminEnable mutations in src/convex/users.ts toggle user access with success/failure toasts.
+- ISSUE 16 (Post-login Redirect Reliability): FIXED — Auth.tsx redirects to /home, RoleHome.tsx queries user role with skeleton loading, App.tsx Protected wrapper enforces settled session state.
+- ISSUE 17 (Invite Creation & Accept Flow): FIXED — invites table in schema.ts, token-based invites (32-byte random base64url, hashed storage in DB), AdminInvites.tsx url copy, and InviteAccept.tsx route at /invite/:token.
+- ISSUE 18 (Platform Settings Expansion): FIXED — Expanded AdminSettings.tsx into Branding, Platform, Feature Flags, Lookup Tables, and Danger Zone sections. Integrated site name and footer copyright into AppShell.tsx.
+- ISSUE 19 (Judge Panel & Global Skeletons): FIXED — JudgePortal.tsx queue resolution and fallback empty state; replaced all literal "Loading..." text strings across pages with SkeletonCard placeholders.
 
 T1 — Core: 8/8 PASS
 -------------------
@@ -64,12 +72,6 @@ Bonuses
 - Bradley-Terry Pairwise: PASS
 - Threat Model: PASS
 - API First (OpenAPI): PASS
-
-Summary of Changed Files
-------------------------
-- `vite.config.ts`, `src/main.tsx`, `frontend/entrypoint.sh`, `frontend/Dockerfile`, `docker-compose.yml`, `backend/entrypoint.sh`, `scripts/ci-compose-runtime.sh`, `README.md`
-- `src/convex/events.ts`, `src/convex/users.ts`, `src/convex/teams.ts`, `src/convex/submissions.ts`, `src/convex/judging.ts`, `src/convex/voting.ts`, `src/convex/comments.ts`, `src/convex/http.ts`, `src/convex/admin.ts`, `src/convex/lib/timeWindows.ts`
-- `src/pages/AdminUsers.tsx`, `src/pages/AdminEvents.tsx`, `src/pages/AdminInvites.tsx`, `src/pages/AdminSettings.tsx`, `src/pages/AdminJudging.tsx`, `src/App.tsx`, `src/components/layout/AppShell.tsx`
 
 Verification Results
 --------------------
