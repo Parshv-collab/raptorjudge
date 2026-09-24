@@ -84,6 +84,17 @@ export const setRole = mutation({
   },
 });
 
+import { internalQuery } from "./_generated/server";
+
+export const isUserDisabled = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    if (!user) return false;
+    return user.role === undefined || user.disabledAt !== undefined || user.disabled_at !== undefined;
+  },
+});
+
 export const adminDisable = mutation({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
@@ -91,7 +102,8 @@ export const adminDisable = mutation({
     if (actor.role !== "admin") throw new Error("Admin required");
     const target = await ctx.db.get(args.userId);
     if (!target) throw new Error("User not found");
-    await ctx.db.patch(args.userId, { role: undefined });
+    const now = Date.now();
+    await ctx.db.patch(args.userId, { role: undefined, disabledAt: now, disabled_at: now });
     await appendAudit(ctx, {
       actorId: actor._id,
       action: "user.admin_disable",
@@ -112,7 +124,7 @@ export const adminEnable = mutation({
     const target = await ctx.db.get(args.userId);
     if (!target) throw new Error("User not found");
     const newRole = (args.role as Role) ?? "participant";
-    await ctx.db.patch(args.userId, { role: newRole });
+    await ctx.db.patch(args.userId, { role: newRole, disabledAt: undefined, disabled_at: undefined });
     await appendAudit(ctx, {
       actorId: actor._id,
       action: "user.admin_enable",

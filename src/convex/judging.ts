@@ -231,37 +231,52 @@ export const runAssignment = mutation({
 
 /** Judge queue: only my assigned submissions, only during judging stage. */
 export const myQueue = query({
-  args: { eventId: v.id("events") },
+  args: { eventId: v.optional(v.id("events")) },
   handler: async (ctx, args) => {
     const user = await requireRole(ctx, "judge", "organizer", "admin");
-    const event = await ctx.db.get(args.eventId);
-    if (!event) throw new Error("Event not found");
-    const inJudging = stageAllowsJudging(event.status as never);
     const isStaff = user.role === "admin" || user.role === "organizer";
 
-    const assignments = await ctx.db
-      .query("judgeAssignments")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    const mine = isStaff
-      ? assignments
-      : assignments.filter((a) => a.judgeId === user._id);
-
-    const criteria = await ctx.db
-      .query("rubricCriteria")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
+    let assignments;
+    if (args.eventId) {
+      const all = await ctx.db
+        .query("judgeAssignments")
+        .withIndex("by_event", (q) => q.eq("eventId", args.eventId!))
+        .collect();
+      assignments = isStaff ? all : all.filter((a) => a.judgeId === user._id);
+    } else {
+      const all = isStaff
+        ? await ctx.db.query("judgeAssignments").collect()
+        : await ctx.db
+            .query("judgeAssignments")
+            .withIndex("by_judge", (q) => q.eq("judgeId", user._id))
+            .collect();
+      assignments = all;
+    }
 
     const out = [];
-    for (const a of mine) {
+    let judgingOpen = false;
+
+    for (const a of assignments) {
+      const event = await ctx.db.get(a.eventId);
+      if (!event) continue;
+      const inJudging = stageAllowsJudging(event.status as never);
+      if (inJudging) judgingOpen = true;
+
       const sub = await ctx.db.get(a.submissionId);
       if (!sub) continue;
       const team = await ctx.db.get(sub.teamId);
       const track = sub.trackId ? await ctx.db.get(sub.trackId) : null;
+
+      const criteria = await ctx.db
+        .query("rubricCriteria")
+        .withIndex("by_event", (q) => q.eq("eventId", a.eventId))
+        .collect();
+
       const scores = await ctx.db
         .query("judgeScores")
         .withIndex("by_assignment", (q) => q.eq("assignmentId", a._id))
         .collect();
+
       out.push({
         assignmentId: String(a._id),
         status: a.status,
@@ -282,7 +297,7 @@ export const myQueue = query({
         locked: !inJudging && !isStaff,
       });
     }
-    return { items: out, judgingOpen: inJudging };
+    return { items: out, judgingOpen };
   },
 });
 
