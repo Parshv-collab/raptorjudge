@@ -9,6 +9,7 @@ import { Toaster } from "sonner";
 import App from "./App";
 import "./index.css";
 import { createTokenStorage, purgeLegacyTokenStorage } from "./lib/tokenStorage";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 declare const __CONVEX_URL__: string;
 const convexUrl =
@@ -25,17 +26,19 @@ const tokenStorage = createTokenStorage();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ConvexProvider client={client}>
-      <ConvexAuthProvider
-        client={client}
-        storage={tokenStorage}
-        storageNamespace="raptorjudge"
-      >
-        <BrowserRouter>
-          <App />
-          <Toaster richColors position="top-right" />
-        </BrowserRouter>
-      </ConvexAuthProvider>
-    </ConvexProvider>
+    <ErrorBoundary>
+      <ConvexProvider client={client}>
+        <ConvexAuthProvider
+          client={client}
+          storage={tokenStorage}
+          storageNamespace="raptorjudge"
+        >
+          <BrowserRouter>
+            <App />
+            <Toaster richColors position="top-right" />
+          </BrowserRouter>
+        </ConvexAuthProvider>
+      </ConvexProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );

@@ -143,6 +143,17 @@ export default function AdminSettings() {
 
   if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
+  if (settings instanceof Error) {
+    return (
+      <div className="max-w-7xl mx-auto py-12 px-4">
+        <GlassCard className="p-8 flex flex-col items-center text-center gap-4">
+          <h2 className="text-xl font-bold text-[#1d1d1f]">Could not load settings</h2>
+          <p className="text-xs text-[#6e6e73]">You may not have permission. Please sign in as an admin.</p>
+        </GlassCard>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-8">
       <Link to="/admin">
