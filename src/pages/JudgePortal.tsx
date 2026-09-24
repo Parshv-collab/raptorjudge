@@ -12,8 +12,7 @@ export default function JudgePortal() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const skip = authLoading || !isAuthenticated;
 
-  const event = useQuery(api.events.getBySlug, skip ? "skip" : { slug: "dogfood-2026" });
-  const queue = useQuery(api.judging.myQueue, skip || !event ? "skip" : { eventId: event._id });
+  const queue = useQuery(api.judging.myQueue, skip ? "skip" : {});
 
   if (authLoading) {
     return (
@@ -26,7 +25,7 @@ export default function JudgePortal() {
 
   if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
-  if (!event || !queue) {
+  if (queue === undefined) {
     return (
       <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
         <SkeletonCard lines={2} />
@@ -72,7 +71,7 @@ export default function JudgePortal() {
 
         {!queue.judgingOpen && (
           <div className="p-3 rounded-input bg-amber-500/10 border border-amber-500/30 text-amber-900 text-xs font-semibold mt-2">
-            Note: Judging stage is not active yet (Event status: {event.status}).
+            Note: Judging stage is not active yet.
           </div>
         )}
       </GlassCard>
