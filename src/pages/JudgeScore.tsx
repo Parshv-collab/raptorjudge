@@ -39,13 +39,15 @@ export default function JudgeScore() {
     return <Navigate to="/judge" replace />;
   }
 
+  const selectedItem = item;
+
   // Calculate live weighted score
   let weightedTotal = 0;
   let maxPossibleWeighted = 0;
   sortedRubric.forEach((criterion: any) => {
     const currentScore =
       scores[criterion._id] ??
-      item.scoredCriteria.find((s: any) => s.criterionId === criterion._id)?.score ??
+      selectedItem.scoredCriteria.find((s: any) => s.criterionId === criterion._id)?.score ??
       criterion.minScore;
     weightedTotal += currentScore * criterion.weight;
     maxPossibleWeighted += criterion.maxScore * criterion.weight;
@@ -57,12 +59,12 @@ export default function JudgeScore() {
     setBusy(true);
     try {
       await submitScores({
-        assignmentId: item.assignmentId as never,
+        assignmentId: selectedItem.assignmentId as never,
         scores: sortedRubric.map((c: any) => ({
           criterionId: c._id as never,
           score:
             scores[c._id] ??
-            item.scoredCriteria.find((s: any) => s.criterionId === c._id)?.score ??
+            selectedItem.scoredCriteria.find((s: any) => s.criterionId === c._id)?.score ??
             c.minScore,
         })),
         privateNotes: notes,
@@ -88,13 +90,13 @@ export default function JudgeScore() {
         <div className="flex flex-wrap justify-between items-start gap-4">
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-              {item.submission.trackName || "General Track"}
+              {(selectedItem.submission as any).trackName || "General Track"}
             </span>
             <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-1">
-              {item.submission.title}
+              {selectedItem.submission.title}
             </h1>
             <p className="text-xs font-bold text-[#6e6e73] mt-1">
-              Team: {item.submission.teamName}
+              Team: {selectedItem.submission.teamName}
             </p>
           </div>
 
@@ -113,22 +115,22 @@ export default function JudgeScore() {
 
         {/* Links */}
         <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-black/5">
-          {item.submission.repositoryUrl && (
-            <a href={item.submission.repositoryUrl} target="_blank" rel="noopener noreferrer">
+          {selectedItem.submission.repositoryUrl && (
+            <a href={selectedItem.submission.repositoryUrl} target="_blank" rel="noopener noreferrer">
               <Button variant="secondary" size="sm">
                 Repository ↗
               </Button>
             </a>
           )}
-          {item.submission.demoUrl && (
-            <a href={item.submission.demoUrl} target="_blank" rel="noopener noreferrer">
+          {selectedItem.submission.demoUrl && (
+            <a href={selectedItem.submission.demoUrl} target="_blank" rel="noopener noreferrer">
               <Button variant="secondary" size="sm">
                 Live Demo ↗
               </Button>
             </a>
           )}
-          {item.submission.videoUrl && (
-            <a href={item.submission.videoUrl} target="_blank" rel="noopener noreferrer">
+          {selectedItem.submission.videoUrl && (
+            <a href={selectedItem.submission.videoUrl} target="_blank" rel="noopener noreferrer">
               <Button variant="secondary" size="sm">
                 Video Pitch ↗
               </Button>
@@ -141,7 +143,7 @@ export default function JudgeScore() {
       <GlassCard className="p-6">
         <h2 className="text-sm font-bold text-[#1d1d1f] mb-2">Project Overview</h2>
         <p className="text-xs text-[#6e6e73] leading-relaxed whitespace-pre-line">
-          {item.submission.description}
+          {selectedItem.submission.description}
         </p>
       </GlassCard>
 
@@ -153,7 +155,7 @@ export default function JudgeScore() {
           {sortedRubric.map((criterion: any) => {
             const currentScore =
               scores[criterion._id] ??
-              item.scoredCriteria.find((s: any) => s.criterionId === criterion._id)?.score ??
+              selectedItem.scoredCriteria.find((s: any) => s.criterionId === criterion._id)?.score ??
               Math.ceil((criterion.minScore + criterion.maxScore) / 2);
 
             return (
@@ -181,7 +183,7 @@ export default function JudgeScore() {
                   max={criterion.maxScore}
                   step={0.5}
                   value={currentScore}
-                  disabled={item.locked}
+                  disabled={selectedItem.locked}
                   onChange={(e) =>
                     setScores({ ...scores, [criterion._id]: Number(e.target.value) })
                   }
@@ -210,11 +212,11 @@ export default function JudgeScore() {
             variant="primary"
             size="md"
             isLoading={busy}
-            disabled={item.locked}
+            disabled={selectedItem.locked}
             onClick={handleSaveScores}
             className="w-full"
           >
-            {item.status === "completed" ? "Update Submitted Scores" : "Submit Score"}
+            {selectedItem.status === "completed" ? "Update Submitted Scores" : "Submit Score"}
           </Button>
         </div>
       </GlassCard>
