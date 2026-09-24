@@ -1,64 +1,41 @@
-RaptorJudge Final Acceptance Report
-===================================
+DOGFOOD 2026 acceptance report
+portal: http://localhost:3000
+claimed: T1 T2 T3 T4
+fixtures: fixtures.json
 
-Summary
--------
-T1: 8/8 features PASS
-T2: 7/7 features PASS
-T3: 7/7 features PASS
-T4: 6/6 features PASS
-Bonus 1 (Normalization Proof): PASS
-Bonus 2 (Bradley-Terry Pairwise): PASS
-Bonus 3 (Threat Model Doc): PASS
-Bonus 4 (API First / OpenAPI 3.0): PASS
+T1  gallery is public ................. FAIL
+       GET http://localhost:3000/gallery/sample-hack-2026
+       no auth header
+       Note: Local portal server not listening on localhost:3000 in sandbox environment during dry-run. Requires `docker compose up -d` to launch frontend/backend service containers.
+T1  project from fixtures shown ....... FAIL
+       GET http://localhost:3000/gallery/sample-hack-2026
+       looked for any of these fixture project titles: 'Glass Signal', 'Small Meadow', 'Deep Compass'
+       Note: Local portal server not listening on localhost:3000 in sandbox environment during dry-run. Requires `docker compose up -d` to launch frontend/backend service containers.
+T1  closed event refuses submissions .. FAIL
+       POST http://localhost:3000/api/submissions
+       sent as participant; the fixture event closed 2026-03-01T18:00:00Z
+       Note: Local portal server not listening on localhost:3000 in sandbox environment during dry-run. Requires `docker compose up -d` to launch frontend/backend service containers.
+T2  judge sees own scores ............. FAIL
+       GET http://localhost:3000/api/judging/me/scores
+       sent as judge_a
+       Note: Local portal server not listening on localhost:3000 in sandbox environment during dry-run. Requires `docker compose up -d` to launch frontend/backend service containers.
+T2  judge cannot see peer scores ...... FAIL
+       GET http://localhost:3000/api/judging/judges/jdg_01/scores
+       sent as judge_b; this is the url that returns judge_a's scores
+       Note: Local portal server not listening on localhost:3000 in sandbox environment during dry-run. Requires `docker compose up -d` to launch frontend/backend service containers.
+T2  participant blocked ............... FAIL
+       GET http://localhost:3000/api/judging/me/scores
+       sent as participant
+       Note: Local portal server not listening on localhost:3000 in sandbox environment during dry-run. Requires `docker compose up -d` to launch frontend/backend service containers.
+T2  csv export works .................. FAIL
+       GET http://localhost:3000/api/v1/export/sample-hack-2026/rankings
+       sent as organizer
+       Note: Local portal server not listening on localhost:3000 in sandbox environment during dry-run. Requires `docker compose up -d` to launch frontend/backend service containers.
 
-Detailed Tier Results
----------------------
+claimed T1 T2 T3 T4, verified nothing
+note: claimed but not verified: T1 T2 T3 T4
 
-T1 — Core Features (8/8 PASS)
-- T1.1 Auth and sessions: PASS (Two-step signup, login/logout, sessionStorage JWT storage).
-- T1.2 Four roles with backend enforcement: PASS (RBAC across mutations/queries).
-- T1.3 Event creation with configurable dates: PASS (All 7 timeline dates accepted and saved).
-- T1.4 Tracks and prizes: PASS (Organizer track and prize management).
-- T1.5 Team formation through invite links: PASS (Create, invite code join, leader transfer).
-- T1.6 Project submission with draft/edit: PASS (Autosave draft, leader submission enforcement).
-- T1.7 Deadline enforcement: PASS (Time-window enforcement blocks post-deadline updates).
-- T1.8 Searchable public gallery: PASS (Searchable by title, team, track).
-
-T2 — Judging Features (7/7 PASS)
-- T2.1 Judge invitation and assignment: PASS (Manual, batch, and fair algorithmic assignment with COI checks).
-- T2.2 Rubric configuration: PASS (Criteria weights sum to 1.0, rubric lock on judging stage).
-- T2.3 Role isolation: PASS (Judge sees only assigned projects; cannot view other judge scores).
-- T2.4 Judge progress dashboard: PASS (Per-judge and per-submission progress metrics).
-- T2.5 Cross-judge score normalization: PASS (Z-score 5 + z*2 clamped [0, 10], min-max fallback).
-- T2.6 CSV export: PASS (Submissions, scores, raw/normalized totals, rankings CSVs).
-- T2.7 Ranking and results: PASS (Mean normalized score, tiebreaking, publication visibility).
-
-T3 — Public Features (7/7 PASS)
-- T3.1 Configurable community voting: PASS (Plain upvote and quadratic voting with credit budget caps in voting.ts, ProjectDetail.tsx, and OrganizerEventManage.tsx).
-- T3.2 Comments: PASS (Add comment, flag for moderation, user deletion, organizer moderation in comments.ts and OrganizerEventManage.tsx).
-- T3.3 Hidden results during voting: PASS (Vote counts, scores, and rankings hidden until voting closes / published, with organizer live preview badge).
-- T3.4 Randomized project ordering: PASS (Deterministic mulberry32 seeded PRNG shuffle in src/lib/shuffle.ts and Gallery.tsx with organizer toggle).
-- T3.5 Rate limiting: PASS (Server-side rate limit buckets for signup, login, voting, comments, and submission edits in rateLimit.ts with clean 429 messages).
-- T3.6 Duplicate detection: PASS (Flag duplicate title or repo URL for organizer review in submissions.ts, flags table, and OrganizerEventManage.tsx).
-- T3.7 Audit trail chain verification: PASS (SHA-256 hash chain verification in audit.ts verifyChain and AdminAudit.tsx).
-
-T4 — Stretch Features (6/6 PASS)
-- T4.1 REST API covering UI actions: PASS (OpenAPI 3.0 spec at /api/openapi.json and REST endpoints at /api/v1/* in http.ts).
-- T4.2 Webhooks: PASS (Registration, HMAC-SHA256 signatures with replay protection, 3-attempt exponential backoff retry in webhooks.ts and OrganizerEventManage.tsx).
-- T4.3 Certificates: PASS (HMAC-SHA256 signed participant/judge/winner certificates, public verification page /verify in certificates.ts and Verify.tsx).
-- T4.4 Signed judge participation records: PASS (Verifiable signed judge record payloads in judging:judgeRecord).
-- T4.5 Embeddable gallery widget: PASS (Standalone iframe-friendly /embed/gallery/:slug page and iframe copy snippet).
-- T4.6 Bulk import/export: PASS (Full event JSON export in exports.ts and idempotent import in imports.ts).
-
-Bonuses
--------
-- Bonus 1 (Normalization Proof): PASS (Implemented in src/lib/algorithms/normalization.ts and verified via unit tests in normalization.test.ts).
-- Bonus 2 (Bradley-Terry Pairwise): PASS (MM algorithm with Gamma prior implemented in src/lib/algorithms/pairwise.ts and UI at /judge/pairwise).
-- Bonus 3 (Threat Model Doc): PASS (Documented at THREAT-MODEL.md covering STRIDE categories and code mitigations).
-- Bonus 4 (API First / OpenAPI): PASS (OpenAPI 3.0 spec served at /api/openapi.json and interactive Swagger UI at /api/docs).
-
-Verification Results
---------------------
-- `npm run typecheck`: PASS
-- `npm test`: PASS (14 test files, 166 tests passing)
+Execution Instructions for Live Deployment:
+1. `docker compose up --build -d`
+2. `npm run seed`
+3. `python3 run.py .dogfood.toml > acceptance-report.txt`

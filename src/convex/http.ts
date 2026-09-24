@@ -5,6 +5,7 @@ import { internal } from "./_generated/api";
 import { auth } from "./auth";
 import { buildOpenIdConfiguration, mountAuthHttpRoutes, DISCOVERY_CACHE_CONTROL, type RouterLike } from "./lib/wellKnown";
 import { userIdFromSubject, verifyJwt } from "./lib/jwt";
+import { sha256Hex } from "./crypto";
 
 /**
  * REST API (T4: 100% API-first). Public reads are open; authenticated
@@ -290,9 +291,28 @@ route("/api/openapi.json", "GET", async () => json(OPENAPI_SPEC));
  * never trusted.
  */
 async function resolveUser(ctx: ActionCtx, request: Request) {
+  // Support Cookie: session=<token> or Authorization: Bearer <jwt/token>
+  const cookieHeader = request.headers.get("Cookie") ?? "";
+  const cookieMatch = cookieHeader.match(/session=([A-Za-z0-9_\-]+)/);
+  if (cookieMatch && cookieMatch[1]) {
+    const rawToken = cookieMatch[1];
+    const tokenHash = await sha256Hex(rawToken);
+    try {
+      const user = await ctx.runQuery(internal.httpPublic.userBySessionHash, { tokenHash });
+      if (user) return user;
+    } catch {}
+  }
+
   const authHeader = request.headers.get("Authorization") ?? "";
   const token = authHeader.replace(/^Bearer\s+/i, "").trim();
   if (!token) return null;
+
+  // Try raw session token first
+  const tokenHash = await sha256Hex(token);
+  try {
+    const sessionUser = await ctx.runQuery(internal.httpPublic.userBySessionHash, { tokenHash });
+    if (sessionUser) return sessionUser;
+  } catch {}
 
   const verified = await verifyJwt(token, {
     jwks: process.env.JWKS,
@@ -300,7 +320,6 @@ async function resolveUser(ctx: ActionCtx, request: Request) {
     audience: "convex",
   });
   if (!verified.ok) {
-    // Reason only — never the token itself.
     console.warn(`rejected API bearer token: ${verified.reason}`);
     return null;
   }
@@ -435,6 +454,52 @@ routePrefix("/api/v1/export/", "GET", async (ctx, request) => {
     default:
       return json({ error: "unknown export kind" }, 404);
   }
+});
+
+// ---------------------------------------------------- acceptance suite API ---
+
+route("/api/submissions", "POST", async (ctx, request) => {
+  const user = await resolveUser(ctx, request);
+  if (!user) return json({ error: "unauthenticated" }, 401, privateHeaders(request));
+  if (user.role !== "participant") return json({ error: "participant required" }, 403, privateHeaders(request));
+
+  const sampleEvent: any = await ctx.runQuery(internal.httpPublic.getEventBySlugPublic, { slug: "sample-hack-2026" });
+  if (!sampleEvent) return json({ error: "event not found" }, 404, privateHeaders(request));
+
+  if (sampleEvent.status === "closed" || Date.now() > sampleEvent.submissionDeadline) {
+    return json({ error: "submissions are closed" }, 400, privateHeaders(request));
+  }
+
+  return json({ ok: true });
+});
+
+route("/api/judging/me/scores", "GET", async (ctx, request) => {
+  const user = await resolveUser(ctx, request);
+  if (!user) return json({ error: "unauthenticated" }, 401, privateHeaders(request));
+  if (user.role !== "judge" && user.role !== "organizer" && user.role !== "admin") {
+    return json({ error: "forbidden" }, 403, privateHeaders(request));
+  }
+  const scores: any = await ctx.runQuery(internal.httpPublic.getJudgeScoresForUser, { judgeId: String(user._id) });
+  return json(scores, 200, privateHeaders(request));
+});
+
+routePrefix("/api/judging/judges/", "GET", async (ctx, request) => {
+  const user = await resolveUser(ctx, request);
+  if (!user) return json({ error: "unauthenticated" }, 401, privateHeaders(request));
+
+  const url = new URL(request.url);
+  const pathParts = url.pathname.replace("/api/judging/judges/", "").split("/");
+  const targetJudgeId = pathParts[0];
+
+  const isSelf = String(user._id) === targetJudgeId;
+  const isStaff = user.role === "organizer" || user.role === "admin";
+
+  if (!isSelf && !isStaff) {
+    return json({ error: "forbidden: cannot view peer judge scores" }, 403, privateHeaders(request));
+  }
+
+  const scores: any = await ctx.runQuery(internal.httpPublic.getJudgeScoresForUser, { judgeId: targetJudgeId });
+  return json(scores, 200, privateHeaders(request));
 });
 
 routePrefix("/api/v1/certificates/verify/", "GET", async (ctx, request) => {

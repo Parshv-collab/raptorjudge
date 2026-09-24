@@ -1,0 +1,19 @@
+[portal]
+base_url = "http://localhost:3000"
+
+[tiers]
+claimed = ["T1", "T2", "T3", "T4"]
+pitch = "Self-hosted hackathon submission and judging platform with weighted rubrics, cross-judge normalization, and pairwise ranking."
+
+[auth]
+organizer   = "Cookie: session=2e3c4aeeda5c2716cfee7d4c0e1ecf25"
+judge_a     = "Cookie: session=4f28b3b009384ab50cb49e63dfd5a074"
+judge_b     = "Cookie: session=243fa9aceedb7a7015303d6aaf884453"
+participant = "Cookie: session=ad8707ce5041b2894b9223111cd4fdfa"
+
+[routes]
+gallery      = "/gallery/sample-hack-2026"
+submit       = "/api/submissions"
+judge_scores = "/api/judging/me/scores"
+peer_scores  = "/api/judging/judges/jdg_01/scores"
+csv_export   = "/api/v1/export/sample-hack-2026/rankings"
