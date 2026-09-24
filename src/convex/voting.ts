@@ -6,6 +6,7 @@ import {
   stageAllowsVoting,
   stageAllowsVoteResults,
 } from "./lib/common";
+import { assertWithinWindow } from "./lib/timeWindows";
 import { appendAudit } from "./lib/audit";
 import { sha256Hex } from "./crypto";
 
@@ -108,8 +109,8 @@ export const castVote = mutation({
     const user = await requireUser(ctx);
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("Event not found");
-    if (!stageAllowsVoting(event.status as never)) {
-      throw new Error("Voting is not open for this event");
+    if (user.role !== "organizer" && user.role !== "admin") {
+      assertWithinWindow(event, "voting");
     }
     if (args.points <= 0) throw new Error("Points must be positive");
     if (user.role === "judge") throw new Error("Judges cannot vote in the community vote");

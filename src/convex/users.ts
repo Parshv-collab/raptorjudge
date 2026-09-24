@@ -84,6 +84,65 @@ export const setRole = mutation({
   },
 });
 
+export const adminDisable = mutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    if (actor.role !== "admin") throw new Error("Admin required");
+    const target = await ctx.db.get(args.userId);
+    if (!target) throw new Error("User not found");
+    await ctx.db.patch(args.userId, { role: undefined });
+    await appendAudit(ctx, {
+      actorId: actor._id,
+      action: "user.admin_disable",
+      targetType: "user",
+      targetId: String(args.userId),
+      beforeState: JSON.stringify({ email: target.email, role: target.role }),
+      afterState: "disabled",
+    });
+    return { ok: true };
+  },
+});
+
+export const adminForceLogout = mutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    if (actor.role !== "admin") throw new Error("Admin required");
+    const target = await ctx.db.get(args.userId);
+    if (!target) throw new Error("User not found");
+    await ctx.db.patch(args.userId, { tokenIdentifier: undefined });
+    await appendAudit(ctx, {
+      actorId: actor._id,
+      action: "user.admin_force_logout",
+      targetType: "user",
+      targetId: String(args.userId),
+      afterState: "tokens_invalidated",
+    });
+    return { ok: true };
+  },
+});
+
+export const adminDelete = mutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    if (actor.role !== "admin") throw new Error("Admin required");
+    const target = await ctx.db.get(args.userId);
+    if (!target) throw new Error("User not found");
+    await ctx.db.delete(args.userId);
+    await appendAudit(ctx, {
+      actorId: actor._id,
+      action: "user.admin_delete",
+      targetType: "user",
+      targetId: String(args.userId),
+      beforeState: JSON.stringify({ email: target.email }),
+      afterState: "deleted",
+    });
+    return { ok: true };
+  },
+});
+
 export const updateProfile = mutation({
   args: { bio: v.optional(v.string()), avatarUrl: v.optional(v.string()) },
   handler: async (ctx, args) => {

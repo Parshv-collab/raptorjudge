@@ -110,6 +110,10 @@ export function AppShell() {
       { label: "Dashboard", href: "/admin" },
       { label: "Events", href: "/admin/events" },
       { label: "Users", href: "/admin/users" },
+      { label: "Invites", href: "/admin/invites" },
+      { label: "Settings", href: "/admin/settings" },
+      { label: "Judging", href: "/admin/judging" },
+      { label: "Audit", href: "/admin/audit" },
     ],
   };
 

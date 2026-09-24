@@ -10,7 +10,12 @@ import App from "./App";
 import "./index.css";
 import { createTokenStorage, purgeLegacyTokenStorage } from "./lib/tokenStorage";
 
-const client = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
+declare const __CONVEX_URL__: string;
+const convexUrl =
+  typeof __CONVEX_URL__ !== "undefined" && __CONVEX_URL__ !== "__CONVEX_URL_PLACEHOLDER__"
+    ? __CONVEX_URL__
+    : (import.meta.env.VITE_CONVEX_URL as string);
+const client = new ConvexReactClient(convexUrl);
 
 // Security item 68: drop any session/refresh token an earlier build wrote to
 // localStorage, then keep tokens in sessionStorage (per tab, cleared on close)

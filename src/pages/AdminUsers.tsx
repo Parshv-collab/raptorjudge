@@ -20,12 +20,43 @@ const ROLE_OPTIONS = [
 export default function AdminUsers() {
   const users = useQuery(api.users.list, {});
   const setRole = useMutation(api.users.setRole);
+  const disableUser = useMutation(api.users.adminDisable);
+  const forceLogout = useMutation(api.users.adminForceLogout);
+  const deleteUser = useMutation(api.users.adminDelete);
 
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [targetRole, setTargetRole] = useState("participant");
   const [busy, setBusy] = useState(false);
+
+  async function handleDisable(u: any) {
+    try {
+      await disableUser({ userId: u._id });
+      toast.success(`User ${u.email} disabled.`);
+    } catch (e: any) {
+      toast.error(e.message || "Failed to disable user");
+    }
+  }
+
+  async function handleForceLogout(u: any) {
+    try {
+      await forceLogout({ userId: u._id });
+      toast.success(`Force logout executed for ${u.email}`);
+    } catch (e: any) {
+      toast.error(e.message || "Failed to force logout");
+    }
+  }
+
+  async function handleDelete(u: any) {
+    if (!confirm(`Are you sure you want to permanently delete user ${u.email}?`)) return;
+    try {
+      await deleteUser({ userId: u._id });
+      toast.success(`User ${u.email} deleted.`);
+    } catch (e: any) {
+      toast.error(e.message || "Failed to delete user");
+    }
+  }
 
   const filteredUsers = useMemo(() => {
     return (users || []).filter((u: any) => {
@@ -111,10 +142,10 @@ export default function AdminUsers() {
                   <td className="py-3.5 px-4 font-mono text-[#6e6e73]">{user.email}</td>
                   <td className="py-3.5 px-4">
                     <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-[#ff0055]/10 text-[#ff0055]">
-                      {user.role || "participant"}
+                      {user.role || "disabled"}
                     </span>
                   </td>
-                  <td className="py-3.5 px-4 text-right">
+                  <td className="py-3.5 px-4 text-right flex gap-1 justify-end">
                     <Button
                       variant="secondary"
                       size="sm"
@@ -123,7 +154,16 @@ export default function AdminUsers() {
                         setTargetRole(user.role || "participant");
                       }}
                     >
-                      Change Role
+                      Role
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleDisable(user)}>
+                      Disable
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleForceLogout(user)}>
+                      Logout
+                    </Button>
+                    <Button variant="danger" size="sm" onClick={() => handleDelete(user)}>
+                      Delete
                     </Button>
                   </td>
                 </tr>

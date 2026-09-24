@@ -31,6 +31,9 @@ import AdminDashboard from "@/pages/AdminDashboard";
 import AdminUsers from "@/pages/AdminUsers";
 import AdminEvents from "@/pages/AdminEvents";
 import AdminAudit from "@/pages/AdminAudit";
+import AdminInvites from "@/pages/AdminInvites";
+import AdminSettings from "@/pages/AdminSettings";
+import AdminJudging from "@/pages/AdminJudging";
 import ParticipantDashboard from "@/pages/ParticipantDashboard";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { Toaster } from "sonner";
@@ -82,6 +85,9 @@ export default function App() {
           <Route path="/admin/users" element={<Protected><AdminUsers /></Protected>} />
           <Route path="/admin/events" element={<Protected><AdminEvents /></Protected>} />
           <Route path="/admin/audit" element={<Protected><AdminAudit /></Protected>} />
+          <Route path="/admin/invites" element={<Protected><AdminInvites /></Protected>} />
+          <Route path="/admin/settings" element={<Protected><AdminSettings /></Protected>} />
+          <Route path="/admin/judging" element={<Protected><AdminJudging /></Protected>} />
           <Route path="/profile" element={<Protected><Profile /></Protected>} />
           <Route path="/settings" element={<Protected><Settings /></Protected>} />
           <Route path="/security" element={<Protected><Security /></Protected>} />

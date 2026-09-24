@@ -9,6 +9,7 @@
  */
 
 import type * as acceptance from "../acceptance.js";
+import type * as admin from "../admin.js";
 import type * as audit from "../audit.js";
 import type * as auth from "../auth.js";
 import type * as certificates from "../certificates.js";
@@ -23,10 +24,12 @@ import type * as judging from "../judging.js";
 import type * as lib_audit from "../lib/audit.js";
 import type * as lib_authProvider from "../lib/authProvider.js";
 import type * as lib_common from "../lib/common.js";
+import type * as lib_jwt from "../lib/jwt.js";
 import type * as lib_rbac from "../lib/rbac.js";
 import type * as lib_secretBox from "../lib/secretBox.js";
 import type * as lib_securityChecks from "../lib/securityChecks.js";
 import type * as lib_signInErrors from "../lib/signInErrors.js";
+import type * as lib_timeWindows from "../lib/timeWindows.js";
 import type * as lib_webhookSignature from "../lib/webhookSignature.js";
 import type * as lib_wellKnown from "../lib/wellKnown.js";
 import type * as mfa from "../mfa.js";
@@ -48,6 +51,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   acceptance: typeof acceptance;
+  admin: typeof admin;
   audit: typeof audit;
   auth: typeof auth;
   certificates: typeof certificates;
@@ -62,10 +66,12 @@ declare const fullApi: ApiFromModules<{
   "lib/audit": typeof lib_audit;
   "lib/authProvider": typeof lib_authProvider;
   "lib/common": typeof lib_common;
+  "lib/jwt": typeof lib_jwt;
   "lib/rbac": typeof lib_rbac;
   "lib/secretBox": typeof lib_secretBox;
   "lib/securityChecks": typeof lib_securityChecks;
   "lib/signInErrors": typeof lib_signInErrors;
+  "lib/timeWindows": typeof lib_timeWindows;
   "lib/webhookSignature": typeof lib_webhookSignature;
   "lib/wellKnown": typeof lib_wellKnown;
   mfa: typeof mfa;

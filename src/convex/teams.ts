@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getCurrentUser, requireUser, parseSettings } from "./lib/common";
+import { assertWithinWindow } from "./lib/timeWindows";
 import { appendAudit } from "./lib/audit";
 import { randomHex } from "./crypto";
 
@@ -78,6 +79,7 @@ export const create = mutation({
     if (user.role === "judge") throw new Error("Judges cannot join teams");
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("Event not found");
+    assertWithinWindow(event, "registration");
 
     // one team per event per user
     const memberships = await ctx.db
@@ -132,6 +134,7 @@ export const joinByInviteCode = mutation({
     if (!team) throw new Error("Invalid invite code");
     const event = await ctx.db.get(team.eventId);
     if (!event) throw new Error("Event not found");
+    assertWithinWindow(event, "registration");
     const settings = parseSettings(event.settings);
     const maxTeamSize = Number(settings["max_team_size"] ?? 4);
 
