@@ -65,8 +65,10 @@ function HeaderSearch() {
 export function AppShell() {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const { signOut } = useAuthActions();
-  const me = useQuery(api.users.me, {}) ?? null;
-  const settings = useQuery(api.admin.getSettings, {}) ?? {};
+  const skip = isLoading || !isAuthenticated;
+  const me = useQuery(api.users.me, skip ? "skip" : {}) ?? null;
+  const settingsQuery = useQuery(api.admin.getSettings, skip ? "skip" : {});
+  const settings = settingsQuery && !(settingsQuery instanceof Error) ? settingsQuery : {};
   const navigate = useNavigate();
   const location = useLocation();
 
