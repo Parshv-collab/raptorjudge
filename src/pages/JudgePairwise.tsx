@@ -9,16 +9,31 @@ import { Button } from "@/components/ui/Button";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 
+import { Dropdown } from "@/components/ui/Dropdown";
+
 export default function JudgePairwise() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const skip = authLoading || !isAuthenticated;
 
+  const [selectedEventId, setSelectedEventId] = useState<string>("");
+
   const queue = useQuery(api.judging.myQueue, skip ? "skip" : {});
-  const eventId = queue?.items?.[0]?.eventId;
+
+  // Extract unique events
+  const allItems = queue?.items || [];
+  const eventOptionsMap = new Map<string, string>();
+  allItems.forEach((i: any) => {
+    if (i.eventId && i.eventTitle) {
+      eventOptionsMap.set(i.eventId, i.eventTitle);
+    }
+  });
+
+  const eventEntries = Array.from(eventOptionsMap.entries());
+  const activeEventId = selectedEventId || (eventEntries[0]?.[0] ?? "");
 
   const pair = useQuery(
     api.pairwise.nextPair,
-    skip || !eventId ? "skip" : { eventId: eventId as never }
+    skip || !activeEventId ? "skip" : { eventId: activeEventId as never }
   );
   const submitMatch = useMutation(api.pairwise.submitMatch);
 
@@ -42,7 +57,7 @@ export default function JudgePairwise() {
     );
   }
 
-  if (queue.items.length === 0) {
+  if (allItems.length === 0) {
     return (
       <div className="max-w-5xl mx-auto py-8 px-4 flex flex-col gap-6">
         <Link to="/judge">
@@ -58,22 +73,6 @@ export default function JudgePairwise() {
     );
   }
 
-  if (!eventId) {
-    return (
-      <div className="max-w-5xl mx-auto py-8 px-4 flex flex-col gap-6">
-        <Link to="/judge">
-          <span className="text-xs font-semibold text-[#ff0055] hover:underline">
-            ← Back to Judge Portal
-          </span>
-        </Link>
-        <EmptyState
-          title="Event Not Found"
-          description="Could not determine event for pairwise comparisons."
-        />
-      </div>
-    );
-  }
-
   if (pair === undefined) {
     return (
       <div className="max-w-5xl mx-auto py-8 px-4 flex flex-col gap-6">
@@ -83,11 +82,11 @@ export default function JudgePairwise() {
   }
 
   async function handleSelectWinner(winnerId?: string) {
-    if (!pair || !eventId) return;
+    if (!pair || !activeEventId) return;
     setBusy(true);
     try {
       await submitMatch({
-        eventId: eventId as never,
+        eventId: activeEventId as never,
         submissionAId: pair.a.id as never,
         submissionBId: pair.b.id as never,
         winnerId: (winnerId || undefined) as never,
@@ -108,7 +107,7 @@ export default function JudgePairwise() {
         </span>
       </Link>
 
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
             Bradley-Terry Pairwise
@@ -117,6 +116,16 @@ export default function JudgePairwise() {
             Head-to-Head Comparison
           </h1>
         </div>
+
+        {eventEntries.length > 1 && (
+          <div className="w-56">
+            <Dropdown
+              options={eventEntries.map(([id, title]) => ({ value: id, label: title }))}
+              value={activeEventId}
+              onChange={(v) => setSelectedEventId(v)}
+            />
+          </div>
+        )}
       </div>
 
       {!pair ? (
@@ -125,7 +134,7 @@ export default function JudgePairwise() {
             No Active Pairwise Comparison
           </h3>
           <p className="text-xs text-[#6e6e73]">
-            There are no available pair comparisons at this time or insufficient submitted projects.
+            No pairwise comparisons available for this event yet.
           </p>
         </GlassCard>
       ) : (

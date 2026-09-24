@@ -229,11 +229,11 @@ export const runAssignment = mutation({
 
 // ---------------------------------------------------------------- scoring ---
 
-/** Judge queue: only my assigned submissions, only during judging stage. */
+/** Judge queue: only my assigned submissions, across all events or filtered. */
 export const myQueue = query({
   args: { eventId: v.optional(v.id("events")) },
   handler: async (ctx, args) => {
-    const user = await requireRole(ctx, "judge", "organizer", "admin");
+    const user = await requireUser(ctx);
     const isStaff = user.role === "admin" || user.role === "organizer";
 
     let assignments;
@@ -254,17 +254,40 @@ export const myQueue = query({
     }
 
     const out = [];
-    let judgingOpen = false;
+    const now = Date.now();
+    const eventSet = new Set<string>();
 
     for (const a of assignments) {
       const event = await ctx.db.get(a.eventId);
       if (!event) continue;
-      const inJudging = stageAllowsJudging(event.status as never);
-      if (inJudging) judgingOpen = true;
+      eventSet.add(String(event._id));
+
+      const judgingStart = event.judgingStart ?? event.judgingStarts ?? 0;
+      const judgingEnd = event.judgingEnd ?? event.judgingEnds ?? Infinity;
+
+      const inWindow =
+        event.status === "judging" || (now >= judgingStart && now <= judgingEnd);
+
+      const canScore = (inWindow || isStaff) && a.status !== "completed";
+
+      let judgingWindowLabel = "Open";
+      if (!inWindow) {
+        if (now < judgingStart && judgingStart > 0) {
+          judgingWindowLabel = `Opens ${new Date(judgingStart).toLocaleDateString()}`;
+        } else {
+          judgingWindowLabel = `Closed ${judgingEnd < Infinity ? new Date(judgingEnd).toLocaleDateString() : ""}`.trim();
+        }
+      }
 
       const sub = await ctx.db.get(a.submissionId);
       if (!sub) continue;
       const team = await ctx.db.get(sub.teamId);
+      let teamName: string | null = team?.name ?? null;
+      if (!teamName) {
+        const creator = await ctx.db.get(team?.createdBy ?? sub.teamId as never);
+        teamName = creator?.name || creator?.email || "Solo";
+      }
+
       const track = sub.trackId ? await ctx.db.get(sub.trackId) : null;
 
       const criteria = await ctx.db
@@ -290,7 +313,9 @@ export const myQueue = query({
           title: event.title,
           slug: event.slug,
         },
-        teamName: team?.name ?? null,
+        teamName,
+        canScore,
+        judgingWindowLabel,
         submission: {
           _id: String(sub._id),
           id: String(sub._id),
@@ -301,15 +326,20 @@ export const myQueue = query({
           videoUrl: sub.videoUrl,
           demoUrl: sub.demoUrl,
           tags: sub.tags,
-          teamName: team?.name ?? "—",
+          teamName: teamName ?? "—",
           trackName: track?.name ?? "Open",
         },
         scoredCriteria: scores.map((s) => ({ criterionId: String(s.criterionId), score: s.score, notes: s.privateNotes })),
         criteriaCount: criteria.length,
-        locked: !inJudging && !isStaff,
+        locked: !canScore && !isStaff && a.status === "completed",
       });
     }
-    return { items: out, judgingOpen };
+
+    return {
+      items: out,
+      judgingOpen: out.some((i) => i.canScore),
+      eventCount: eventSet.size,
+    };
   },
 });
 

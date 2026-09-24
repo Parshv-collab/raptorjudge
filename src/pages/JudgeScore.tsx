@@ -14,14 +14,18 @@ export default function JudgeScore() {
 
   const { id } = useParams<{ id: string }>();
 
-  const event = useQuery(api.events.getBySlug, skip ? "skip" : { slug: "dogfood-2026" });
-  const queue = useQuery(api.judging.myQueue, skip || !event ? "skip" : { eventId: event._id });
-  const rubric = useQuery(api.judging.rubricForEvent, skip || !event ? "skip" : { eventId: event._id });
-  const submitScores = useMutation(api.judging.submitScores);
+  const queue = useQuery(api.judging.myQueue, skip ? "skip" : {});
 
   const item = queue?.items.find(
     (candidate: any) => String(candidate.assignmentId) === String(id)
   );
+
+  const eventId = item?.eventId;
+  const rubric = useQuery(
+    api.judging.rubricForEvent,
+    skip || !eventId ? "skip" : { eventId: eventId as never }
+  );
+  const submitScores = useMutation(api.judging.submitScores);
 
   const sortedRubric = useMemo(
     () => [...(rubric ?? [])].sort((a: any, b: any) => a.sortOrder - b.sortOrder),
@@ -32,7 +36,7 @@ export default function JudgeScore() {
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
 
-  if (!event || !queue || !rubric) {
+  if (!queue || (item && !rubric)) {
     return (
       <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
         <SkeletonCard lines={4} />
