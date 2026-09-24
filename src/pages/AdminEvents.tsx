@@ -28,10 +28,44 @@ export default function AdminEvents() {
   const unpublish = useMutation(api.events.unpublish);
   const deleteEvent = useMutation(api.events.deleteEvent);
   const transferOwnership = useMutation(api.events.adminTransferOwnership);
+  const importEventFromJson = useMutation((api as any).imports.eventFromJson);
 
   const [statusFilter, setStatusFilter] = useState("all");
   const [transferTargetEvent, setTransferTargetEvent] = useState<any>(null);
   const [selectedOrganizer, setSelectedOrganizer] = useState("");
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importJsonText, setImportJsonText] = useState("");
+  const [importBusy, setImportBusy] = useState(false);
+
+  async function handleImportJson() {
+    if (!importJsonText.trim()) return;
+    setImportBusy(true);
+    try {
+      const res = await importEventFromJson({ jsonString: importJsonText.trim() });
+      if (res.imported) {
+        toast.success("Event imported successfully!");
+      } else {
+        toast.info(res.message || "Event already exists");
+      }
+      setImportModalOpen(false);
+      setImportJsonText("");
+    } catch (err: any) {
+      toast.error(humanizeConvexError(err));
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const content = evt.target?.result as string;
+      if (content) setImportJsonText(content);
+    };
+    reader.readAsText(file);
+  }
 
   const organizers = useMemo(() => {
     return (users || []).filter((u: any) => u.role === "organizer" || u.role === "admin");
@@ -108,6 +142,10 @@ export default function AdminEvents() {
             All System Events
           </h1>
         </div>
+
+        <Button variant="primary" size="md" onClick={() => setImportModalOpen(true)}>
+          Bulk Import JSON
+        </Button>
       </div>
 
       {/* Filter Bar */}
@@ -175,6 +213,52 @@ export default function AdminEvents() {
           )}
         </div>
       </GlassCard>
+
+      {/* Bulk Import Modal */}
+      <Modal
+        isOpen={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
+        title="Bulk Import Event JSON"
+        description="Upload or paste full event JSON data to import event, tracks, and rubric criteria."
+      >
+        <div className="flex flex-col gap-4 mt-2">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold text-[#1d1d1f]">Upload JSON File</label>
+            <input
+              type="file"
+              accept=".json,application/json"
+              onChange={handleFileUpload}
+              className="text-xs p-2 rounded border border-black/10 bg-white"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold text-[#1d1d1f]">Or Paste Event JSON Content</label>
+            <textarea
+              rows={8}
+              value={importJsonText}
+              onChange={(e) => setImportJsonText(e.target.value)}
+              placeholder='{"event": {"slug": "my-event", "title": "My Event"}, "tracks": []}'
+              className="w-full p-3 font-mono text-xs rounded-input bg-white/50 border border-white/80 focus-ring-accent"
+            />
+          </div>
+
+          <div className="flex justify-between items-center mt-4">
+            <Button variant="ghost" size="md" onClick={() => setImportModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              isLoading={importBusy}
+              disabled={!importJsonText.trim()}
+              onClick={handleImportJson}
+            >
+              Import Event
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         isOpen={!!transferTargetEvent}
