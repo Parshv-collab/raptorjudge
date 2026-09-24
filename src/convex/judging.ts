@@ -9,6 +9,7 @@ import {
 import { assertWithinWindow } from "./lib/timeWindows";
 import { appendAudit } from "./lib/audit";
 import { planJudgeAssignments } from "../lib/algorithms/assignment";
+import { DEFAULT_RUBRIC } from "./lib/defaultRubric";
 
 /**
  * Judging engine (T2): rubrics, algorithmic assignments, score capture,
@@ -18,13 +19,130 @@ import { planJudgeAssignments } from "../lib/algorithms/assignment";
 
 // ---------------------------------------------------------------- rubrics ---
 
-export const rubricForEvent = query({
+export const getRubric = query({
   args: { eventId: v.id("events") },
-  handler: async (ctx, args) =>
-    ctx.db
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get(args.eventId);
+    const criteria = await ctx.db
       .query("rubricCriteria")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect(),
+      .collect();
+
+    const locked = event ? event.status === "judging" || event.status === "voting" || event.status === "published" || event.status === "archived" : false;
+
+    if (criteria.length > 0) {
+      return {
+        criteria: criteria.sort((a, b) => a.sortOrder - b.sortOrder).map((c) => ({
+          id: String(c._id),
+          _id: String(c._id),
+          name: c.name,
+          description: c.description,
+          weight: c.weight,
+          minScore: c.minScore,
+          maxScore: c.maxScore,
+          sortOrder: c.sortOrder,
+        })),
+        isDefault: false,
+        locked,
+      };
+    }
+
+    return {
+      criteria: DEFAULT_RUBRIC.criteria.map((c) => ({
+        id: c.id,
+        _id: c.id,
+        name: c.name,
+        description: c.description,
+        weight: c.weight,
+        minScore: c.minScore,
+        maxScore: c.maxScore,
+        sortOrder: c.sortOrder,
+      })),
+      isDefault: true,
+      locked,
+    };
+  },
+});
+
+export const rubricForEvent = query({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    const res = await ctx.db
+      .query("rubricCriteria")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    if (res.length > 0) return res;
+    return DEFAULT_RUBRIC.criteria.map((c) => ({
+      _id: c.id as never,
+      eventId: args.eventId,
+      name: c.name,
+      description: c.description,
+      weight: c.weight,
+      minScore: c.minScore,
+      maxScore: c.maxScore,
+      sortOrder: c.sortOrder,
+    }));
+  },
+});
+
+export const customizeRubric = mutation({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    const existing = await ctx.db
+      .query("rubricCriteria")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+
+    if (existing.length === 0) {
+      for (const c of DEFAULT_RUBRIC.criteria) {
+        await ctx.db.insert("rubricCriteria", {
+          eventId: args.eventId,
+          name: c.name,
+          description: c.description,
+          weight: c.weight,
+          minScore: c.minScore,
+          maxScore: c.maxScore,
+          sortOrder: c.sortOrder,
+        });
+      }
+    }
+
+    await appendAudit(ctx, {
+      eventId: args.eventId,
+      actorId: actor._id,
+      action: "rubric.customize",
+      targetType: "event",
+      targetId: String(args.eventId),
+    });
+
+    return { ok: true };
+  },
+});
+
+export const deleteCriterion = mutation({
+  args: { eventId: v.id("events"), criterionId: v.id("rubricCriteria") },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    const criterion = await ctx.db.get(args.criterionId);
+    if (!criterion) throw new Error("Criterion not found");
+    const criteria = await ctx.db
+      .query("rubricCriteria")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    if (criteria.length <= 1) {
+      throw new Error("At least 1 criterion required");
+    }
+    await ctx.db.delete(args.criterionId);
+    await appendAudit(ctx, {
+      eventId: args.eventId,
+      actorId: actor._id,
+      action: "rubric.delete_criterion",
+      targetType: "criterion",
+      targetId: String(args.criterionId),
+    });
+    return { ok: true };
+  },
 });
 
 export const upsertCriterion = mutation({

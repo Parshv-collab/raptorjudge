@@ -1,0 +1,42 @@
+export const DEFAULT_RUBRIC = {
+  name: "Default Rubric",
+  criteria: [
+    {
+      id: "default-innovation",
+      name: "Innovation",
+      description: "Originality and novelty of the idea",
+      weight: 0.30,
+      minScore: 1,
+      maxScore: 10,
+      sortOrder: 10,
+    },
+    {
+      id: "default-technical-depth",
+      name: "Technical Depth",
+      description: "Complexity and quality of the implementation",
+      weight: 0.30,
+      minScore: 1,
+      maxScore: 10,
+      sortOrder: 20,
+    },
+    {
+      id: "default-execution",
+      name: "Execution",
+      description: "Completeness and polish",
+      weight: 0.25,
+      minScore: 1,
+      maxScore: 10,
+      sortOrder: 30,
+    },
+    {
+      id: "default-presentation",
+      name: "Presentation",
+      description: "Clarity of documentation and demo",
+      weight: 0.15,
+      minScore: 1,
+      maxScore: 10,
+      sortOrder: 40,
+    },
+  ],
+  isDefault: true,
+};
