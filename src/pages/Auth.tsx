@@ -96,7 +96,7 @@ export default function Auth() {
         ...(needsCode && code ? { totp: code } : {}),
       });
       toast.success("Welcome back!");
-      navigate(returnTo, { replace: true });
+      navigate("/home", { replace: true });
     } catch (err: any) {
       const raw = String(err?.message ?? "");
       if (raw === "TOTP_REQUIRED") {
@@ -146,7 +146,7 @@ export default function Auth() {
         flow: "signUp",
       });
       toast.success("Account created successfully!");
-      navigate(returnTo, { replace: true });
+      navigate("/home", { replace: true });
     } catch (err: any) {
       setError(humanizeConvexError(err));
     } finally {

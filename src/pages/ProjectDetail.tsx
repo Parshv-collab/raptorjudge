@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -29,8 +30,8 @@ export default function ProjectDetail() {
 
   if (!detail) {
     return (
-      <div className="py-24 text-center font-semibold text-xs text-[#6e6e73] animate-pulse">
-        Loading project details...
+      <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={4} />
       </div>
     );
   }

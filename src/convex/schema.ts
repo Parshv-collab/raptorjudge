@@ -38,4 +38,15 @@ export default defineSchema({
   webhookDeliveries: defineTable({ webhookId: v.id("webhooks"), eventType: v.string(), payload: v.string(), statusCode: v.number(), success: v.boolean(), deliveredAt: v.number() }).index("by_webhook", ["webhookId"]),
   certificates: defineTable({ certUuid: v.string(), eventId: v.id("events"), userId: v.id("users"), recipientName: v.string(), certType: v.string(), title: v.string(), trackName: v.string(), rank: v.number(), signatureHash: v.string(), issuedAt: v.number() }).index("by_uuid", ["certUuid"]).index("by_event", ["eventId"]),
   platform: defineTable({ key: v.string(), value: v.string() }).index("by_key", ["key"]),
+  invites: defineTable({
+    email: v.optional(v.string()),
+    role: v.string(),
+    eventId: v.optional(v.id("events")),
+    tokenHash: v.string(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  }).index("by_token_hash", ["tokenHash"]).index("by_email", ["email"]),
 });

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/Button";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All Events" },
@@ -43,8 +44,10 @@ export default function Browse() {
 
   if (events === undefined) {
     return (
-      <div className="py-20 text-center animate-pulse text-xs text-[#6e6e73]">
-        Loading events...
+      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <SkeletonCard lines={3} /><SkeletonCard lines={3} /><SkeletonCard lines={3} />
+        </div>
       </div>
     );
   }

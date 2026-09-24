@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatCard } from "@/components/ui/StatCard";
 import { Button } from "@/components/ui/Button";
+import { SkeletonCard, SkeletonStat } from "@/components/ui/SkeletonCard";
 
 export default function OrganizerDashboard() {
   const events = useQuery(api.events.listAll, {});
@@ -16,8 +17,11 @@ export default function OrganizerDashboard() {
 
   if (!events) {
     return (
-      <div className="py-20 text-center animate-pulse text-xs text-[#6e6e73]">
-        Loading organizer dashboard...
+      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+          <SkeletonStat /><SkeletonStat /><SkeletonStat /><SkeletonStat />
+        </div>
+        <SkeletonCard lines={5} />
       </div>
     );
   }

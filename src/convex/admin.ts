@@ -7,13 +7,96 @@ import { randomHex } from "./crypto";
 export const getSettings = query({
   args: {},
   handler: async (ctx) => {
-    await requireOrganizer(ctx);
     const rows = await ctx.db.query("platform").collect();
     const settings: Record<string, string> = {};
     for (const r of rows) {
-      settings[r.key] = r.value;
+      if (!r.key.startsWith("lookup:") && !r.key.startsWith("invite:")) {
+        settings[r.key] = r.value;
+      }
     }
     return settings;
+  },
+});
+
+export const listLookups = query({
+  args: { type: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("platform")
+      .withIndex("by_key", (q) => q.eq("key", `lookup:${args.type}`))
+      .unique();
+    if (!row) return [];
+    return JSON.parse(row.value) as { id: string; code: string; label: string; active: boolean; sortOrder: number }[];
+  },
+});
+
+export const createLookup = mutation({
+  args: { type: v.string(), code: v.string(), label: v.string(), sortOrder: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    if (actor.role !== "admin") throw new Error("Admin required");
+    const key = `lookup:${args.type}`;
+    const row = await ctx.db
+      .query("platform")
+      .withIndex("by_key", (q) => q.eq("key", key))
+      .unique();
+    const list = row ? (JSON.parse(row.value) as any[]) : [];
+    const newEntry = {
+      id: randomHex(8),
+      code: args.code,
+      label: args.label,
+      active: true,
+      sortOrder: args.sortOrder ?? list.length + 1,
+    };
+    list.push(newEntry);
+    if (row) {
+      await ctx.db.patch(row._id, { value: JSON.stringify(list) });
+    } else {
+      await ctx.db.insert("platform", { key, value: JSON.stringify(list) });
+    }
+    return newEntry;
+  },
+});
+
+export const updateLookup = mutation({
+  args: { type: v.string(), id: v.string(), label: v.string(), active: v.boolean(), sortOrder: v.number() },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    if (actor.role !== "admin") throw new Error("Admin required");
+    const key = `lookup:${args.type}`;
+    const row = await ctx.db
+      .query("platform")
+      .withIndex("by_key", (q) => q.eq("key", key))
+      .unique();
+    if (!row) throw new Error("Lookup table not found");
+    const list = JSON.parse(row.value) as any[];
+    const idx = list.findIndex((x) => x.id === args.id);
+    if (idx !== -1) {
+      list[idx] = { ...list[idx], label: args.label, active: args.active, sortOrder: args.sortOrder };
+      await ctx.db.patch(row._id, { value: JSON.stringify(list) });
+    }
+    return { ok: true };
+  },
+});
+
+export const deactivateLookup = mutation({
+  args: { type: v.string(), id: v.string() },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    if (actor.role !== "admin") throw new Error("Admin required");
+    const key = `lookup:${args.type}`;
+    const row = await ctx.db
+      .query("platform")
+      .withIndex("by_key", (q) => q.eq("key", key))
+      .unique();
+    if (!row) throw new Error("Lookup table not found");
+    const list = JSON.parse(row.value) as any[];
+    const idx = list.findIndex((x) => x.id === args.id);
+    if (idx !== -1) {
+      list[idx].active = !list[idx].active;
+      await ctx.db.patch(row._id, { value: JSON.stringify(list) });
+    }
+    return { ok: true };
   },
 });
 
@@ -42,70 +125,119 @@ export const updateSettings = mutation({
   },
 });
 
+import { sha256Hex } from "./crypto";
+
 export const listInvites = query({
   args: {},
   handler: async (ctx) => {
     await requireOrganizer(ctx);
-    const rows = await ctx.db.query("platform").collect();
-    const invites = rows
-      .filter((r) => r.key.startsWith("invite:"))
-      .map((r) => {
-        const val = JSON.parse(r.value);
+    const invites = await ctx.db.query("invites").collect();
+    const users = await ctx.db.query("users").collect();
+    return invites
+      .filter((inv) => !inv.usedAt && !inv.revokedAt && Date.now() < inv.expiresAt)
+      .map((inv) => {
+        const creator = users.find((u) => u._id === inv.createdBy);
         return {
-          code: r.key.replace("invite:", ""),
-          ...val,
+          id: String(inv._id),
+          email: inv.email ?? "—",
+          role: inv.role,
+          createdBy: creator?.email ?? "—",
+          createdAt: inv.createdAt,
+          expiresAt: inv.expiresAt,
         };
       });
-    return invites;
   },
 });
 
 export const createInvite = mutation({
-  args: { email: v.string(), role: v.string() },
+  args: { email: v.optional(v.string()), role: v.string(), eventId: v.optional(v.id("events")) },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
     if (actor.role !== "admin" && actor.role !== "organizer") throw new Error("Unauthorized");
-    const code = randomHex(8);
-    const inviteData = {
+    const token = randomHex(32);
+    const tokenHash = await sha256Hex(token);
+    const now = Date.now();
+    const ttl = args.role === "admin" ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+    const expiresAt = now + ttl;
+
+    const id = await ctx.db.insert("invites", {
       email: args.email,
       role: args.role,
-      createdBy: actor.email,
-      createdAt: Date.now(),
-      status: "pending",
-    };
-    await ctx.db.insert("platform", {
-      key: `invite:${code}`,
-      value: JSON.stringify(inviteData),
+      eventId: args.eventId,
+      tokenHash,
+      createdBy: actor._id,
+      createdAt: now,
+      expiresAt,
     });
+
     await appendAudit(ctx, {
       actorId: actor._id,
       action: "invite.create",
       targetType: "invite",
-      targetId: code,
-      afterState: JSON.stringify(inviteData),
+      targetId: String(id),
+      afterState: JSON.stringify({ email: args.email, role: args.role }),
     });
-    return { code, ...inviteData };
+
+    const url = `/invite/${token}`;
+    return { id: String(id), token, url };
   },
 });
 
 export const revokeInvite = mutation({
-  args: { code: v.string() },
+  args: { inviteId: v.id("invites") },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
-    const existing = await ctx.db
-      .query("platform")
-      .withIndex("by_key", (q) => q.eq("key", `invite:${args.code}`))
-      .unique();
+    const existing = await ctx.db.get(args.inviteId);
     if (existing) {
-      await ctx.db.delete(existing._id);
+      await ctx.db.patch(args.inviteId, { revokedAt: Date.now() });
     }
     await appendAudit(ctx, {
       actorId: actor._id,
       action: "invite.revoke",
       targetType: "invite",
-      targetId: args.code,
+      targetId: String(args.inviteId),
     });
     return { ok: true };
+  },
+});
+
+export const getInviteByToken = query({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const tokenHash = await sha256Hex(args.token);
+    const inv = await ctx.db
+      .query("invites")
+      .withIndex("by_token_hash", (q) => q.eq("tokenHash", tokenHash))
+      .unique();
+    if (!inv || inv.usedAt || inv.revokedAt || Date.now() > inv.expiresAt) {
+      return null;
+    }
+    return {
+      id: String(inv._id),
+      email: inv.email ?? "",
+      role: inv.role,
+      eventId: inv.eventId ? String(inv.eventId) : null,
+    };
+  },
+});
+
+export const acceptInvite = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const tokenHash = await sha256Hex(args.token);
+    const inv = await ctx.db
+      .query("invites")
+      .withIndex("by_token_hash", (q) => q.eq("tokenHash", tokenHash))
+      .unique();
+    if (!inv || inv.usedAt || inv.revokedAt || Date.now() > inv.expiresAt) {
+      throw new Error("Invalid or expired invite token");
+    }
+    await ctx.db.patch(inv._id, { usedAt: Date.now() });
+    return {
+      email: inv.email,
+      role: inv.role,
+      eventId: inv.eventId,
+    };
   },
 });
 

@@ -15,15 +15,17 @@ export default function AdminInvites() {
 
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("organizer");
+  const [lastCreatedUrl, setLastCreatedUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!email.trim()) return;
     setBusy(true);
     try {
-      const res = await createInvite({ email, role });
-      toast.success(`Invite created! Code: ${res.code}`);
+      const res = await createInvite({ email: email.trim() || undefined, role });
+      const fullUrl = `${window.location.origin}${res.url}`;
+      setLastCreatedUrl(fullUrl);
+      toast.success("Invite created successfully!");
       setEmail("");
     } catch (err: any) {
       toast.error(err.message || "Failed to create invite");
@@ -32,18 +34,17 @@ export default function AdminInvites() {
     }
   }
 
-  async function handleRevoke(code: string) {
+  async function handleRevoke(inviteId: string) {
     try {
-      await revokeInvite({ code });
+      await revokeInvite({ inviteId: inviteId as any });
       toast.success("Invite revoked.");
     } catch (err: any) {
       toast.error(err.message || "Failed to revoke invite");
     }
   }
 
-  function handleCopy(code: string) {
-    const link = `${window.location.origin}/auth?inviteCode=${code}`;
-    navigator.clipboard.writeText(link);
+  function handleCopy(url: string) {
+    navigator.clipboard.writeText(url);
     toast.success("Invite link copied to clipboard!");
   }
 
@@ -69,9 +70,8 @@ export default function AdminInvites() {
         <form onSubmit={handleCreate} className="flex flex-col sm:flex-row gap-4 items-end">
           <div className="flex-1 w-full">
             <Input
-              label="Recipient Email"
+              label="Recipient Email (Optional)"
               type="email"
-              required
               placeholder="organizer@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -93,6 +93,18 @@ export default function AdminInvites() {
             Generate Invite
           </Button>
         </form>
+
+        {lastCreatedUrl && (
+          <div className="mt-4 p-4 rounded-card bg-emerald-500/10 border border-emerald-500/20 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold text-emerald-900">Invite URL Generated:</p>
+              <p className="text-xs font-mono text-emerald-800 break-all">{lastCreatedUrl}</p>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => handleCopy(lastCreatedUrl)}>
+              Copy Link
+            </Button>
+          </div>
+        )}
       </GlassCard>
 
       <GlassCard className="p-6">
@@ -103,25 +115,24 @@ export default function AdminInvites() {
               <tr className="border-b border-black/10 font-bold uppercase tracking-wider text-[#6e6e73]">
                 <th className="py-3 px-4">Recipient Email</th>
                 <th className="py-3 px-4">Role</th>
-                <th className="py-3 px-4">Code</th>
                 <th className="py-3 px-4">Created By</th>
+                <th className="py-3 px-4">Expires</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {(invites || []).map((inv: any) => (
-                <tr key={inv.code} className="border-b border-black/5 hover:bg-white/40">
+                <tr key={inv.id} className="border-b border-black/5 hover:bg-white/40">
                   <td className="py-3.5 px-4 font-bold text-[#1d1d1f]">{inv.email}</td>
                   <td className="py-3.5 px-4 font-semibold uppercase text-[10px] text-[#ff0055]">
                     {inv.role}
                   </td>
-                  <td className="py-3.5 px-4 font-mono text-[#6e6e73]">{inv.code}</td>
                   <td className="py-3.5 px-4 text-[#6e6e73]">{inv.createdBy}</td>
+                  <td className="py-3.5 px-4 text-[#6e6e73]">
+                    {new Date(inv.expiresAt).toLocaleDateString()}
+                  </td>
                   <td className="py-3.5 px-4 text-right flex gap-2 justify-end">
-                    <Button variant="secondary" size="sm" onClick={() => handleCopy(inv.code)}>
-                      Copy Link
-                    </Button>
-                    <Button variant="danger" size="sm" onClick={() => handleRevoke(inv.code)}>
+                    <Button variant="danger" size="sm" onClick={() => handleRevoke(inv.id)}>
                       Revoke
                     </Button>
                   </td>

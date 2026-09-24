@@ -6,6 +6,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 
 export default function JudgePortal() {
   const event = useQuery(api.events.getBySlug, { slug: "dogfood-2026" });
@@ -13,8 +14,9 @@ export default function JudgePortal() {
 
   if (!event || !queue) {
     return (
-      <div className="py-20 text-center animate-pulse text-xs text-[#6e6e73]">
-        Loading judge portal...
+      <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={2} />
+        <SkeletonCard lines={4} />
       </div>
     );
   }
@@ -68,7 +70,7 @@ export default function JudgePortal() {
         {items.length === 0 ? (
           <EmptyState
             title="No Assignments Yet"
-            description="You currently have no project submissions assigned to score. Ask the organizer to run auto-assignment."
+            description="You have no assigned projects yet. An organizer will assign projects to you."
           />
         ) : (
           <div className="flex flex-col gap-3">
