@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { Navigate } from "react-router-dom";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -8,8 +9,14 @@ import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { humanizeConvexError } from "@/lib/errors";
 
 export default function Security() {
-  const me = useQuery(api.users.me, {});
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
+  const me = useQuery(api.users.me, skip ? "skip" : {});
   const eligible = me?.role === "admin" || me?.role === "organizer";
+
+  if (authLoading) return <SkeletonCard lines={3} />;
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
@@ -40,7 +47,10 @@ export default function Security() {
 }
 
 function TotpPanel() {
-  const status = useQuery(api.mfa.status, {});
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
+  const status = useQuery(api.mfa.status, skip ? "skip" : {});
   const enroll = useMutation(api.mfa.enroll);
   const confirm = useMutation(api.mfa.confirm);
   const disable = useMutation(api.mfa.disable);

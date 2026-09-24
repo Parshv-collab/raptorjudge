@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { useQuery, useMutation } from "convex/react";
+import { useParams, Link, Navigate } from "react-router-dom";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -12,14 +12,22 @@ import { Modal, ConfirmDialog } from "@/components/ui/Modal";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { humanizeConvexError } from "@/lib/errors";
+import { downloadRawCsv } from "@/lib/csv";
 
 export function OrganizerEventManage() {
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
   const { slug } = useParams<{ slug: string }>();
-  const event = useQuery(api.events.getBySlug, slug ? { slug } : "skip");
+  const event = useQuery(api.events.getBySlug, skip || !slug ? "skip" : { slug });
   const setStage = useMutation(api.events.setStage);
-  const tracks = useQuery(api.tracks.listByEvent, event ? { eventId: event._id } : "skip");
-  const submissions = useQuery(api.submissions.byEvent, event ? { eventId: event._id } : "skip");
+  const tracks = useQuery(api.tracks.listByEvent, skip || !event ? "skip" : { eventId: event._id });
+  const submissions = useQuery(api.submissions.byEvent, skip || !event ? "skip" : { eventId: event._id });
   const createTrack = useMutation(api.tracks.create);
+
+  const submissionsCsv = useQuery(api.exports.submissionsCsv, skip || !event ? "skip" : { eventId: event._id });
+  const rankingsCsv = useQuery(api.exports.rankingsCsv, skip || !event ? "skip" : { eventId: event._id });
+  const scoresCsv = useQuery(api.exports.scoresCsv, skip || !event ? "skip" : { eventId: event._id });
 
   const [activeTab, setActiveTab] = useState("overview");
   const [busy, setBusy] = useState(false);
@@ -30,11 +38,24 @@ export function OrganizerEventManage() {
   const [newTrackDesc, setNewTrackDesc] = useState("");
   const [newTrackPrize, setNewTrackPrize] = useState("");
 
-  if (!event) {
+  if (authLoading) {
     return (
       <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
         <SkeletonCard lines={3} />
         <SkeletonCard lines={5} />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
+
+  if (!event) {
+    return (
+      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <GlassCard className="p-8 text-center">
+          <h2 className="text-xl font-bold text-[#1d1d1f]">Event Not Found</h2>
+          <p className="text-xs text-[#6e6e73] mt-2">The requested event could not be found or has been removed.</p>
+        </GlassCard>
       </div>
     );
   }
@@ -206,7 +227,22 @@ export function OrganizerEventManage() {
 
       {activeTab === "submissions" && (
         <GlassCard className="p-6">
-          <h3 className="text-base font-bold text-[#1d1d1f] mb-4">Submissions List</h3>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-base font-bold text-[#1d1d1f]">Submissions List</h3>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                if (!submissionsCsv) {
+                  toast.error("No data to export yet");
+                  return;
+                }
+                downloadRawCsv(`${event.slug}-submissions.csv`, submissionsCsv);
+              }}
+            >
+              Export Submissions CSV
+            </Button>
+          </div>
           <div className="flex flex-col gap-2">
             {(submissions || []).map((s: any) => (
               <div
@@ -232,11 +268,41 @@ export function OrganizerEventManage() {
       )}
 
       {activeTab === "results" && (
-        <GlassCard className="p-6 text-center">
-          <h3 className="text-base font-bold text-[#1d1d1f] mb-2">Results & Rankings</h3>
-          <p className="text-xs text-[#6e6e73] max-w-md mx-auto leading-relaxed">
-            Final judging rankings and score normalization models are calculated after the judging phase closes.
-          </p>
+        <GlassCard className="p-6 text-center flex flex-col items-center gap-4">
+          <div>
+            <h3 className="text-base font-bold text-[#1d1d1f] mb-2">Results & Rankings</h3>
+            <p className="text-xs text-[#6e6e73] max-w-md mx-auto leading-relaxed">
+              Final judging rankings and score normalization models are calculated after the judging phase closes.
+            </p>
+          </div>
+          <div className="flex gap-3 mt-2">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                if (!rankingsCsv) {
+                  toast.error("No data to export yet");
+                  return;
+                }
+                downloadRawCsv(`${event.slug}-rankings.csv`, rankingsCsv);
+              }}
+            >
+              Export Rankings CSV
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                if (!scoresCsv) {
+                  toast.error("No data to export yet");
+                  return;
+                }
+                downloadRawCsv(`${event.slug}-scores.csv`, scoresCsv);
+              }}
+            >
+              Export Scores CSV
+            </Button>
+          </div>
         </GlassCard>
       )}
 
@@ -261,9 +327,12 @@ export function OrganizerEventManage() {
 }
 
 function JudgesTab({ eventId }: { eventId: any }) {
-  const progress = useQuery(api.judging.progress, { eventId });
-  const submissions = useQuery(api.submissions.byEvent, { eventId });
-  const users = useQuery(api.users.list, {});
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
+  const progress = useQuery(api.judging.progress, skip || !eventId ? "skip" : { eventId });
+  const submissions = useQuery(api.submissions.byEvent, skip || !eventId ? "skip" : { eventId });
+  const users = useQuery(api.users.list, skip ? "skip" : {});
   const runAssignment = useMutation(api.judging.runAssignment);
   const assignProjects = useMutation(api.judging.assignProjects);
 

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { humanizeConvexError } from "@/lib/errors";
 
 export default function InviteAccept() {
   const { token } = useParams<{ token: string }>();
@@ -72,7 +73,7 @@ export default function InviteAccept() {
       toast.success("Account created and invite accepted!");
       navigate("/home", { replace: true });
     } catch (err: any) {
-      toast.error(err.message || "Failed to accept invite");
+      toast.error(humanizeConvexError(err));
     } finally {
       setBusy(false);
     }

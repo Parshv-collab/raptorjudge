@@ -1,15 +1,18 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
-import { useQuery, useMutation } from "convex/react";
+import { Link, Navigate } from "react-router-dom";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
+import { humanizeConvexError } from "@/lib/errors";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
 
 export default function AdminInvites() {
-  const invites = useQuery(api.admin.listInvites, {});
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const invites = useQuery(api.admin.listInvites, authLoading || !isAuthenticated ? "skip" : {});
   const createInvite = useMutation(api.admin.createInvite);
   const revokeInvite = useMutation(api.admin.revokeInvite);
 
@@ -28,7 +31,7 @@ export default function AdminInvites() {
       toast.success("Invite created successfully!");
       setEmail("");
     } catch (err: any) {
-      toast.error(err.message || "Failed to create invite");
+      toast.error(humanizeConvexError(err));
     } finally {
       setBusy(false);
     }
@@ -39,7 +42,7 @@ export default function AdminInvites() {
       await revokeInvite({ inviteId: inviteId as any });
       toast.success("Invite revoked.");
     } catch (err: any) {
-      toast.error(err.message || "Failed to revoke invite");
+      toast.error(humanizeConvexError(err));
     }
   }
 
@@ -47,6 +50,16 @@ export default function AdminInvites() {
     navigator.clipboard.writeText(url);
     toast.success("Invite link copied to clipboard!");
   }
+
+  if (authLoading) {
+    return (
+      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={6} />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">

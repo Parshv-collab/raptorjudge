@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { useSearchParams, Link } from "react-router-dom";
-import { useQuery, useMutation } from "convex/react";
+import { useSearchParams, Link, Navigate } from "react-router-dom";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -14,14 +14,21 @@ import { ConfirmDialog } from "@/components/ui/Modal";
 import { humanizeConvexError } from "@/lib/errors";
 
 export default function ParticipantWorkspace() {
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
   const [searchParams] = useSearchParams();
   const eventSlug = searchParams.get("event") ?? "dogfood-2026";
 
-  const event = useQuery(api.events.getBySlug, { slug: eventSlug });
-  const tracks = useQuery(api.tracks.listByEvent, event ? { eventId: event._id } : "skip");
-  const myTeam = useQuery(api.teams.myTeams, event ? { eventId: event._id } : "skip");
-  const data = useQuery(api.submissions.mySubmission, event ? { eventId: event._id } : "skip");
-  const certs = useQuery(api.certificates.mine, {});
+  const event = useQuery(api.events.getBySlug, skip || !eventSlug ? "skip" : { slug: eventSlug });
+  const tracks = useQuery(api.tracks.listByEvent, skip || !event ? "skip" : { eventId: event._id });
+  const myTeam = useQuery(api.teams.myTeams, skip || !event ? "skip" : { eventId: event._id });
+  const data = useQuery(api.submissions.mySubmission, skip || !event ? "skip" : { eventId: event._id });
+  const certs = useQuery(api.certificates.mine, skip ? "skip" : {});
+
+  const participantState = useQuery(api.participate.getParticipantState, skip || !event ? "skip" : { eventId: event._id });
+  const joinSolo = useMutation(api.participate.joinSolo);
+  const toggleLookingForTeam = useMutation(api.participate.toggleLookingForTeam);
 
   const createTeam = useMutation(api.teams.create);
   const joinTeam = useMutation(api.teams.joinByInviteCode);
@@ -67,7 +74,7 @@ export default function ParticipantWorkspace() {
     }
   }, [data?.submission?._id]);
 
-  const me = useQuery(api.users.me, {});
+  const me = useQuery(api.users.me, skip ? "skip" : {});
   const team = myTeam?.[0];
   const submission = data?.submission;
   const now = Date.now();
@@ -94,6 +101,19 @@ export default function ParticipantWorkspace() {
       });
       setDirty(false);
       toast.success("Draft saved successfully!");
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleGoSolo() {
+    if (!event) return;
+    setBusy(true);
+    try {
+      await joinSolo({ eventId: event._id });
+      toast.success("Registered as solo participant!");
     } catch (e: any) {
       toast.error(humanizeConvexError(e));
     } finally {
@@ -156,6 +176,17 @@ export default function ParticipantWorkspace() {
     }
   }
 
+  if (authLoading) {
+    return (
+      <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={2} />
+        <SkeletonCard lines={4} />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
+
   if (myTeam === undefined || event === undefined) {
     return (
       <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
@@ -202,7 +233,7 @@ export default function ParticipantWorkspace() {
         <h2 className="text-lg font-bold text-[#1d1d1f] mb-4">Team</h2>
 
         {!team ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className={`grid grid-cols-1 ${event?.soloAllowed !== false ? "md:grid-cols-3" : "md:grid-cols-2"} gap-6`}>
             {/* Create Team */}
             <div className="flex flex-col gap-3">
               <h3 className="text-sm font-bold text-[#1d1d1f]">Create a New Team</h3>
@@ -250,6 +281,24 @@ export default function ParticipantWorkspace() {
                 </Button>
               </div>
             </div>
+
+            {/* Go Solo option if soloAllowed !== false */}
+            {event?.soloAllowed !== false && (
+              <div className="flex flex-col gap-3 md:border-l border-black/5 md:pl-6">
+                <h3 className="text-sm font-bold text-[#1d1d1f]">Go Solo</h3>
+                <p className="text-xs text-[#6e6e73]">
+                  Participate individually without a team. You can still seek teammates later.
+                </p>
+                <Button
+                  variant="secondary"
+                  size="md"
+                  isLoading={busy}
+                  onClick={handleGoSolo}
+                >
+                  Go Solo
+                </Button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-4">
@@ -287,7 +336,35 @@ export default function ParticipantWorkspace() {
 
             {/* Member List */}
             <div className="flex flex-col gap-2">
-              <span className="text-xs font-bold text-[#1d1d1f]">Team Members</span>
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-[#1d1d1f]">Team Members</span>
+                {team.members.length === 1 && event?.soloAllowed !== false && (
+                  <label className="flex items-center gap-2 text-xs font-medium text-[#1d1d1f] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded border-gray-300 text-[#ff0055] focus:ring-[#ff0055]"
+                      checked={!!participantState?.lookingForTeam}
+                      onChange={async (e) => {
+                        if (!event) return;
+                        try {
+                          await toggleLookingForTeam({
+                            eventId: event._id,
+                            lookingForTeam: e.target.checked,
+                          });
+                          toast.success(
+                            e.target.checked
+                              ? "Looking for a teammate enabled!"
+                              : "Looking for a teammate disabled."
+                          );
+                        } catch (err: any) {
+                          toast.error(humanizeConvexError(err));
+                        }
+                      }}
+                    />
+                    <span>Looking for a teammate</span>
+                  </label>
+                )}
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {team.members.map((member: any) => (
                   <div

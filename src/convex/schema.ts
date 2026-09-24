@@ -49,4 +49,11 @@ export default defineSchema({
     usedAt: v.optional(v.number()),
     revokedAt: v.optional(v.number()),
   }).index("by_token_hash", ["tokenHash"]).index("by_email", ["email"]),
+  event_participants: defineTable({
+    eventId: v.id("events"),
+    userId: v.id("users"),
+    status: v.string(),
+    lookingForTeam: v.optional(v.boolean()),
+    createdAt: v.number(),
+  }).index("by_event", ["eventId"]).index("by_user", ["userId"]).index("by_event_user", ["eventId", "userId"]),
 });

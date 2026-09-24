@@ -1,6 +1,6 @@
 import React from "react";
-import { Link } from "react-router-dom";
-import { useQuery } from "convex/react";
+import { Link, Navigate } from "react-router-dom";
+import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
@@ -9,8 +9,22 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 
 export default function JudgePortal() {
-  const event = useQuery(api.events.getBySlug, { slug: "dogfood-2026" });
-  const queue = useQuery(api.judging.myQueue, event ? { eventId: event._id } : "skip");
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
+  const event = useQuery(api.events.getBySlug, skip ? "skip" : { slug: "dogfood-2026" });
+  const queue = useQuery(api.judging.myQueue, skip || !event ? "skip" : { eventId: event._id });
+
+  if (authLoading) {
+    return (
+      <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={2} />
+        <SkeletonCard lines={4} />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   if (!event || !queue) {
     return (

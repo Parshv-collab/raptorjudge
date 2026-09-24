@@ -35,6 +35,7 @@ import type * as lib_wellKnown from "../lib/wellKnown.js";
 import type * as mfa from "../mfa.js";
 import type * as normalization from "../normalization.js";
 import type * as pairwise from "../pairwise.js";
+import type * as participate from "../participate.js";
 import type * as seed from "../seed.js";
 import type * as submissions from "../submissions.js";
 import type * as teams from "../teams.js";
@@ -77,6 +78,7 @@ declare const fullApi: ApiFromModules<{
   mfa: typeof mfa;
   normalization: typeof normalization;
   pairwise: typeof pairwise;
+  participate: typeof participate;
   seed: typeof seed;
   submissions: typeof submissions;
   teams: typeof teams;

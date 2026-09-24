@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from "react";
-import { Link } from "react-router-dom";
-import { useQuery, useMutation } from "convex/react";
+import { Link, Navigate } from "react-router-dom";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
+import { humanizeConvexError } from "@/lib/errors";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Modal } from "@/components/ui/Modal";
@@ -17,8 +19,11 @@ const STATUS_OPTIONS = [
 ];
 
 export default function AdminEvents() {
-  const events = useQuery(api.events.listAll, {});
-  const users = useQuery(api.users.list, {});
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
+  const events = useQuery(api.events.listAll, skip ? "skip" : {});
+  const users = useQuery(api.users.list, skip ? "skip" : {});
   const publish = useMutation(api.events.publish);
   const unpublish = useMutation(api.events.unpublish);
   const deleteEvent = useMutation(api.events.deleteEvent);
@@ -48,7 +53,7 @@ export default function AdminEvents() {
         toast.success(`Unpublished ${e.title}`);
       }
     } catch (err: any) {
-      toast.error(err.message || "Action failed");
+      toast.error(humanizeConvexError(err));
     }
   }
 
@@ -58,7 +63,7 @@ export default function AdminEvents() {
       await deleteEvent({ eventId: e._id });
       toast.success(`Deleted ${e.title}`);
     } catch (err: any) {
-      toast.error(err.message || "Failed to delete event");
+      toast.error(humanizeConvexError(err));
     }
   }
 
@@ -72,9 +77,19 @@ export default function AdminEvents() {
       toast.success("Ownership transferred successfully.");
       setTransferTargetEvent(null);
     } catch (err: any) {
-      toast.error(err.message || "Transfer failed");
+      toast.error(humanizeConvexError(err));
     }
   }
+
+  if (authLoading) {
+    return (
+      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={6} />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">

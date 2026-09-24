@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { useQuery, useMutation, useAction } from "convex/react";
+import { Link, Navigate } from "react-router-dom";
+import { useQuery, useMutation, useAction, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
+import { humanizeConvexError } from "@/lib/errors";
 import { GlassCard } from "@/components/ui/GlassCard";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Checkbox } from "@/components/ui/Checkbox";
@@ -11,13 +13,16 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { Modal } from "@/components/ui/Modal";
 
 export default function AdminSettings() {
-  const settings = useQuery(api.admin.getSettings, {});
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
+  const settings = useQuery(api.admin.getSettings, skip ? "skip" : {});
   const updateSettings = useMutation(api.admin.updateSettings);
   const reseed = useAction(api.seed.seed);
 
   // Lookups queries/mutations
   const activeLookupType = "professions";
-  const professions = useQuery(api.admin.listLookups, { type: "professions" });
+  const professions = useQuery(api.admin.listLookups, skip ? "skip" : { type: "professions" });
   const createLookup = useMutation(api.admin.createLookup);
   const deactivateLookup = useMutation(api.admin.deactivateLookup);
 
@@ -78,7 +83,7 @@ export default function AdminSettings() {
       await updateSettings({ key, value });
       toast.success("Setting saved.");
     } catch (err: any) {
-      toast.error(err.message || "Failed to save setting");
+      toast.error(humanizeConvexError(err));
     }
   }
 
@@ -97,7 +102,7 @@ export default function AdminSettings() {
       setLookupLabel("");
       setLookupModalOpen(false);
     } catch (err: any) {
-      toast.error(err.message || "Failed to add lookup");
+      toast.error(humanizeConvexError(err));
     }
   }
 
@@ -106,7 +111,7 @@ export default function AdminSettings() {
       await deactivateLookup({ type, id });
       toast.success("Lookup status updated.");
     } catch (err: any) {
-      toast.error(err.message || "Failed to update lookup");
+      toast.error(humanizeConvexError(err));
     }
   }
 
@@ -122,11 +127,21 @@ export default function AdminSettings() {
       setResetModalOpen(false);
       setResetConfirm("");
     } catch (err: any) {
-      toast.error(err.message || "Failed to reset seed data");
+      toast.error(humanizeConvexError(err));
     } finally {
       setBusy(false);
     }
   }
+
+  if (authLoading) {
+    return (
+      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-8">
+        <SkeletonCard lines={6} />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-8">
