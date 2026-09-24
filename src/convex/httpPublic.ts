@@ -37,6 +37,38 @@ export const userById = internalQuery({
   },
 });
 
+export const userBySessionHash = internalQuery({
+  args: { tokenHash: v.string() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("platform")
+      .withIndex("by_key", (q) => q.eq("key", `session:${args.tokenHash}`))
+      .unique();
+    if (!row) return null;
+    const session = JSON.parse(row.value);
+    if (session.expiresAt && Date.now() > session.expiresAt) return null;
+    return ctx.db.get(session.userId as Id<"users">);
+  },
+});
+
+export const getJudgeScoresForUser = internalQuery({
+  args: { judgeId: v.string() },
+  handler: async (ctx, args) => {
+    const scores = await ctx.db.query("judgeScores").collect();
+    const mine = scores.filter((s) => String(s.judgeId) === args.judgeId);
+    const users = await ctx.db.query("users").collect();
+    const criteria = await ctx.db.query("rubricCriteria").collect();
+    const subs = await ctx.db.query("submissions").collect();
+    return mine.map((s) => ({
+      submission: subs.find((x) => String(x._id) === String(s.submissionId))?.title ?? "",
+      judge: users.find((u) => String(u._id) === String(s.judgeId))?.name ?? "",
+      criterion: criteria.find((c) => String(c._id) === String(s.criterionId))?.name ?? "",
+      score: s.score,
+      comment: s.privateNotes,
+    }));
+  },
+});
+
 export const getEventBySlugPublic = internalQuery({
   args: { slug: v.string() },
   handler: async (ctx, args) =>
