@@ -29,6 +29,10 @@ export function OrganizerEventManage() {
   const rankingsCsv = useQuery(api.exports.rankingsCsv, skip || !event ? "skip" : { eventId: event._id });
   const scoresCsv = useQuery(api.exports.scoresCsv, skip || !event ? "skip" : { eventId: event._id });
 
+  const rubricData = useQuery(api.judging.getRubric, skip || !event ? "skip" : { eventId: event._id });
+  const customizeRubric = useMutation(api.judging.customizeRubric);
+  const deleteCriterion = useMutation(api.judging.deleteCriterion);
+
   const [activeTab, setActiveTab] = useState("overview");
   const [busy, setBusy] = useState(false);
   const [unpublishConfirmOpen, setUnpublishConfirmOpen] = useState(false);
@@ -95,10 +99,6 @@ export function OrganizerEventManage() {
       setBusy(false);
     }
   }
-
-  const rubricData = useQuery(api.judging.getRubric, skip || !event ? "skip" : { eventId: event._id });
-  const customizeRubric = useMutation(api.judging.customizeRubric);
-  const deleteCriterion = useMutation(api.judging.deleteCriterion);
 
   const tabItems = [
     { id: "overview", label: "Overview" },
