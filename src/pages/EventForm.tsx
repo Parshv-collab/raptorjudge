@@ -63,9 +63,40 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
   const event = useQuery(api.events.getBySlug, edit && slug ? { slug } : "skip");
   const create = useMutation(api.events.create);
   const update = useMutation(api.events.update);
+  const generateUploadUrl = useMutation(api.events.generateUploadUrl);
 
   const [form, setForm] = useState<FormState>(blankForm);
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
+      toast.error("Invalid image type. Supported: JPG, PNG, WEBP, GIF.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image file too large. Max size is 5MB.");
+      return;
+    }
+    setUploading(true);
+    try {
+      const uploadUrl = await generateUploadUrl();
+      const res = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      const { storageId } = await res.json();
+      setField("bannerUrl", storageId);
+      toast.success("Banner image uploaded successfully!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to upload image");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   useEffect(() => {
     if (event) {
@@ -202,12 +233,41 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
             placeholder="RaptorJudge Community"
           />
 
-          <Input
-            label="Banner Image URL"
-            value={form.bannerUrl}
-            onChange={(e) => setField("bannerUrl", e.target.value)}
-            placeholder="https://..."
-          />
+          <div className="flex flex-col gap-1.5 sm:col-span-2">
+            <label className="text-xs font-semibold text-[#1d1d1f]">Banner Image</label>
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+              <Input
+                placeholder="https://... or upload file"
+                value={form.bannerUrl}
+                onChange={(e) => setField("bannerUrl", e.target.value)}
+                className="flex-1"
+              />
+              <label className="cursor-pointer px-4 py-2 text-xs font-semibold rounded-button bg-white/60 border border-white/80 hover:bg-white/90 transition-colors shrink-0">
+                {uploading ? "Uploading..." : "Upload File"}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                  disabled={uploading}
+                />
+              </label>
+              {form.bannerUrl && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setField("bannerUrl", "")}
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
+            {form.bannerUrl && (
+              <div className="mt-2 relative w-full h-32 rounded-card overflow-hidden border border-white/80">
+                <img src={form.bannerUrl} alt="Banner Preview" className="w-full h-full object-cover" />
+              </div>
+            )}
+          </div>
         </div>
 
         <Input

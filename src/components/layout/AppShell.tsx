@@ -183,7 +183,16 @@ export function AppShell() {
 
           {/* Right Header Controls (Profile Dropdown / Auth CTA / Hamburger) */}
           <div className="flex items-center gap-3">
-            {isAuthenticated && me ? (
+            {isLoading || (isAuthenticated && me === undefined) ? (
+              <div className="w-8 h-8 rounded-full bg-black/10 animate-pulse motion-reduce:animate-none" />
+            ) : !isAuthenticated || me === null ? (
+              <Link
+                to="/auth"
+                className="px-4 py-2 text-xs font-semibold text-white bg-[#ff0055] hover:bg-[#e0004b] rounded-button shadow-sm shadow-[#ff0055]/30 transition-all focus-ring-accent"
+              >
+                Sign in
+              </Link>
+            ) : (
               <div className="relative" ref={profileMenuRef}>
                 <button
                   type="button"
@@ -268,14 +277,7 @@ export function AppShell() {
                   </div>
                 )}
               </div>
-            ) : !isLoading ? (
-              <Link
-                to="/auth"
-                className="px-4 py-2 text-xs font-semibold text-white bg-[#ff0055] hover:bg-[#e0004b] rounded-button shadow-sm shadow-[#ff0055]/30 transition-all focus-ring-accent"
-              >
-                Sign in
-              </Link>
-            ) : null}
+            )}
 
             {/* Mobile Hamburger Button */}
             <button

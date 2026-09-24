@@ -84,11 +84,18 @@ export default function Auth() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const { signOut } = useAuthActions();
+
   async function handleSignInSubmit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
+      await signOut().catch(() => {});
+      sessionStorage.clear();
+      localStorage.removeItem("__convexAuthJWT_raptorjudge");
+      localStorage.removeItem("__convexAuthRefreshToken_raptorjudge");
+
       await signIn("password", {
         email,
         password,

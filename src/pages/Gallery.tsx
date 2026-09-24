@@ -6,6 +6,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 
 const SORT_OPTIONS = [
   { value: "default", label: "Default Order" },
@@ -96,7 +97,11 @@ export default function Gallery() {
       </GlassCard>
 
       {/* Gallery Cards Grid (3 per row desktop, 2 tablet, 1 mobile) */}
-      {galleryClosed ? (
+      {cards === undefined ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <SkeletonCard lines={3} /><SkeletonCard lines={3} /><SkeletonCard lines={3} />
+        </div>
+      ) : galleryClosed ? (
         <EmptyState
           title="Gallery Embargoed"
           description="Submissions for this event will be published after the submission deadline."
