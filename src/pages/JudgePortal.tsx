@@ -89,9 +89,11 @@ export default function JudgePortal() {
           <div className="flex flex-col gap-3">
             {items.map((item: any) => {
               const isDone = item.status === "completed";
+              const assignmentId = item._id || item.assignmentId;
+              const eventTitle = item.eventTitle || item.event?.title;
               return (
                 <GlassCard
-                  key={item.assignmentId}
+                  key={assignmentId}
                   hoverEffect
                   className="p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
                 >
@@ -102,11 +104,16 @@ export default function JudgePortal() {
                       }`}
                     />
                     <div>
+                      {eventTitle && (
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#6e6e73]">
+                          {eventTitle}
+                        </span>
+                      )}
                       <h3 className="text-sm font-bold text-[#1d1d1f]">
                         {item.submission.title}
                       </h3>
                       <p className="text-xs text-[#6e6e73] mt-0.5">
-                        Team: {item.submission.teamName} · Track: {item.submission.trackName || "General"}
+                        Team: {item.teamName || item.submission.teamName} · Track: {item.submission.trackName || "General"}
                       </p>
                     </div>
                   </div>
@@ -122,7 +129,7 @@ export default function JudgePortal() {
                       {isDone ? "Scored ✓" : "Pending"}
                     </span>
 
-                    <Link to={`/judge/score/${item.assignmentId}`}>
+                    <Link to={`/judge/score/${assignmentId}`}>
                       <Button variant={isDone ? "secondary" : "primary"} size="sm">
                         {isDone ? "Edit Score" : "Score Project →"}
                       </Button>
