@@ -56,7 +56,10 @@ export default function Auth() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
-  const settingsQuery = useQuery(api.admin.getSettings, {});
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const skip = authLoading || !isAuthenticated;
+
+  const settingsQuery = useQuery(api.admin.getSettings, skip ? "skip" : {});
   const settings = settingsQuery && !(settingsQuery instanceof Error) ? settingsQuery : {};
   const supportEmail = settings["support_email"] || settings["supportEmail"] || "the platform administrator";
 

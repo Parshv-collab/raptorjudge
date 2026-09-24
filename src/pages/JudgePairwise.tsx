@@ -7,18 +7,74 @@ import { humanizeConvexError } from "@/lib/errors";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 export default function JudgePairwise() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const skip = authLoading || !isAuthenticated;
 
-  const event = useQuery(api.events.getBySlug, skip ? "skip" : { slug: "dogfood-2026" });
-  const pair = useQuery(api.pairwise.nextPair, skip || !event ? "skip" : { eventId: event._id });
+  const queue = useQuery(api.judging.myQueue, skip ? "skip" : {});
+  const eventId = queue?.items?.[0]?.eventId;
+
+  const pair = useQuery(
+    api.pairwise.nextPair,
+    skip || !eventId ? "skip" : { eventId: eventId as never }
+  );
   const submitMatch = useMutation(api.pairwise.submitMatch);
 
   const [busy, setBusy] = useState(false);
 
-  if (!event) {
+  if (authLoading) {
+    return (
+      <div className="max-w-5xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={4} />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) return <Navigate to="/auth" replace />;
+
+  if (queue === undefined) {
+    return (
+      <div className="max-w-5xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <SkeletonCard lines={4} />
+      </div>
+    );
+  }
+
+  if (queue.items.length === 0) {
+    return (
+      <div className="max-w-5xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <Link to="/judge">
+          <span className="text-xs font-semibold text-[#ff0055] hover:underline">
+            ← Back to Judge Portal
+          </span>
+        </Link>
+        <EmptyState
+          title="No Assigned Projects"
+          description="No projects assigned yet. Pairwise comparison becomes available once you have assigned projects."
+        />
+      </div>
+    );
+  }
+
+  if (!eventId) {
+    return (
+      <div className="max-w-5xl mx-auto py-8 px-4 flex flex-col gap-6">
+        <Link to="/judge">
+          <span className="text-xs font-semibold text-[#ff0055] hover:underline">
+            ← Back to Judge Portal
+          </span>
+        </Link>
+        <EmptyState
+          title="Event Not Found"
+          description="Could not determine event for pairwise comparisons."
+        />
+      </div>
+    );
+  }
+
+  if (pair === undefined) {
     return (
       <div className="max-w-5xl mx-auto py-8 px-4 flex flex-col gap-6">
         <SkeletonCard lines={4} />
@@ -27,11 +83,11 @@ export default function JudgePairwise() {
   }
 
   async function handleSelectWinner(winnerId?: string) {
-    if (!pair || !event) return;
+    if (!pair || !eventId) return;
     setBusy(true);
     try {
       await submitMatch({
-        eventId: event._id,
+        eventId: eventId as never,
         submissionAId: pair.a.id as never,
         submissionBId: pair.b.id as never,
         winnerId: (winnerId || undefined) as never,

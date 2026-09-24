@@ -278,9 +278,21 @@ export const myQueue = query({
         .collect();
 
       out.push({
+        _id: String(a._id),
         assignmentId: String(a._id),
         status: a.status,
+        assignedAt: a.assignedAt,
+        eventId: String(event._id),
+        eventTitle: event.title,
+        eventSlug: event.slug,
+        event: {
+          _id: String(event._id),
+          title: event.title,
+          slug: event.slug,
+        },
+        teamName: team?.name ?? null,
         submission: {
+          _id: String(sub._id),
           id: String(sub._id),
           title: sub.title,
           tagline: sub.tagline,

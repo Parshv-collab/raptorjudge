@@ -67,8 +67,9 @@ export function AppShell() {
   const { signOut } = useAuthActions();
   const skip = isLoading || !isAuthenticated;
   const me = useQuery(api.users.me, skip ? "skip" : {}) ?? null;
-  const settingsQuery = useQuery(api.admin.getSettings, skip ? "skip" : {});
-  const settings = settingsQuery && !(settingsQuery instanceof Error) ? settingsQuery : {};
+  const skipAdminSettings = skip || (me !== null && me.role !== "admin" && me.role !== "organizer");
+  const settingsQuery = useQuery(api.admin.getSettings, skipAdminSettings ? "skip" : {});
+  const settings = settingsQuery ?? {};
   const navigate = useNavigate();
   const location = useLocation();
 
