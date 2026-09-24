@@ -21,6 +21,10 @@ export default function JudgeScore() {
   );
 
   const eventId = item?.eventId;
+  const rubricData = useQuery(
+    api.judging.getRubric,
+    skip || !eventId ? "skip" : { eventId: eventId as never }
+  );
   const rubric = useQuery(
     api.judging.rubricForEvent,
     skip || !eventId ? "skip" : { eventId: eventId as never }
@@ -147,6 +151,16 @@ export default function JudgeScore() {
           )}
         </div>
       </GlassCard>
+
+      {/* Default Rubric Banner */}
+      {rubricData?.isDefault && (
+        <div className="p-4 rounded-card bg-amber-500/10 border border-amber-500/30 flex items-center gap-3 text-xs text-amber-900 font-medium">
+          <span className="text-base">ℹ️</span>
+          <span>
+            This event uses the Default Rubric. Your organizer may update this later.
+          </span>
+        </div>
+      )}
 
       {/* Description */}
       <GlassCard className="p-6">

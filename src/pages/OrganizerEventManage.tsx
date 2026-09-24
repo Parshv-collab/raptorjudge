@@ -96,9 +96,14 @@ export function OrganizerEventManage() {
     }
   }
 
+  const rubricData = useQuery(api.judging.getRubric, skip || !event ? "skip" : { eventId: event._id });
+  const customizeRubric = useMutation(api.judging.customizeRubric);
+  const deleteCriterion = useMutation(api.judging.deleteCriterion);
+
   const tabItems = [
     { id: "overview", label: "Overview" },
     { id: "tracks", label: "Tracks & Prizes", badge: tracks?.length },
+    { id: "rubric", label: "Rubric", badge: rubricData?.criteria?.length },
     { id: "judges", label: "Judges" },
     { id: "submissions", label: "Submissions", badge: submissions?.length },
     { id: "results", label: "Results" },
@@ -223,6 +228,15 @@ export function OrganizerEventManage() {
         </div>
       )}
 
+      {activeTab === "rubric" && (
+        <RubricTab
+          eventId={event._id}
+          rubricData={rubricData}
+          customizeRubric={customizeRubric}
+          deleteCriterion={deleteCriterion}
+        />
+      )}
+
       {activeTab === "judges" && <JudgesTab eventId={event._id} />}
 
       {activeTab === "submissions" && (
@@ -322,6 +336,283 @@ export function OrganizerEventManage() {
         destructive
         isLoading={busy}
       />
+    </div>
+  );
+}
+
+function RubricTab({
+  eventId,
+  rubricData,
+  customizeRubric,
+  deleteCriterion,
+}: {
+  eventId: any;
+  rubricData: any;
+  customizeRubric: any;
+  deleteCriterion: any;
+}) {
+  const upsertCriterion = useMutation(api.judging.upsertCriterion);
+  const [busy, setBusy] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editCriterion, setEditCriterion] = useState<any>(null);
+
+  // Form states
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [weight, setWeight] = useState(0.25);
+  const [minScore, setMinScore] = useState(1);
+  const [maxScore, setMaxScore] = useState(10);
+  const [sortOrder, setSortOrder] = useState(10);
+
+  const criteria = rubricData?.criteria || [];
+  const isDefault = rubricData?.isDefault;
+  const locked = rubricData?.locked;
+
+  const totalWeight = criteria.reduce((acc: number, c: any) => acc + (c.weight || 0), 0);
+  const isWeightValid = Math.abs(totalWeight - 1.0) <= 0.001;
+
+  async function handleCustomize() {
+    setBusy(true);
+    try {
+      await customizeRubric({ eventId });
+      toast.success("Rubric customized!");
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleOpenModal(c?: any) {
+    if (c) {
+      setEditCriterion(c);
+      setName(c.name);
+      setDescription(c.description || "");
+      setWeight(c.weight);
+      setMinScore(c.minScore);
+      setMaxScore(c.maxScore);
+      setSortOrder(c.sortOrder || 10);
+    } else {
+      setEditCriterion(null);
+      setName("");
+      setDescription("");
+      setWeight(0.25);
+      setMinScore(1);
+      setMaxScore(10);
+      setSortOrder((criteria.length + 1) * 10);
+    }
+    setModalOpen(true);
+  }
+
+  async function handleSaveCriterion(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    if (minScore >= maxScore) {
+      toast.error("Min score must be less than Max score.");
+      return;
+    }
+    setBusy(true);
+    try {
+      if (isDefault) {
+        await customizeRubric({ eventId });
+      }
+      await upsertCriterion({
+        eventId,
+        criterionId: editCriterion?._id || editCriterion?.id,
+        name: name.trim(),
+        description: description.trim(),
+        weight: Number(weight),
+        minScore: Number(minScore),
+        maxScore: Number(maxScore),
+      });
+      toast.success(editCriterion ? "Criterion updated!" : "Criterion added!");
+      setModalOpen(false);
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDelete(criterionId: string) {
+    if (!confirm("Are you sure you want to delete this criterion?")) return;
+    setBusy(true);
+    try {
+      await deleteCriterion({ eventId, criterionId: criterionId as never });
+      toast.success("Criterion deleted!");
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Banner if Default */}
+      {isDefault && (
+        <div className="p-4 rounded-card bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 text-xs text-amber-900 font-medium">
+          <div>
+            <span className="font-bold">⚠️ You&apos;re using the Default Rubric.</span>
+            <p className="mt-0.5 text-amber-800">
+              Judges can score, but you may want to customize the criteria to fit your event.
+            </p>
+          </div>
+          <Button variant="primary" size="sm" isLoading={busy} onClick={handleCustomize}>
+            Customize Rubric
+          </Button>
+        </div>
+      )}
+
+      {/* Rubric Header Controls */}
+      <GlassCard className="p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-base font-bold text-[#1d1d1f]">Rubric Criteria</h3>
+            {locked && (
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-red-500/10 text-red-600">
+                Locked
+              </span>
+            )}
+            {isDefault && (
+              <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-amber-500/10 text-amber-700">
+                Default
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-[#6e6e73] mt-1">
+            Total Weight:{" "}
+            <span className={`font-bold ${isWeightValid ? "text-emerald-600" : "text-red-600"}`}>
+              {totalWeight.toFixed(2)} / 1.00
+            </span>{" "}
+            {!isWeightValid && "(Weights should sum to 1.00)"}
+          </p>
+        </div>
+
+        {!locked && (
+          <Button variant="secondary" size="sm" onClick={() => handleOpenModal()}>
+            + Add Criterion
+          </Button>
+        )}
+      </GlassCard>
+
+      {/* Criteria Table */}
+      <GlassCard className="p-6">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-black/10 font-bold uppercase text-[#6e6e73]">
+                <th className="py-2.5 px-3">Name</th>
+                <th className="py-2.5 px-3">Description</th>
+                <th className="py-2.5 px-3">Weight</th>
+                <th className="py-2.5 px-3">Score Range</th>
+                <th className="py-2.5 px-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {criteria.map((c: any) => (
+                <tr key={c.id || c._id} className="border-b border-black/5 hover:bg-white/40">
+                  <td className="py-3 px-3 font-bold text-[#1d1d1f]">{c.name}</td>
+                  <td className="py-3 px-3 text-[#6e6e73] max-w-xs">{c.description}</td>
+                  <td className="py-3 px-3 font-mono font-bold text-[#ff0055]">
+                    {(c.weight * 100).toFixed(0)}%
+                  </td>
+                  <td className="py-3 px-3 font-mono text-[#6e6e73]">
+                    {c.minScore} - {c.maxScore}
+                  </td>
+                  <td className="py-3 px-3 text-right flex gap-1 justify-end">
+                    {!locked && (
+                      <>
+                        <Button variant="ghost" size="sm" onClick={() => handleOpenModal(c)}>
+                          Edit
+                        </Button>
+                        <Button variant="danger" size="sm" onClick={() => handleDelete(c._id || c.id)}>
+                          Delete
+                        </Button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </GlassCard>
+
+      {/* Organizer Live Preview */}
+      <GlassCard className="p-6">
+        <h3 className="text-sm font-bold text-[#1d1d1f] mb-3">Organizer Live Preview (Judge View)</h3>
+        <div className="p-4 rounded-card bg-white/60 border border-white flex flex-col gap-4">
+          {criteria.map((c: any) => (
+            <div key={c.id || c._id} className="flex flex-col gap-1 text-xs">
+              <div className="flex justify-between font-bold text-[#1d1d1f]">
+                <span>{c.name} ({Math.round(c.weight * 100)}%)</span>
+                <span>{c.minScore} - {c.maxScore}</span>
+              </div>
+              <p className="text-[11px] text-[#6e6e73]">{c.description}</p>
+              <input type="range" disabled min={c.minScore} max={c.maxScore} className="w-full accent-[#ff0055]" />
+            </div>
+          ))}
+        </div>
+      </GlassCard>
+
+      {/* Add / Edit Criterion Modal */}
+      <Modal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editCriterion ? "Edit Criterion" : "Add Criterion"}
+      >
+        <form onSubmit={handleSaveCriterion} className="flex flex-col gap-4 mt-2">
+          <Input
+            label="Name *"
+            required
+            placeholder="e.g. Innovation"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <Input
+            label="Description"
+            placeholder="e.g. Originality and novelty"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+          <div className="grid grid-cols-3 gap-3">
+            <Input
+              label="Weight (0.0-1.0)"
+              type="number"
+              step="0.05"
+              min="0"
+              max="1"
+              required
+              value={weight}
+              onChange={(e) => setWeight(Number(e.target.value))}
+            />
+            <Input
+              label="Min Score"
+              type="number"
+              required
+              value={minScore}
+              onChange={(e) => setMinScore(Number(e.target.value))}
+            />
+            <Input
+              label="Max Score"
+              type="number"
+              required
+              value={maxScore}
+              onChange={(e) => setMaxScore(Number(e.target.value))}
+            />
+          </div>
+
+          <div className="flex justify-between items-center mt-4">
+            <Button variant="ghost" size="md" onClick={() => setModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="md" isLoading={busy} type="submit">
+              Save Criterion
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

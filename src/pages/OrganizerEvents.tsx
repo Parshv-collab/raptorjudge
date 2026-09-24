@@ -82,7 +82,9 @@ export function OrganizerEvents() {
             <tbody>
               {filteredEvents.map((e: any) => (
                 <tr key={e._id} className="border-b border-black/5 hover:bg-white/40 transition-colors">
-                  <td className="py-3.5 px-4 font-bold text-[#1d1d1f]">{e.title}</td>
+                  <td className="py-3.5 px-4 font-bold text-[#1d1d1f] flex items-center gap-2">
+                    <span>{e.title}</span>
+                  </td>
                   <td className="py-3.5 px-4">
                     <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-[#ff0055]/10 text-[#ff0055]">
                       {e.status}
