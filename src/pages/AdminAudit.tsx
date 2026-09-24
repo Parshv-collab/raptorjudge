@@ -11,6 +11,7 @@ import { Dropdown } from "@/components/ui/Dropdown";
 export default function AdminAudit() {
   const auditLogs = useQuery(api.audit.list, { limit: 100 });
   const actionsList = useQuery(api.audit.actions, {});
+  const verifyChain = useQuery(api.audit.verifyChain, {});
 
   const [selectedAction, setSelectedAction] = useState("all");
   const [searchActor, setSearchActor] = useState("");
@@ -59,12 +60,25 @@ export default function AdminAudit() {
         </span>
       </Link>
 
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-            Audit Trail
-          </span>
-          <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-0.5">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
+              Audit Trail
+            </span>
+            {verifyChain && (
+              <span
+                className={`px-2.5 py-0.5 text-[10px] font-bold uppercase rounded-full ${
+                  verifyChain.valid
+                    ? "bg-emerald-500/10 text-emerald-600"
+                    : "bg-[#e63946]/10 text-[#e63946]"
+                }`}
+              >
+                Hash Chain {verifyChain.valid ? "Intact ✓" : "Broken ✗"}
+              </span>
+            )}
+          </div>
+          <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight">
             System Audit Log
           </h1>
         </div>

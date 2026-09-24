@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Alert } from "@/components/ui/Alert";
 import { Avatar } from "@/components/ui/Avatar";
+import { ConfirmDialog } from "@/components/ui/Modal";
+import { humanizeConvexError } from "@/lib/errors";
 
 export default function ParticipantWorkspace() {
   const [searchParams] = useSearchParams();
@@ -31,6 +33,11 @@ export default function ParticipantWorkspace() {
   const [teamNameInput, setTeamNameInput] = useState("");
   const [inviteCodeInput, setInviteCodeInput] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // ConfirmDialog States
+  const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
+  const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
+  const [transferTarget, setTransferTarget] = useState<any>(null);
 
   const [draft, setDraft] = useState({
     title: "",
@@ -59,11 +66,15 @@ export default function ParticipantWorkspace() {
     }
   }, [data?.submission?._id]);
 
+  const me = useQuery(api.users.me, {});
   const team = myTeam?.[0];
   const submission = data?.submission;
   const now = Date.now();
   const deadlinePassed = event ? now > event.submissionDeadline : false;
   const isLocked = submission?.status === "submitted" || deadlinePassed;
+
+  const currentMember = team?.members.find((m: any) => m.userId === me?._id);
+  const isLeader = !team || !currentMember || currentMember.memberRole === "leader";
 
   async function handleSaveDraft() {
     if (!event) return;
@@ -83,7 +94,7 @@ export default function ParticipantWorkspace() {
       setDirty(false);
       toast.success("Draft saved successfully!");
     } catch (e: any) {
-      toast.error(e.message || "Failed to save draft");
+      toast.error(humanizeConvexError(e));
     } finally {
       setBusy(false);
     }
@@ -97,7 +108,7 @@ export default function ParticipantWorkspace() {
       await submitProj({ eventId: event._id });
       toast.success("Submission sent for judging!");
     } catch (e: any) {
-      toast.error(e.message || "Failed to submit project");
+      toast.error(humanizeConvexError(e));
     } finally {
       setBusy(false);
     }
@@ -110,7 +121,7 @@ export default function ParticipantWorkspace() {
       await withdrawProj({ eventId: event._id });
       toast.success("Submission withdrawn to draft status.");
     } catch (e: any) {
-      toast.error(e.message || "Failed to withdraw submission");
+      toast.error(humanizeConvexError(e));
     } finally {
       setBusy(false);
     }
@@ -124,7 +135,7 @@ export default function ParticipantWorkspace() {
       toast.success(`Team created! Invite code: ${res.inviteCode}`);
       setTeamNameInput("");
     } catch (e: any) {
-      toast.error(e.message || "Could not create team");
+      toast.error(humanizeConvexError(e));
     } finally {
       setBusy(false);
     }
@@ -138,7 +149,7 @@ export default function ParticipantWorkspace() {
       toast.success(`Joined team ${res.teamName}!`);
       setInviteCodeInput("");
     } catch (e: any) {
-      toast.error(e.message || "Could not join team");
+      toast.error(humanizeConvexError(e));
     } finally {
       setBusy(false);
     }
@@ -265,14 +276,7 @@ export default function ParticipantWorkspace() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={async () => {
-                    try {
-                      await leaveTeam({ teamId: team._id });
-                      toast.success("Left team");
-                    } catch (e: any) {
-                      toast.error(e.message);
-                    }
-                  }}
+                  onClick={() => setConfirmLeaveOpen(true)}
                 >
                   Leave
                 </Button>
@@ -303,17 +307,7 @@ export default function ParticipantWorkspace() {
                         variant="ghost"
                         size="sm"
                         className="text-[10px]"
-                        onClick={async () => {
-                          try {
-                            await transferLeadership({
-                              teamId: team._id,
-                              newLeaderId: member.userId,
-                            });
-                            toast.success(`Transferred leadership to ${member.name}`);
-                          } catch (e: any) {
-                            toast.error(e.message);
-                          }
-                        }}
+                        onClick={() => setTransferTarget(member)}
                       >
                         Make Leader
                       </Button>
@@ -454,17 +448,23 @@ export default function ParticipantWorkspace() {
               </Button>
 
               {submission?.status !== "submitted" ? (
-                <Button
-                  variant="primary"
-                  size="md"
-                  isLoading={busy}
-                  disabled={isLocked || !draft.title.trim() || !draft.description.trim()}
-                  onClick={handleSubmitForJudging}
-                >
-                  Submit for Judging
-                </Button>
+                isLeader ? (
+                  <Button
+                    variant="primary"
+                    size="md"
+                    isLoading={busy}
+                    disabled={isLocked || !draft.title.trim() || !draft.description.trim()}
+                    onClick={() => setConfirmSubmitOpen(true)}
+                  >
+                    Submit for Judging
+                  </Button>
+                ) : (
+                  <span className="text-xs font-semibold text-[#6e6e73] bg-black/5 px-3 py-2 rounded-input">
+                    Only the team leader can submit this project.
+                  </span>
+                )
               ) : (
-                !deadlinePassed && (
+                !deadlinePassed && isLeader && (
                   <Button variant="danger" size="md" isLoading={busy} onClick={handleWithdraw}>
                     Withdraw to Edit
                   </Button>
@@ -474,6 +474,63 @@ export default function ParticipantWorkspace() {
           </div>
         </GlassCard>
       )}
+
+      {/* Confirm Dialogs */}
+      <ConfirmDialog
+        isOpen={confirmSubmitOpen}
+        onClose={() => setConfirmSubmitOpen(false)}
+        onConfirm={handleSubmitForJudging}
+        title="Confirm Project Submission"
+        description="Submitting locks editing. You can withdraw before the deadline if allowed. Are you ready to submit?"
+        confirmLabel="Submit Project"
+        isLoading={busy}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmLeaveOpen}
+        onClose={() => setConfirmLeaveOpen(false)}
+        onConfirm={async () => {
+          if (!team) return;
+          setBusy(true);
+          try {
+            await leaveTeam({ teamId: team._id });
+            toast.success("Left team");
+          } catch (e: any) {
+            toast.error(humanizeConvexError(e));
+          } finally {
+            setBusy(false);
+          }
+        }}
+        title="Leave Team"
+        description="Are you sure you want to leave this team? You will need an invite code to rejoin."
+        confirmLabel="Leave Team"
+        destructive
+        isLoading={busy}
+      />
+
+      <ConfirmDialog
+        isOpen={!!transferTarget}
+        onClose={() => setTransferTarget(null)}
+        onConfirm={async () => {
+          if (!team || !transferTarget) return;
+          setBusy(true);
+          try {
+            await transferLeadership({
+              teamId: team._id,
+              newLeaderId: transferTarget.userId,
+            });
+            toast.success(`Transferred leadership to ${transferTarget.name}`);
+          } catch (e: any) {
+            toast.error(humanizeConvexError(e));
+          } finally {
+            setBusy(false);
+          }
+        }}
+        title="Transfer Leadership"
+        description={`Are you sure you want to transfer team leadership to ${transferTarget?.name}?`}
+        confirmLabel="Transfer Leadership"
+        isLoading={busy}
+      />
 
       {/* Certificates Section */}
       {certs && certs.length > 0 && (

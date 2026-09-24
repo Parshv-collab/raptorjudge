@@ -6,6 +6,11 @@ import Landing from "@/pages/Landing";
 import Auth from "@/pages/Auth";
 import Terms from "@/pages/Terms";
 import Privacy from "@/pages/Privacy";
+import Browse from "@/pages/Browse";
+import Search from "@/pages/Search";
+import Profile from "@/pages/Profile";
+import Settings from "@/pages/Settings";
+import Help from "@/pages/Help";
 import NotFound from "@/pages/NotFound";
 import EventPublic from "@/pages/EventPublic";
 import Gallery from "@/pages/Gallery";
@@ -52,9 +57,11 @@ export default function App() {
         <Route element={<AppShell />}>
           <Route path="/" element={<Landing />} />
           <Route path="/auth" element={<Auth />} />
+          <Route path="/events" element={<Browse />} />
+          <Route path="/search" element={<Protected><Search /></Protected>} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
-          <Route path="/help" element={<Terms />} />
+          <Route path="/help" element={<Help />} />
           <Route path="/e/:slug" element={<EventPublic />} />
           <Route path="/gallery/:slug" element={<Gallery />} />
           <Route path="/project/:id" element={<ProjectDetail />} />
@@ -75,8 +82,8 @@ export default function App() {
           <Route path="/admin/users" element={<Protected><AdminUsers /></Protected>} />
           <Route path="/admin/events" element={<Protected><AdminEvents /></Protected>} />
           <Route path="/admin/audit" element={<Protected><AdminAudit /></Protected>} />
-          <Route path="/profile" element={<Protected><Security /></Protected>} />
-          <Route path="/settings" element={<Protected><Security /></Protected>} />
+          <Route path="/profile" element={<Protected><Profile /></Protected>} />
+          <Route path="/settings" element={<Protected><Settings /></Protected>} />
           <Route path="/security" element={<Protected><Security /></Protected>} />
           <Route path="*" element={<NotFound />} />
         </Route>

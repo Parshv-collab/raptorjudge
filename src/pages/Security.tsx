@@ -4,7 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
-import { Alert } from "@/components/ui/Alert";
+import { humanizeConvexError } from "@/lib/errors";
 
 export default function Security() {
   const me = useQuery(api.users.me, {});
@@ -61,7 +61,7 @@ function TotpPanel() {
       setCode("");
       toast.success("Enrolment key generated. Confirm with code.");
     } catch (err: any) {
-      toast.error(err?.message || "Could not start enrolment");
+      toast.error(humanizeConvexError(err));
     } finally {
       setBusy(false);
     }
@@ -75,7 +75,7 @@ function TotpPanel() {
       setCode("");
       toast.success("Two-factor authentication enabled!");
     } catch (err: any) {
-      toast.error(err?.message || "Code not accepted");
+      toast.error(humanizeConvexError(err));
     } finally {
       setBusy(false);
     }
@@ -88,7 +88,7 @@ function TotpPanel() {
       setCode("");
       toast.success("Two-factor authentication disabled.");
     } catch (err: any) {
-      toast.error(err?.message || "Code not accepted");
+      toast.error(humanizeConvexError(err));
     } finally {
       setBusy(false);
     }

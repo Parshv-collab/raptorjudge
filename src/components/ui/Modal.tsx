@@ -1,5 +1,7 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { GlassCard } from "./GlassCard";
+import { Button } from "./Button";
+import { Input } from "./Input";
 
 export interface ModalProps {
   isOpen: boolean;
@@ -81,5 +83,72 @@ export const Modal: React.FC<ModalProps> = ({
         </GlassCard>
       </div>
     </div>
+  );
+};
+
+export interface ConfirmDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  title: string;
+  description: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  destructive?: boolean;
+  requireTyping?: string;
+  isLoading?: boolean;
+}
+
+export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  title,
+  description,
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+  destructive = false,
+  requireTyping,
+  isLoading = false,
+}) => {
+  const [typedText, setTypedText] = useState("");
+
+  useEffect(() => {
+    if (isOpen) setTypedText("");
+  }, [isOpen]);
+
+  const canConfirm = !requireTyping || typedText.trim() === requireTyping;
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={title} description={description}>
+      <div className="flex flex-col gap-4 mt-2">
+        {requireTyping && (
+          <Input
+            label={`To confirm, type "${requireTyping}" below:`}
+            value={typedText}
+            onChange={(e) => setTypedText(e.target.value)}
+            placeholder={requireTyping}
+          />
+        )}
+
+        <div className="flex justify-end gap-2 mt-2">
+          <Button variant="ghost" size="md" onClick={onClose}>
+            {cancelLabel}
+          </Button>
+          <Button
+            variant={destructive ? "danger" : "primary"}
+            size="md"
+            isLoading={isLoading}
+            disabled={!canConfirm}
+            onClick={() => {
+              onConfirm();
+              onClose();
+            }}
+          >
+            {confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 };
