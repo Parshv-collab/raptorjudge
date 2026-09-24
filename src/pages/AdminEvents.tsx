@@ -1,10 +1,12 @@
 import React, { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { toast } from "sonner";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
+import { Modal } from "@/components/ui/Modal";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All Statuses" },
@@ -16,13 +18,63 @@ const STATUS_OPTIONS = [
 
 export default function AdminEvents() {
   const events = useQuery(api.events.listAll, {});
+  const users = useQuery(api.users.list, {});
+  const publish = useMutation(api.events.publish);
+  const unpublish = useMutation(api.events.unpublish);
+  const deleteEvent = useMutation(api.events.deleteEvent);
+  const transferOwnership = useMutation(api.events.adminTransferOwnership);
+
   const [statusFilter, setStatusFilter] = useState("all");
+  const [transferTargetEvent, setTransferTargetEvent] = useState<any>(null);
+  const [selectedOrganizer, setSelectedOrganizer] = useState("");
+
+  const organizers = useMemo(() => {
+    return (users || []).filter((u: any) => u.role === "organizer" || u.role === "admin");
+  }, [users]);
 
   const filteredEvents = useMemo(() => {
     return (events || []).filter(
       (e: any) => statusFilter === "all" || e.status === statusFilter
     );
   }, [events, statusFilter]);
+
+  async function handleTogglePublish(e: any) {
+    try {
+      if (e.status === "draft") {
+        await publish({ eventId: e._id });
+        toast.success(`Published ${e.title}`);
+      } else {
+        await unpublish({ eventId: e._id });
+        toast.success(`Unpublished ${e.title}`);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Action failed");
+    }
+  }
+
+  async function handleDelete(e: any) {
+    if (!confirm(`Are you sure you want to delete event "${e.title}"?`)) return;
+    try {
+      await deleteEvent({ eventId: e._id });
+      toast.success(`Deleted ${e.title}`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete event");
+    }
+  }
+
+  async function handleTransferConfirm() {
+    if (!transferTargetEvent || !selectedOrganizer) return;
+    try {
+      await transferOwnership({
+        eventId: transferTargetEvent._id,
+        newOrganizerId: selectedOrganizer as any,
+      });
+      toast.success("Ownership transferred successfully.");
+      setTransferTargetEvent(null);
+    } catch (err: any) {
+      toast.error(err.message || "Transfer failed");
+    }
+  }
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
@@ -80,12 +132,21 @@ export default function AdminEvents() {
                   <td className="py-3.5 px-4 text-[#6e6e73]">
                     {new Date(e.submissionDeadline).toLocaleDateString()}
                   </td>
-                  <td className="py-3.5 px-4 text-right">
-                    <Link to={`/organizer/events/${e.slug}`}>
-                      <Button variant="secondary" size="sm">
-                        Inspect Event →
-                      </Button>
+                  <td className="py-3.5 px-4 text-right flex gap-1 justify-end">
+                    <Link to={`/organizer/events/${e.slug}/edit`}>
+                      <Button variant="secondary" size="sm">Edit</Button>
                     </Link>
+                    <Button variant="ghost" size="sm" onClick={() => handleTogglePublish(e)}>
+                      {e.status === "draft" ? "Publish" : "Unpublish"}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setTransferTargetEvent(e)}>
+                      Transfer
+                    </Button>
+                    {e.status === "draft" && (
+                      <Button variant="danger" size="sm" onClick={() => handleDelete(e)}>
+                        Delete
+                      </Button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -99,6 +160,34 @@ export default function AdminEvents() {
           )}
         </div>
       </GlassCard>
+
+      <Modal
+        isOpen={!!transferTargetEvent}
+        onClose={() => setTransferTargetEvent(null)}
+        title="Transfer Event Ownership"
+        description={`Select a new organizer for ${transferTargetEvent?.title}`}
+      >
+        <div className="flex flex-col gap-4 mt-2">
+          <Dropdown
+            label="New Organizer"
+            options={organizers.map((u: any) => ({
+              value: u._id,
+              label: `${u.name || u.email} (${u.role})`,
+            }))}
+            value={selectedOrganizer}
+            onChange={(v) => setSelectedOrganizer(v)}
+          />
+
+          <div className="flex justify-between items-center mt-4">
+            <Button variant="ghost" size="md" onClick={() => setTransferTargetEvent(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="md" onClick={handleTransferConfirm}>
+              Confirm Transfer
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

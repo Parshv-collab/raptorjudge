@@ -14,6 +14,27 @@ docker compose up --build
 
 Open `http://localhost:3000`. On a fresh installation, complete the one-time self-hosted Convex admin-key bootstrap described in `backend/entrypoint.sh` and `env.example` before expecting the bootstrap container to publish functions. The frontend waits for bootstrap completion.
 
+## Deploying Anywhere (Runtime URL Config)
+
+RaptorJudge is fully portable and can be deployed on `localhost`, a LAN IP, or a public domain without rebuilding the frontend Docker image.
+
+Configure environment variables at container startup:
+
+```bash
+# LAN IP Deployment Example:
+HOST_IP=192.168.1.50
+CONVEX_CLOUD_ORIGIN=http://${HOST_IP}:3210 \
+CONVEX_SITE_ORIGIN=http://${HOST_IP}:3211 \
+CONVEX_URL=http://${HOST_IP}:3210 \
+TRUSTED_ORIGINS=http://${HOST_IP}:3000 \
+docker compose up -d
+```
+
+- `CONVEX_URL`: Read by `frontend/entrypoint.sh` and substituted into the built JS bundle at runtime.
+- `CONVEX_CLOUD_ORIGIN`: Used by Convex client connections and dashboard.
+- `CONVEX_SITE_ORIGIN`: Expected JWT issuer origin for Convex Auth verification.
+- `TRUSTED_ORIGINS`: Comma-separated list of trusted origins merged into the backend CORS allowlist.
+
 For local development without Docker:
 
 ```bash

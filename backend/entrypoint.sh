@@ -58,6 +58,9 @@ env_var_present() {
   return 0
 }
 
+echo "JWT issuer expected: ${CONVEX_SITE_ORIGIN:-http://localhost:3211}"
+echo "API accepted from: ${CONVEX_CLOUD_ORIGIN:-http://localhost:3210}"
+
 echo "==> waiting for the self-hosted Convex backend at ${BACKEND_URL} ..."
 attempt=0
 until curl ${CURL_OPTS} "${BACKEND_URL}/version" >/dev/null 2>&1; do

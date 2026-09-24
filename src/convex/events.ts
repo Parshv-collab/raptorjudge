@@ -5,8 +5,8 @@ import { appendAudit } from "./lib/audit";
 
 const eventArgs = {
   slug: v.string(), title: v.string(), tagline: v.string(), description: v.string(),
-  registrationStart: v.number(), registrationEnd: v.number(), submissionDeadline: v.number(),
-  judgingStart: v.number(), judgingEnd: v.number(), votingStart: v.number(), votingEnd: v.number(),
+  registrationStart: v.optional(v.number()), registrationEnd: v.optional(v.number()), submissionDeadline: v.optional(v.number()),
+  judgingStart: v.optional(v.number()), judgingEnd: v.optional(v.number()), votingStart: v.optional(v.number()), votingEnd: v.optional(v.number()),
   timezone: v.optional(v.string()), settings: v.optional(v.string()), bannerUrl: v.optional(v.string()),
   hostName: v.optional(v.string()), shortDescription: v.optional(v.string()), fullDescription: v.optional(v.string()),
   rules: v.optional(v.string()), registrationOpens: v.optional(v.number()), registrationCloses: v.optional(v.number()),
@@ -30,10 +30,40 @@ export const create = mutation({ args: eventArgs, handler: async (ctx, args) => 
   const existing = await ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique();
   if (existing) throw new Error(`Event slug already exists: ${args.slug}`);
   const now = Date.now();
+  const regStart = args.registrationOpens ?? args.registrationStart ?? now;
+  const regEnd = args.registrationCloses ?? args.registrationEnd ?? (now + 86400000);
+  const subOpens = args.submissionOpens ?? regStart;
+  const subDeadline = args.submissionDeadline ?? regEnd;
+  const judgeStart = args.judgingStarts ?? args.judgingStart ?? subDeadline;
+  const judgeEnd = args.judgingEnds ?? args.judgingEnd ?? (judgeStart + 86400000);
+  const resAnnounced = args.resultsAnnounced ?? args.votingStart ?? args.votingEnd ?? judgeEnd;
+
   const eventId = await ctx.db.insert("events", {
-    ...args, tagline: args.tagline || args.shortDescription || "", description: args.description || args.fullDescription || "",
-    status: "draft", timezone: args.timezone ?? "UTC", settings: args.settings ?? "max_team_size=4,voting_type=quadratic",
-    organizerId: actor._id, minTeamSize: args.minTeamSize ?? 1, maxTeamSize: args.maxTeamSize ?? 4, soloAllowed: args.soloAllowed ?? true,
+    ...args,
+    tagline: args.tagline || args.shortDescription || "",
+    description: args.description || args.fullDescription || "",
+    shortDescription: args.shortDescription || args.tagline || "",
+    fullDescription: args.fullDescription || args.description || "",
+    registrationStart: regStart,
+    registrationEnd: regEnd,
+    registrationOpens: regStart,
+    registrationCloses: regEnd,
+    submissionOpens: subOpens,
+    submissionDeadline: subDeadline,
+    judgingStart: judgeStart,
+    judgingEnd: judgeEnd,
+    judgingStarts: judgeStart,
+    judgingEnds: judgeEnd,
+    votingStart: resAnnounced,
+    votingEnd: resAnnounced,
+    resultsAnnounced: resAnnounced,
+    status: "draft",
+    timezone: args.timezone ?? "UTC",
+    settings: args.settings ?? "max_team_size=4,voting_type=quadratic",
+    organizerId: actor._id,
+    minTeamSize: args.minTeamSize ?? 1,
+    maxTeamSize: args.maxTeamSize ?? 4,
+    soloAllowed: args.soloAllowed ?? true,
     coverImageRequired: args.coverImageRequired ?? false,
   });
   await appendAudit(ctx, { eventId, actorId: actor._id, action: "event.create", targetType: "event", targetId: String(eventId), afterState: JSON.stringify({ slug: args.slug, title: args.title, createdAt: now }) });
@@ -45,7 +75,34 @@ export const update = mutation({ args: { eventId: v.id("events"), ...eventArgs }
   const { eventId, ...patch } = args; const before = JSON.stringify(event);
   const duplicate = await ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", patch.slug)).unique();
   if (duplicate && duplicate._id !== eventId) throw new Error("Event slug already exists");
-  await ctx.db.patch(eventId, { ...patch, tagline: patch.tagline || patch.shortDescription || event.tagline, description: patch.description || patch.fullDescription || event.description });
+  const regStart = patch.registrationOpens ?? patch.registrationStart ?? event.registrationOpens ?? event.registrationStart;
+  const regEnd = patch.registrationCloses ?? patch.registrationEnd ?? event.registrationCloses ?? event.registrationEnd;
+  const subOpens = patch.submissionOpens ?? event.submissionOpens ?? regStart;
+  const subDeadline = patch.submissionDeadline ?? event.submissionDeadline;
+  const judgeStart = patch.judgingStarts ?? patch.judgingStart ?? event.judgingStarts ?? event.judgingStart;
+  const judgeEnd = patch.judgingEnds ?? patch.judgingEnd ?? event.judgingEnds ?? event.judgingEnd;
+  const resAnnounced = patch.resultsAnnounced ?? patch.votingStart ?? patch.votingEnd ?? event.resultsAnnounced;
+
+  await ctx.db.patch(eventId, {
+    ...patch,
+    tagline: patch.tagline || patch.shortDescription || event.tagline,
+    description: patch.description || patch.fullDescription || event.description,
+    shortDescription: patch.shortDescription || patch.tagline || event.shortDescription,
+    fullDescription: patch.fullDescription || patch.description || event.fullDescription,
+    registrationStart: regStart,
+    registrationEnd: regEnd,
+    registrationOpens: regStart,
+    registrationCloses: regEnd,
+    submissionOpens: subOpens,
+    submissionDeadline: subDeadline,
+    judgingStart: judgeStart,
+    judgingEnd: judgeEnd,
+    judgingStarts: judgeStart,
+    judgingEnds: judgeEnd,
+    votingStart: resAnnounced,
+    votingEnd: resAnnounced,
+    resultsAnnounced: resAnnounced,
+  });
   await appendAudit(ctx, { eventId, actorId: actor._id, action: "event.update", targetType: "event", targetId: String(eventId), beforeState: before, afterState: JSON.stringify(patch) });
   return { ok: true };
 } });
@@ -72,6 +129,16 @@ export const setStage = mutation({ args: { eventId: v.id("events"), stage: v.str
   const actor = await requireOrganizer(ctx); const event = await ctx.db.get(args.eventId); if (!event) throw new Error("Event not found");
   const stages = ["draft", "registration", "hacking", "judging", "voting", "published", "archived"]; if (!stages.includes(args.stage)) throw new Error("Invalid stage");
   await ctx.db.patch(args.eventId, { status: args.stage }); await appendAudit(ctx, { eventId: args.eventId, actorId: actor._id, action: "event.stage_change", targetType: "event", targetId: String(args.eventId), beforeState: event.status, afterState: args.stage }); return { ok: true };
+} });
+
+export const adminTransferOwnership = mutation({ args: { eventId: v.id("events"), newOrganizerId: v.id("users") }, handler: async (ctx, args) => {
+  const actor = await requireOrganizer(ctx);
+  if (actor.role !== "admin") throw new Error("Admin required");
+  const event = await ctx.db.get(args.eventId); if (!event) throw new Error("Event not found");
+  const target = await ctx.db.get(args.newOrganizerId); if (!target) throw new Error("User not found");
+  await ctx.db.patch(args.eventId, { organizerId: args.newOrganizerId });
+  await appendAudit(ctx, { eventId: args.eventId, actorId: actor._id, action: "event.admin_transfer_ownership", targetType: "event", targetId: String(args.eventId), beforeState: JSON.stringify({ organizerId: event.organizerId }), afterState: JSON.stringify({ organizerId: args.newOrganizerId }) });
+  return { ok: true };
 } });
 
 

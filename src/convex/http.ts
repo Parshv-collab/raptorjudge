@@ -106,10 +106,12 @@ const BASE_SECURITY_HEADERS: Record<string, string> = {
 const UNSET = "";
 
 function allowedOrigins(): string[] {
-  return (process.env.CORS_ALLOWED_ORIGINS ?? process.env.PUBLIC_ORIGIN ?? "")
+  const envOrigins = (process.env.TRUSTED_ORIGINS ?? process.env.CORS_ALLOWED_ORIGINS ?? process.env.PUBLIC_ORIGIN ?? "")
     .split(",")
     .map((origin) => origin.trim().replace(/\/+$/, ""))
     .filter((origin) => origin.length > 0 && origin !== "*");
+  const defaults = ["http://localhost:3000", "http://127.0.0.1:3000"];
+  return Array.from(new Set([...defaults, ...envOrigins]));
 }
 
 /**

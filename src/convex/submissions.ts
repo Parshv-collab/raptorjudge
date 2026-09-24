@@ -4,8 +4,8 @@ import type { Id } from "./_generated/dataModel";
 import {
   getCurrentUser,
   requireUser,
-  assertSubmissionWindow,
 } from "./lib/common";
+import { assertWithinWindow } from "./lib/timeWindows";
 import { appendAudit } from "./lib/audit";
 import { seededShuffle, seedFromString } from "./crypto";
 import {
@@ -223,7 +223,6 @@ export const saveDraft = mutation({
     const user = await requireUser(ctx);
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("Event not found");
-    assertSubmissionWindow(ctx, event, user.role ?? "participant");
 
     const memberships = await ctx.db
       .query("teamMembers")
@@ -308,7 +307,9 @@ export const submit = mutation({
     const user = await requireUser(ctx);
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("Event not found");
-    assertSubmissionWindow(ctx, event, user.role ?? "participant");
+    if (user.role !== "organizer" && user.role !== "admin") {
+      assertWithinWindow(event, "submission");
+    }
 
     const memberships = await ctx.db
       .query("teamMembers")
@@ -379,7 +380,9 @@ export const withdraw = mutation({
     const user = await requireUser(ctx);
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("Event not found");
-    assertSubmissionWindow(ctx, event, user.role ?? "participant");
+    if (user.role !== "organizer" && user.role !== "admin") {
+      assertWithinWindow(event, "submission");
+    }
     const memberships = await ctx.db
       .query("teamMembers")
       .withIndex("by_user", (q) => q.eq("userId", user._id))

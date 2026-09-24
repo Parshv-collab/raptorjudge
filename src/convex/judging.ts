@@ -6,6 +6,7 @@ import {
   requireRole,
   stageAllowsJudging,
 } from "./lib/common";
+import { assertWithinWindow } from "./lib/timeWindows";
 import { appendAudit } from "./lib/audit";
 import { planJudgeAssignments } from "../lib/algorithms/assignment";
 
@@ -254,8 +255,9 @@ export const myQueue = query({
     const out = [];
     for (const a of mine) {
       const sub = await ctx.db.get(a.submissionId);
-      if (!sub || sub.status !== "submitted") continue;
+      if (!sub) continue;
       const team = await ctx.db.get(sub.teamId);
+      const track = sub.trackId ? await ctx.db.get(sub.trackId) : null;
       const scores = await ctx.db
         .query("judgeScores")
         .withIndex("by_assignment", (q) => q.eq("assignmentId", a._id))
@@ -273,6 +275,7 @@ export const myQueue = query({
           demoUrl: sub.demoUrl,
           tags: sub.tags,
           teamName: team?.name ?? "—",
+          trackName: track?.name ?? "Open",
         },
         scoredCriteria: scores.map((s) => ({ criterionId: String(s.criterionId), score: s.score, notes: s.privateNotes })),
         criteriaCount: criteria.length,
@@ -299,8 +302,8 @@ export const submitScores = mutation({
     }
     const event = await ctx.db.get(assignment.eventId);
     if (!event) throw new Error("Event not found");
-    if (user.role === "judge" && !stageAllowsJudging(event.status as never)) {
-      throw new Error("Judging is not open for this event");
+    if (user.role === "judge") {
+      assertWithinWindow(event, "judging");
     }
     // Security item 57: a judge scores each submission exactly once. Re-opening
     // a completed assignment would let a judge revise a score after seeing

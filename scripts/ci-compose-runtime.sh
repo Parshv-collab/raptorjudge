@@ -67,7 +67,8 @@ docker compose up -d db backend
 # (its output format varies between compose versions).
 say "waiting for the backend to answer on :3210"
 attempt=0
-until curl -fsS --max-time 5 http://localhost:3210/version >/dev/null 2>&1; do
+CONVEX_CLOUD_URL="${CONVEX_CLOUD_ORIGIN:-http://localhost:3210}"
+until curl -fsS --max-time 5 "${CONVEX_CLOUD_URL}/version" >/dev/null 2>&1; do
   attempt=$((attempt + 1))
   if [ "${attempt}" -ge 60 ]; then
     fail "backend never became healthy"
@@ -180,7 +181,8 @@ esac
 
 # An unsigned token whose payload claims to be the seeded admin. The REST layer
 # used to base64-decode and trust exactly this shape.
-forged="$(node -e 'const b=(o)=>Buffer.from(JSON.stringify(o)).toString("base64url");process.stdout.write(`${b({alg:"none",typ:"JWT"})}.${b({sub:"admin|forged",iss:"http://127.0.0.1:3211",aud:"convex",exp:Math.floor(Date.now()/1000)+3600})}.`)')"
+SITE_ORIGIN="${CONVEX_SITE_ORIGIN:-http://127.0.0.1:3211}"
+forged="$(node -e "const b=(o)=>Buffer.from(JSON.stringify(o)).toString('base64url');process.stdout.write(\`\${b({alg:'none',typ:'JWT'})}.\${b({sub:'admin|forged',iss:'${SITE_ORIGIN}',aud:'convex',exp:Math.floor(Date.now()/1000)+3600})}.\`)"')"
 forged_code="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -X POST \
   -H "Authorization: Bearer ${forged}" -H 'Content-Type: application/json' \
   -d '{}' "${API}/api/v1/acceptance")"

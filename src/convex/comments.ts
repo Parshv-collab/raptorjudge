@@ -54,3 +54,17 @@ export const flag = mutation({
     return { ok: true };
   },
 });
+
+export const deleteComment = mutation({
+  args: { commentId: v.id("comments") },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const comment = await ctx.db.get(args.commentId);
+    if (!comment) throw new Error("Comment not found");
+    if (comment.userId !== user._id && user.role !== "admin" && user.role !== "organizer") {
+      throw new Error("Unauthorized to delete this comment");
+    }
+    await ctx.db.delete(args.commentId);
+    return { ok: true };
+  },
+});
