@@ -141,6 +141,21 @@ export const adminTransferOwnership = mutation({ args: { eventId: v.id("events")
   return { ok: true };
 } });
 
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx);
+    return ctx.storage.generateUploadUrl();
+  },
+});
+
+export const getStorageUrl = query({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, args) => {
+    return ctx.storage.getUrl(args.storageId);
+  },
+});
+
 
 /** Participant discovery: events where the current user belongs to a team. */
 export const enrolled = query({ args: {}, handler: async (ctx) => {

@@ -42,10 +42,43 @@ export default function Profile() {
   const me = useQuery(api.users.me, {});
   const updateProfile = useMutation(api.users.updateProfile);
   const deleteAccount = useMutation(api.users.deleteAccount);
+  const generateUploadUrl = useMutation(api.events.generateUploadUrl);
   const { signOut } = useAuthActions();
 
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
+      toast.error("Invalid image type.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image too large (max 5MB).");
+      return;
+    }
+    setUploading(true);
+    try {
+      const uploadUrl = await generateUploadUrl();
+      const res = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      const { storageId } = await res.json();
+      setAvatarUrl(storageId);
+      await updateProfile({ avatarUrl: storageId });
+      toast.success("Avatar updated!");
+    } catch (err: any) {
+      toast.error(err.message || "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
   const [profession, setProfession] = useState("developer");
   const [selectedInterests, setSelectedInterests] = useState<string[]>(["ai", "mobile"]);
   const [experience, setExperience] = useState("intermediate");
@@ -59,6 +92,7 @@ export default function Profile() {
     if (me) {
       setName(me.name || "");
       setBio(me.bio || "");
+      setAvatarUrl(me.avatarUrl || "");
     }
   }, [me]);
 
@@ -68,6 +102,7 @@ export default function Profile() {
     try {
       await updateProfile({
         bio,
+        avatarUrl,
       });
       toast.success("Profile updated successfully!");
     } catch (err: any) {
@@ -116,6 +151,29 @@ export default function Profile() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input label="Full Name" value={name} disabled />
             <Input label="Email Address" value={me?.email || ""} disabled />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold text-[#1d1d1f]">Avatar Image</label>
+            <div className="flex items-center gap-4">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="Avatar" className="w-12 h-12 rounded-full object-cover border border-white" />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-[#ff0055]/10 text-[#ff0055] font-bold flex items-center justify-center">
+                  {(name || "U").charAt(0)}
+                </div>
+              )}
+              <label className="cursor-pointer px-3 py-1.5 text-xs font-semibold rounded-button bg-white/60 border border-white/80 hover:bg-white/90 transition-colors">
+                {uploading ? "Uploading..." : "Upload Avatar"}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  className="hidden"
+                  onChange={handleAvatarUpload}
+                  disabled={uploading}
+                />
+              </label>
+            </div>
           </div>
 
           <div className="flex flex-col gap-1.5">

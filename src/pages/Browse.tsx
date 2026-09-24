@@ -8,6 +8,7 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/Button";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { deriveEventStatus } from "@/lib/eventStatus";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All Events" },
@@ -97,7 +98,7 @@ export default function Browse() {
               <div>
                 <div className="flex items-center justify-between gap-2 mb-3">
                   <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-[#ff0055]/10 text-[#ff0055]">
-                    {event.status}
+                    {deriveEventStatus(event).label}
                   </span>
                   <span className="text-xs font-medium text-[#6e6e73]">
                     Hosted by {event.hostName || "RaptorJudge"}

@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { deriveEventStatus } from "@/lib/eventStatus";
 
 const FAQ_ITEMS = [
   {
@@ -54,9 +55,9 @@ export default function EventPublic() {
     );
   }
 
-  const isJoined = myTeams?.some((t) => t.eventId === event._id);
   const now = Date.now();
-  const isClosed = event.registrationCloses ? now > event.registrationCloses : now > event.submissionDeadline;
+  const statusInfo = deriveEventStatus(event, now);
+  const isJoined = myTeams?.some((t) => t.eventId === event._id);
 
   // Determine Stateful CTA
   let ctaButton;
@@ -68,12 +69,6 @@ export default function EventPublic() {
         </Button>
       </Link>
     );
-  } else if (isClosed) {
-    ctaButton = (
-      <Button variant="secondary" size="lg" disabled className="w-full">
-        Registration closed
-      </Button>
-    );
   } else if (isJoined) {
     ctaButton = (
       <Link to={`/workspace?event=${event.slug}`} className="w-full">
@@ -82,13 +77,19 @@ export default function EventPublic() {
         </Button>
       </Link>
     );
-  } else {
+  } else if (statusInfo.canRegister) {
     ctaButton = (
       <Link to={`/workspace?event=${event.slug}`} className="w-full">
         <Button variant="primary" size="lg" className="w-full shadow-lg shadow-[#ff0055]/30">
           Register for event
         </Button>
       </Link>
+    );
+  } else {
+    ctaButton = (
+      <Button variant="secondary" size="lg" disabled className="w-full">
+        Registration closed
+      </Button>
     );
   }
 
@@ -102,12 +103,25 @@ export default function EventPublic() {
 
   return (
     <div className="max-w-7xl mx-auto py-6 px-4 flex flex-col gap-10">
+      {/* Banner / Cover Image */}
+      {event.bannerUrl ? (
+        <img
+          src={event.bannerUrl}
+          alt={event.title}
+          className="w-full h-48 sm:h-64 object-cover rounded-card shadow-sm border border-white/80"
+        />
+      ) : (
+        <div className="w-full h-48 sm:h-64 rounded-card bg-gradient-to-r from-[#ff0055]/20 via-purple-500/20 to-blue-500/20 border border-white/80 flex items-center justify-center text-[#1d1d1f]/30 font-black text-2xl tracking-widest uppercase">
+          {event.title}
+        </div>
+      )}
+
       {/* Hero Header */}
       <GlassCard className="p-8 relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div className="flex flex-col gap-3 max-w-2xl">
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full bg-[#ff0055]/10 text-[#ff0055]">
-              {event.status}
+              {statusInfo.label}
             </span>
             <span className="text-xs text-[#6e6e73]">
               Hosted by {event.hostName || "RaptorJudge"}

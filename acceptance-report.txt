@@ -3,7 +3,7 @@ RaptorJudge Final Acceptance Report
 
 Scope
 -----
-This report reflects the complete portability pass (PART A / PART G), full T1–T4 feature completion & bug fixes (PART B through PART L), and additional testing issue fixes (ISSUES 15–19).
+This report reflects the complete portability pass (PART A / PART G), full T1–T4 feature completion & bug fixes (PART B through PART L), and additional UI/UX & issue fixes (ISSUES 15–26).
 
 PART A — Portability & Runtime Config: PASS
 --------------------------------------------
@@ -25,6 +25,16 @@ ISSUES 15–19 (Testing Fixes): PASS
 - ISSUE 17 (Invite Creation & Accept Flow): FIXED — invites table in schema.ts, token-based invites (32-byte random base64url, hashed storage in DB), AdminInvites.tsx url copy, and InviteAccept.tsx route at /invite/:token.
 - ISSUE 18 (Platform Settings Expansion): FIXED — Expanded AdminSettings.tsx into Branding, Platform, Feature Flags, Lookup Tables, and Danger Zone sections. Integrated site name and footer copyright into AppShell.tsx.
 - ISSUE 19 (Judge Panel & Global Skeletons): FIXED — JudgePortal.tsx queue resolution and fallback empty state; replaced all literal "Loading..." text strings across pages with SkeletonCard placeholders.
+
+ISSUES 20–26 (Header, Layout, Redirects & Image Uploads): PASS
+--------------------------------------------------------------
+- ISSUE 20 (Header Profile State Resolution): FIXED — Handled 5 distinct auth/user loading and unauthenticated states gracefully in AppShell header.
+- ISSUE 21 (Auth Page Isolated Layout): FIXED — Moved /auth and /invite/:token out of AppShell into MinimalLayout with back-navigation.
+- ISSUE 22 (Full UI Audit & Polish): FIXED — Replaced remaining text loading strings in Gallery.tsx with SkeletonCard; verified layout consistency and empty states across all 18 routes.
+- ISSUE 23 (Post-Login Redirect Reliability): FIXED — Cleared stale auth state (`sessionStorage.clear()`) in Auth.tsx before sign-in, and eliminated fallback redirects to /dashboard in RoleHome.tsx.
+- ISSUE 24 (Derived Event Status): FIXED — Created src/lib/eventStatus.ts checking the 7 phase dates, and integrated dynamic badges into EventPublic.tsx and Browse.tsx.
+- ISSUE 25 (Event Banner Image Rendering): FIXED — Rendered event.bannerUrl in hero section of EventPublic.tsx with a gradient fallback.
+- ISSUE 26 (File Upload for Banners & Avatars): FIXED — Added generateUploadUrl and getStorageUrl mutations in src/convex/events.ts; added image upload inputs with validation and previews to EventForm.tsx and Profile.tsx.
 
 T1 — Core: 8/8 PASS
 -------------------
