@@ -48,11 +48,17 @@ const EXPERIENCE_LEVELS = [
   { value: "advanced", label: "Advanced (5+ years)" },
 ];
 
+import { useQuery } from "convex/react";
+
 export default function Auth() {
   const { signIn } = useAuthActions();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
+
+  const settingsQuery = useQuery(api.admin.getSettings, {});
+  const settings = settingsQuery && !(settingsQuery instanceof Error) ? settingsQuery : {};
+  const supportEmail = settings["support_email"] || settings["supportEmail"] || "the platform administrator";
 
   const returnTo = resolveReturnTo(
     location.pathname !== "/auth" ? location.pathname : searchParams.get("returnTo"),
@@ -80,6 +86,9 @@ export default function Auth() {
   const [code, setCode] = useState("");
   const [needsCode, setNeedsCode] = useState(false);
 
+  // Disabled Account State
+  const [disabledState, setDisabledState] = useState(false);
+
   // UI state
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -106,7 +115,10 @@ export default function Auth() {
       navigate("/home", { replace: true });
     } catch (err: any) {
       const raw = String(err?.message ?? "");
-      if (raw === "TOTP_REQUIRED") {
+      if (raw === "ACCOUNT_DISABLED" || raw.includes("ACCOUNT_DISABLED")) {
+        setDisabledState(true);
+        return;
+      } else if (raw === "TOTP_REQUIRED") {
         setNeedsCode(true);
         setError(null);
       } else if (raw === "INVALID_TOTP_CODE") {
@@ -168,6 +180,35 @@ export default function Auth() {
     setNeedsCode(false);
     setCode("");
     setError(null);
+  }
+
+  if (disabledState) {
+    return (
+      <div className="min-h-[calc(100vh-12rem)] flex flex-col items-center justify-center py-6 px-4">
+        <div className="w-full max-w-[420px] flex flex-col items-center">
+          <GlassCard className="w-full p-8 shadow-xl border-white/80 flex flex-col items-center text-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center font-bold text-xl">
+              ⚠️
+            </div>
+            <h1 className="text-xl font-black text-[#1d1d1f]">Your account has been disabled</h1>
+            <p className="text-xs text-[#6e6e73] leading-relaxed">
+              If you believe this was a mistake, contact us at <span className="font-semibold text-[#1d1d1f]">{supportEmail}</span>.
+            </p>
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => {
+                setDisabledState(false);
+                setError(null);
+              }}
+              className="w-full mt-2"
+            >
+              Back to sign in
+            </Button>
+          </GlassCard>
+        </div>
+      </div>
+    );
   }
 
   return (

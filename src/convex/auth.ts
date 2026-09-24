@@ -73,6 +73,16 @@ async function enforceSecondFactor(
   if (!result.ok) throw new Error(result.marker ?? INVALID_TOTP);
 }
 
+async function enforceDisabledCheck(ctx: unknown, userId: string): Promise<void> {
+  const actionCtx = ctx as {
+    runQuery: (ref: unknown, args: unknown) => Promise<boolean>;
+  };
+  const disabled = await actionCtx.runQuery(internal.users.isUserDisabled, { userId: userId as never });
+  if (disabled) {
+    throw new Error("ACCOUNT_DISABLED");
+  }
+}
+
 /** Wrap the authorize function that actually runs (see lib/authProvider.ts). */
 function hardenAuthorize(authorize: CredentialsAuthorize): CredentialsAuthorize {
   return async (params, ctx) => {
@@ -83,6 +93,9 @@ function hardenAuthorize(authorize: CredentialsAuthorize): CredentialsAuthorize 
       throw new Error(describeSignInFailure(error, params.flow as string | undefined));
     }
     if (params.flow === "signIn" && result?.userId) {
+      // Password check passed! Now verify if the account is disabled.
+      await enforceDisabledCheck(ctx, result.userId);
+
       // Deliberately outside the catch above: the password already checked
       // out, so a second-factor failure must reach the client as its own
       // marker rather than being flattened into "invalid email or password".

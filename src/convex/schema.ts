@@ -10,6 +10,7 @@ export default defineSchema({
     bio: v.optional(v.string()), avatarUrl: v.optional(v.string()), tokenIdentifier: v.optional(v.string()),
     totpSecret: v.optional(v.string()), totpEnabled: v.optional(v.boolean()), totpEnrolledAt: v.optional(v.number()),
     totpLastVerifiedAt: v.optional(v.number()), emailVerificationTime: v.optional(v.number()),
+    disabledAt: v.optional(v.number()), disabled_at: v.optional(v.number()),
   }).index("by_token", ["tokenIdentifier"]).index("by_role", ["role"]).index("email", ["email"]),
   events: defineTable({
     slug: v.string(), title: v.string(), tagline: v.string(), description: v.string(), status: v.string(),
