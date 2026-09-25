@@ -478,7 +478,11 @@ routePrefix("/api/v1/export/", "GET", async (ctx, request) => {
   const rest = url.pathname.replace("/api/v1/export/", "").replace(/\/$/, "");
   const [slug, kind] = rest.split("/");
   const event: any = await ctx.runQuery(internal.httpPublic.getEventBySlugPublic, { slug });
-  if (!event) return json({ error: "event not found" }, 404);
+  // Unknown event: 404, but with the *private* header policy. The bare 404 used
+  // to fall through to the public CORS default (`Access-Control-Allow-Origin: *`),
+  // which let any web page probe which event slugs exist on an organizer-only
+  // endpoint and advertised the route as cross-origin readable.
+  if (!event) return json({ error: "event not found" }, 404, privateHeaders(request));
 
   // Exports are organizer-gated; accept a bearer token (verified identity).
   const user = await resolveUser(ctx, request);
