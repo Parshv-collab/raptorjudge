@@ -1,50 +1,226 @@
 # Data Model
 
-## Scope
+The authoritative schema is `src/convex/schema.ts`. It spreads
+`authTables` from `@convex-dev/auth/server` (package-owned lookup/session tables,
+not reproduced here) and defines **21 application tables**.
 
-The authoritative application schema is `src/convex/schema.ts`. It spreads `authTables` from `@convex-dev/auth/server`; those inherited authentication tables are package-owned and are not expanded in the local schema file. All other tables below are application-specific.
+Convex has no migration files: pushing the function bundle *is* the migration, so
+`schema.ts` is the single source of truth for every table and index below.
+
+Legend: **R** = required, `?` = optional.
+
+---
 
 ## Tables
 
-| Table | Fields | Indexes and relationships |
+### `users` — identity and role
+
+| Field | Type | Notes |
 |---|---|---|
-| `users` | `email`, `name` required strings; `role`, `bio`, `avatarUrl`, `tokenIdentifier`, `totpSecret` optional strings; `totpEnabled` optional boolean; TOTP timestamps and `emailVerificationTime` optional numbers. | `by_token(tokenIdentifier)`, `by_role(role)`, `email(email)`. Referenced by teams, memberships, judges, votes, comments, audits, certificates, and webhooks through IDs. |
-| `events` | Required slug/title/tagline/description/status strings; schedule and lifecycle timestamps; required timezone/settings strings; optional banner, organizer, host, short/full descriptions, rules, alternate schedule fields, team-size numbers, solo and cover-image booleans, and `publishedAt`. | `by_slug(slug)`, `by_organizer(organizerId)`. Parent of tracks, teams, submissions, criteria, assignments, scores, pairwise matches, votes, audit rows, webhooks, and certificates. |
-| `tracks` | `eventId`, name, description, prizeDescription required; `prizeAmount` required number. | `by_event(eventId)`. Belongs to one event; submissions and teams may reference a track. |
-| `teams` | `eventId`, name, inviteCode, createdBy required; optional `trackId`. | `by_event(eventId)`, `by_invite(inviteCode)`. Belongs to an event and creator; has many team members and may have submissions. |
-| `teamMembers` | `teamId`, `userId`, `memberRole` required; `joinedAt` required number. | `by_team(teamId)`, `by_user(userId)`. Join table between users and teams. |
-| `submissions` | Event/team IDs required; optional track ID; title, tagline, description, repository/video/demo URLs, tags, custom fields, status, and updated timestamp required; submitted timestamp optional. | `by_event(eventId)`, `by_team(teamId)`. Belongs to event and team; receives scores, comments, votes, and pairwise matches. |
-| `rubricCriteria` | Event ID, name, description, weight, minScore, maxScore, sortOrder required. | `by_event(eventId)`. Criteria belong to one event and are referenced by judge scores. |
-| `judgeAssignments` | Event, judge, submission IDs, status, assignedAt required; completedAt optional. | `by_event`, `by_judge`, `by_submission`. Connects judges to submissions. |
-| `judgeScores` | Event, assignment, submission, judge, criterion IDs; score, privateNotes, submittedAt required. | `by_assignment`, `by_event`, `by_judge_submission`. Stores one judge's criterion score for an assignment. |
-| `pairwiseMatches` | Event and judge IDs, two submission IDs, winnerId string, createdAt number. | `by_event`. Stores Bradley–Terry comparison data. |
-| `communityVotes` | Event, user, submission IDs; points, creditsSpent, IP and user-agent hashes, createdAt required. | `by_event`, `by_user_event`, `by_submission`. Used for public voting and abuse controls. |
-| `comments` | Submission and user IDs, content, isFlagged, createdAt required. | `by_submission`. Comments belong to submissions and authors. |
-| `auditLogs` | Optional event and actor IDs; action, targetType, targetId, before/after state, IP address, previous hash, entry hash, timestamp required. | `by_event`, `by_action`. Append-only audit chain. |
-| `webhooks` | Event ID, target URL, secret key, events string, active boolean, createdAt required. | `by_event`. Has many delivery rows. |
-| `webhookDeliveries` | Webhook ID, event type, payload, status code, success, deliveredAt required. | `by_webhook`. Child delivery history. |
-| `certificates` | UUID, event/user IDs, recipient, certificate type/title/track, rank, signature hash, issuedAt required. | `by_uuid`, `by_event`. Verifiable signed records. |
-| `platform` | Key and value required strings. | `by_key`. Platform key/value storage. |
+| `email` **R** | string | unique in practice (`email` index) |
+| `name` **R** | string | display name |
+| `role` `?` | `"admin" \| "organizer" \| "judge" \| "participant"` | role is the basis of every authorization decision |
+| `bio`, `avatarUrl`, `tokenIdentifier` `?` | string | `by_token` links a Convex Auth identity |
+| `totpSecret`, `totpEnabled`, `totpEnrolledAt`, `totpLastVerifiedAt` `?` | sealed string / boolean / number | optional second factor for privileged roles |
+| `emailVerificationTime` `?` | number | |
+| `disabledAt`, `disabled_at` `?` | number | set by `users.adminDisable`; checked on every sign-in |
 
-The inherited `authTables` are lookup and session-support tables owned by Convex Auth. They are not application lookup vocabularies. The application has no separate fixed-vocabulary table; lifecycle stages and roles are validated in code using string lists or Convex unions.
+Indexes: `by_token(tokenIdentifier)`, `by_role(role)`, `email(email)`.
 
-## Cascade and deletion behavior
+### `events` — the hackathon lifecycle
 
-The schema declares relationships but no database-level cascade rules. Deletion behavior is implemented in mutations. Draft event deletion is implemented in the source event mutation only for draft events; there is no general cascade routine documented in the schema. Team leave removes membership subject to leadership rules. Audit logs are append-only. Certificate issuance is idempotent rather than destructive. Any related-row cleanup not explicitly handled by a mutation is **not implemented**.
+| Field | Type | Notes |
+|---|---|---|
+| `slug`, `title`, `tagline`, `description`, `status` **R** | string | `status` drives the stage machine: `draft → registration → submission → judging → voting → published → archived` |
+| `registrationStart/End`, `submissionDeadline`, `judgingStart/End`, `votingStart/End` **R** | number | epoch ms, the enforcement source for every window check |
+| `timezone`, `settings` **R** | string | `settings` is a JSON blob; exposed to clients via a masked projection |
+| `organizerId` `?` | id(users) | owner; `by_organizer` powers "my events" |
+| `bannerUrl`, `hostName`, `shortDescription`, `fullDescription`, `rules` `?` | string | presentation |
+| `registrationOpens/Closes`, `submissionOpens`, `judgingStarts/Ends`, `resultsAnnounced` `?` | number | *legacy* duplicate schedule fields, still read as fallbacks (`judgingStart ?? judgingStarts`) |
+| `minTeamSize`, `maxTeamSize`, `soloAllowed`, `coverImageRequired` `?` | number / boolean | team policy |
+| `publishedAt` `?` | number | |
 
-## Constraints enforced in code
+Indexes: `by_slug(slug)`, `by_organizer(organizerId)`.
 
-Users cannot switch into protected roles without the role checks in `users.ts` and shared RBAC helpers. A participant may have only one team per event. Team creation and invite joining reject judges, enforce event existence, and enforce the configured maximum team size. Invite codes are indexed and generated as random hexadecimal values. Assignment planning prevents judges from reviewing their own teams, teammate teams, and shared-member conflicts. Score submission is restricted to assigned work and completed assignments cannot be reopened by the judge. Submission writes validate links, lengths, tags, and deadline/status conditions. Voting uses per-user event records, budgets, and hashed client signals. Webhook targets are validated against SSRF rules.
+> `draft` is not public: `events.get` / `events.getBySlug` throw for non-staff
+> callers while the event is a draft, and `events.listPublic` filters drafts out.
 
-## Mermaid ER diagram
+### `tracks` — prize tracks
+
+`eventId`(R), `name`(R), `description`(R), `prizeDescription`(R),
+`prizeAmount`(R number). Index `by_event(eventId)`.
+
+Track **names** are also the vocabulary judges' specialisations are validated
+against (`judging.setJudgeTracks`).
+
+### `teams` — team formation
+
+`eventId`(R), `name`(R), `inviteCode`(R), `trackId`(?), `createdBy`(R).
+Indexes `by_event`, `by_invite(inviteCode)`.
+
+`inviteCode` is only returned to members and staff — `teams.listByEvent` nulls it
+for everyone else.
+
+### `teamMembers` — membership join table
+
+`teamId`(R), `userId`(R), `memberRole`(R string), `joinedAt`(R number).
+Indexes `by_team`, `by_user`. A user may hold at most one team per event
+(enforced in `teams.create` / `joinByInviteCode`).
+
+### `submissions` — participant work
+
+`eventId`(R), `teamId`(R), `trackId`(?), `title`(R), `tagline`(R),
+`description`(R), `repositoryUrl`(R), `videoUrl`(R), `demoUrl`(R), `tags`(R,
+JSON array text), `customFields`(R, JSON), `status`(R: `draft | submitted`),
+`submittedAt`(?), `updatedAt`(R). Indexes `by_event`, `by_team`.
+
+Draft autosave writes `status: "draft"`; only `submitted` rows are judged,
+gallery-listed, voted on, compared pairwise or flagged.
+
+### `rubricCriteria` — the scoring rubric
+
+`eventId`(R), `name`(R), `description`(R), `weight`(R number), `minScore`(R),
+`maxScore`(R), `sortOrder`(R). Index `by_event`.
+
+Weights must sum to 1.000; see [JUDGING.md](JUDGING.md#2-rubrics).
+
+### `judgeAssignments` — who reviews what
+
+`eventId`(R), `judgeId`(R), `submissionId`(R), `status`(R: `assigned |
+in_progress | completed`), `assignedAt`(R), `completedAt`(?).
+Indexes `by_event`, `by_judge`, `by_submission`.
+
+Uniqueness is (`judgeId`, `submissionId`) — `runAssignment` de-duplicates before
+inserting, and `sec.assignment_uniqueness` asserts the invariant on live data.
+
+### `judgeScores` — one row per (assignment, criterion)
+
+`eventId`(R), `assignmentId`(R), `submissionId`(R), `judgeId`(R),
+`criterionId`(R), `score`(R number), `privateNotes`(R string),
+`submittedAt`(R number). Indexes `by_assignment`, `by_event`,
+`by_judge_submission(judgeId, submissionId)`.
+
+`privateNotes` are readable only through staff-gated endpoints.
+
+### `pairwiseMatches` — Bradley–Terry comparisons
+
+`eventId`(R), `judgeId`(R), `submissionAId`(R), `submissionBId`(R),
+`winnerId`(R string — empty string means a tie), `createdAt`(R).
+Index `by_event`.
+
+### `communityVotes` — public voting
+
+`eventId`(R), `userId`(R), `submissionId`(R), `points`(R number),
+`creditsSpent`(R number), `ipHash`(R — SHA-256 hex), `userAgentHash`(R),
+`createdAt`(R). Indexes `by_event`, `by_user_event(userId, eventId)`,
+`by_submission`.
+
+`by_user_event` carries the per-user quadratic budget and the vote count;
+`ipHash`/`userAgentHash` feed the Sybil burst heuristic (never raw IPs).
+
+### `comments` — submission discussion
+
+`submissionId`(R), `userId`(R), `content`(R, ≤ 2000 chars), `isFlagged`(R
+boolean), `createdAt`(R). Index `by_submission`.
+
+### `auditLogs` — hash-chained audit trail
+
+`eventId`(?), `actorId`(?), `action`(R), `targetType`(R), `targetId`(R),
+`beforeState`(R JSON), `afterState`(R JSON), `ipAddress`(R), `prevHash`(R),
+`entryHash`(R), `timestamp`(R). Indexes `by_event`, `by_action`.
+
+**Append-only.** `entryHash = H(prevHash ‖ action ‖ target ‖ states ‖ ts)`, so
+editing or removing any row breaks every later hash; `audit.verifyChain`
+re-computes the chain and reports the first mismatch.
+
+### `webhooks` + `webhookDeliveries` — outbound integration
+
+`webhooks`: `eventId`(R), `targetUrl`(R), `secretKey`(R, ≥ 64 chars),
+`events`(R, comma-separated types), `isActive`(R boolean), `createdAt`(R).
+Index `by_event`.
+
+`webhookDeliveries`: `webhookId`(R), `eventType`(R), `payload`(R JSON),
+`statusCode`(R), `success`(R boolean), `deliveredAt`(R). Index `by_webhook`.
+
+Delivery is signed with HMAC-SHA256 over the payload plus a timestamp and a
+nonce; targets are validated against SSRF rules and the RFC-1918/loopback
+allowance documented in [THREAT-MODEL.md](THREAT-MODEL.md).
+
+### `certificates` — verifiable credentials
+
+`certUuid`(R), `eventId`(R), `userId`(R), `recipientName`(R), `certType`(R),
+`title`(R), `trackName`(R), `rank`(R number), `signatureHash`(R),
+`issuedAt`(R). Indexes `by_uuid`, `by_event`.
+
+Issuance is **idempotent**: the `(eventId, userId, certType)` tuple is checked
+first, so re-running the batch does not mint duplicates.
+
+### `platform` — key/value store
+
+`key`(R), `value`(R). Index `by_key`.
+
+This table plays three roles, distinguished by key prefix:
+
+| Prefix | Contents |
+|---|---|
+| *(none)* / plain | operator settings (`cert_secret`, seed flags, feature toggles) |
+| `session:` | `session:<sha256(token)>` → user id, for the REST session-cookie path |
+| `ratelimit:` | fixed-window counters: `ratelimit:<bucket>` (votes/comments), `ratelimit:auth:<sha256(email)>` (sign-in/sign-up attempts) |
+| `lookup:` | reference vocabularies (JSON) |
+| `invite:` | invite token hashes |
+| `judge_tracks:` | `judge_tracks:<userId>` → JSON array of track names |
+| `rubric_lock:` | `rubric_lock:<eventId>` → `"locked" \| "unlocked"` |
+
+Secrets are stripped by a projection (`admin.projectPublicSettings`) before any
+of it reaches a client, and `sec.platform_secrets` asserts that on live data.
+
+### `invites` — role invitations
+
+`email`(?), `role`(R), `eventId`(?), `tokenHash`(R), `createdBy`(R),
+`createdAt`(R), `expiresAt`(R), `usedAt`(?), `revokedAt`(?).
+Indexes `by_token_hash`, `by_email`.
+
+Only the **hash** of the token is stored; the plaintext is shown once at creation.
+`admin.acceptInvite` rejects expired, used and revoked invites.
+
+### `event_participants` — enrollment
+
+`eventId`(R), `userId`(R), `status`(R), `lookingForTeam`(?), `createdAt`(R).
+Indexes `by_event`, `by_user`, `by_event_user`.
+
+`by_event_user` makes "is this user enrolled in this event" a single indexed
+lookup, and `lookingForTeam` powers team-matchmaking surfaces.
+
+### `flags` — duplicate / moderation flags
+
+`submissionId`(R), `eventId`(R), `reason`(R), `status`(R: `open | dismissed |
+removed`), `createdAt`(R), `reviewedAt`(?). Indexes `by_submission`, `by_event`.
+
+Written by the duplicate detector and by comment reporting; reviewed through the
+organizer duplicates tab.
+
+### `teamMessages` — private team chat
+
+`teamId`(R), `userId`(R), `content`(R, ≤ 2000 chars),
+`fileStorageId`(?), `fileName`(?), `fileType`(?), `createdAt`(R).
+Index `by_team`.
+
+Reads and writes both resolve membership server-side and refuse staff, so an
+organizer cannot read a team's channel.
+
+---
+
+## Relationships
 
 ```mermaid
 erDiagram
   users ||--o{ teamMembers : joins
   teams ||--o{ teamMembers : contains
+  teams ||--o{ teamMessages : chats
   events ||--o{ tracks : has
   events ||--o{ teams : contains
   events ||--o{ submissions : receives
+  events ||--o{ event_participants : enrolls
   teams ||--o{ submissions : submits
   events ||--o{ rubricCriteria : defines
   events ||--o{ judgeAssignments : schedules
@@ -59,20 +235,76 @@ erDiagram
   submissions ||--o{ communityVotes : receives
   submissions ||--o{ comments : has
   users ||--o{ comments : writes
+  submissions ||--o{ flags : flagged
+  events ||--o{ flags : tracks
   events ||--o{ webhooks : configures
   webhooks ||--o{ webhookDeliveries : delivers
   events ||--o{ certificates : issues
   users ||--o{ certificates : receives
+  events ||--o{ auditLogs : records
+  users ||--o{ invites : creates
 ```
+
+---
+
+## Cascade and deletion rules
+
+Convex declares no database-level cascades. Every cascade is explicit in a
+mutation, and each one is audited:
+
+| Deleting | Cascades to | Where |
+|---|---|---|
+| a **draft event** | nothing (only drafts are deletable) | `events.deleteEvent` |
+| a **user** (admin) | account disabled/removed; owned content is retained for audit | `users.adminDelete` |
+| a **flagged submission** | its `judgeAssignments` are withdrawn and deleted; the flag is marked `removed` | `submissions.removeFlaggedSubmission` |
+| **all assignments for an event** | replaced wholesale on the next `runAssignment` | `judging.runAssignment` |
+| a **team member** | membership row only; leadership transfer is explicit and must not orphan the team | `teams.leave`, `teams.transferLeadership` |
+| **judge scores** | never deleted; a completed assignment cannot be re-opened by a judge | `judging.submitScores` |
+
+Audit rows are never deleted. Certificate issuance is idempotent rather than
+destructive.
+
+---
+
+## Constraints enforced in code
+
+- **Roles** — `requireUser` / `requireRole` / `requireOrganizer` in
+  `src/convex/lib/common.ts`; see the matrix in [JUDGING.md](JUDGING.md#7-role-isolation).
+- **One team per participant per event**, validated on both create and join.
+- **Judges are rejected** by team creation and invite join.
+- **Invite codes** are random hex, lower-cased and trimmed on comparison.
+- **Deadline/window** — `assertSubmissionWindow`, `assertWithinWindow`,
+  `stageAllows*` in `lib/timeWindows.ts` and `lib/common.ts`.
+- **Assignment** — no self-team, teammate-team or shared-member conflicts; no
+  duplicate (judge, submission) pairs; hard per-judge cap.
+- **Rubric** — weights sum to 1.000 (±0.001), unique-per-submission criteria,
+  score within `[minScore, maxScore]`, immutable once locked.
+- **Pairwise** — both sides belong to the event and are submitted; the winner must
+  be one of the two competitors.
+- **Voting** — per-user budget, one vote per submission in upvote mode, quadratic
+  credit accounting, rate limit, hashed client fingerprints.
+- **Rate limits** — fixed window in the `platform` table, shared by votes,
+  comments and credential attempts.
+- **Webhook targets** — scheme and SSRF validation before any request.
+- **Submissions** — link scheme validation, length bounds, tag limits, and
+  duplicate title/repo detection on submit.
+
+---
 
 ## Export and reset
 
-Application CSV exports are implemented in `src/convex/exports.ts` for submissions, scores, rankings, assignments, and event JSON. A full database dump command is **not implemented** in the repository. Docker reset is destructive volume removal, normally performed with `docker compose down -v`, followed by `docker compose up --build`.
+`src/convex/exports.ts` serves CSV for submissions, scores, rankings and
+assignments, plus a full event JSON. CSV column sets are stable but unversioned
+(see the known gaps in [README.md](README.md)).
 
-## References
+There is **no** `db:dump` command in the repository. Back up PostgreSQL directly:
 
-[1]: src/convex/schema.ts "Convex schema"
-[2]: src/convex/teams.ts "Team and invite constraints"
-[3]: src/convex/judging.ts "Judge assignment and scoring constraints"
-[4]: src/convex/submissions.ts "Submission validation and deadlines"
-[5]: src/convex/lib/rbac.ts "Role authorization"
+```bash
+docker compose exec -T db pg_dump -U dogfood dogfood > backup.sql
+```
+
+Reset destroys the volumes and re-seeds:
+
+```bash
+docker compose down -v && docker compose up --build
+```

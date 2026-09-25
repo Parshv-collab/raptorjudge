@@ -1,13 +1,15 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import {
   getCurrentUser,
+  requireOrganizer,
   requireUser,
 } from "./lib/common";
 import { assertWithinWindow } from "./lib/timeWindows";
 import { appendAudit } from "./lib/audit";
 import { seededShuffle, seedFromString } from "./crypto";
+import { findDuplicateMatches, type SubmissionIdentity } from "../lib/algorithms/duplicates";
 import {
   MAX_DESCRIPTION_LENGTH,
   MAX_TAGLINE_LENGTH,
@@ -122,11 +124,17 @@ export const publicGallery = query({
   },
 });
 
-/** All submissions for an event (organizer/admin). */
+/**
+ * All submissions for an event, including drafts (organizer/admin only).
+ *
+ * Role isolation: this returns unpublished drafts plus team idents, so a judge
+ * or participant must not reach it — the public gallery
+ * (`submissions.publicGallery`) is the only cross-user read available to them.
+ */
 export const byEvent = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
+    await requireOrganizer(ctx);
     const subs = await ctx.db
       .query("submissions")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
@@ -200,6 +208,10 @@ export const detail = query({
       ...sub,
       teamName: team?.name ?? "—",
       trackName: track?.name ?? "Open",
+      // Needed by the project page to link back to the right gallery.
+      eventSlug: event?.slug ?? null,
+      eventTitle: event?.title ?? null,
+      eventStatus: event?.status ?? null,
       canEdit,
     };
   },
@@ -369,12 +381,244 @@ export const submit = mutation({
       beforeState: draft.status,
       afterState: "submitted",
     });
+
+    // T3.6: re-run duplicate detection on every submission so a duplicate filed
+    // after the original is still caught without an organizer clicking a button.
+    try {
+      const flagged = await detectAndRecordDuplicates(ctx, args.eventId);
+      if (flagged.newFlags.length > 0) {
+        await appendAudit(ctx, {
+          eventId: args.eventId,
+          actorId: user._id,
+          action: "submission.duplicate_detected",
+          targetType: "event",
+          targetId: String(args.eventId),
+          afterState: JSON.stringify({ flagged: flagged.newFlags }),
+        });
+      }
+    } catch {
+      // Detection is advisory: never block a legitimate submission on it.
+    }
+
     return { ok: true, submissionId: draft._id };
   },
 });
 
-/** Withdraw back to draft (before deadline only). */
-export const withdraw = mutation({
+// -------------------------------------------------------------- duplicates ---
+
+/**
+ * Duplicate detection (T3.6).
+ *
+ * Compares every submitted project in an event on normalized title and
+ * repository URL (see `src/lib/algorithms/duplicates.ts`) and records one
+ * `flags` row per redundant submission. Re-running is idempotent: an existing
+ * unresolved flag for the same submission is updated rather than duplicated.
+ */
+async function detectAndRecordDuplicates(
+  ctx: any,
+  eventId: Id<"events">,
+): Promise<{
+  matches: ReturnType<typeof findDuplicateMatches>;
+  newFlags: { submissionId: string; title: string; reason: string }[];
+  totalSubmissions: number;
+}> {
+  const subs = await ctx.db
+    .query("submissions")
+    .withIndex("by_event", (q: any) => q.eq("eventId", eventId))
+    .collect();
+
+  // Oldest first, so the earliest entry stays the "original" and every later
+  // duplicate is the one that gets flagged.
+  const submitted = subs
+    .filter((s: any) => s.status === "submitted" || s.status === "withdrawn")
+    .sort((a: any, b: any) => (a.submittedAt ?? a.updatedAt) - (b.submittedAt ?? b.updatedAt));
+
+  const identities: SubmissionIdentity[] = [];
+  for (const s of submitted) {
+    const team = await ctx.db.get(s.teamId);
+    identities.push({
+      submissionId: String(s._id),
+      title: s.title,
+      repositoryUrl: s.repositoryUrl,
+      teamId: String(s.teamId),
+      teamName: team?.name,
+    });
+  }
+
+  const matches = findDuplicateMatches(identities);
+  const existing = await ctx.db
+    .query("flags")
+    .withIndex("by_event", (q: any) => q.eq("eventId", eventId))
+    .collect();
+
+  const newFlags: { submissionId: string; title: string; reason: string }[] = [];
+  const now = Date.now();
+
+  for (const match of matches) {
+    const prior = existing.find(
+      (f: any) => String(f.submissionId) === match.submissionId && f.status === "flagged",
+    );
+    if (prior) {
+      if (prior.reason !== match.reason) await ctx.db.patch(prior._id, { reason: match.reason });
+      continue;
+    }
+    await ctx.db.insert("flags", {
+      submissionId: match.submissionId as never,
+      eventId,
+      reason: match.reason,
+      status: "flagged",
+      createdAt: now,
+    });
+    newFlags.push({
+      submissionId: match.submissionId,
+      title: identities.find((i) => i.submissionId === match.submissionId)?.title ?? "",
+      reason: match.reason,
+    });
+  }
+
+  return { matches, newFlags, totalSubmissions: identities.length };
+}
+
+/**
+ * Duplicate scan callable without an organizer identity.
+ *
+ * Used by the seed action so a freshly seeded deployment already carries the
+ * flag for a duplicated project (fixtures.json has two "Dry Harbour" entries) —
+ * otherwise the Duplicate Flags tab would look empty until someone clicked
+ * "Run duplicate scan" by hand. Internal, so it is not reachable from clients.
+ */
+export const detectDuplicatesInternal = internalMutation({
+  args: { eventId: v.id("events") },
+  // Annotated to keep the seed action's `internal.*` call out of a
+  // type-inference cycle (see certificates.issueAllHelper).
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ scanned: number; matches: number; newlyFlagged: number }> => {
+    const result = await detectAndRecordDuplicates(ctx, args.eventId);
+    return {
+      scanned: result.totalSubmissions,
+      matches: result.matches.length,
+      newlyFlagged: result.newFlags.length,
+    };
+  },
+});
+
+/** Organizer-triggered duplicate scan (button in the event Duplicate Flags tab). */
+export const checkDuplicates = mutation({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    const result = await detectAndRecordDuplicates(ctx, args.eventId);
+    await appendAudit(ctx, {
+      eventId: args.eventId,
+      actorId: actor._id,
+      action: "submission.duplicate_scan",
+      targetType: "event",
+      targetId: String(args.eventId),
+      afterState: JSON.stringify({
+        scanned: result.totalSubmissions,
+        matches: result.matches.length,
+        newlyFlagged: result.newFlags.length,
+      }),
+    });
+    return {
+      ok: true,
+      scanned: result.totalSubmissions,
+      matches: result.matches.length,
+      newlyFlagged: result.newFlags.length,
+      details: result.newFlags,
+    };
+  },
+});
+
+/** Duplicate flags for an event, with submission + team context (organizer only). */
+export const listFlags = query({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    await requireOrganizer(ctx);
+    const rows = await ctx.db
+      .query("flags")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    const out = [];
+    for (const f of rows) {
+      const sub = await ctx.db.get(f.submissionId);
+      const team = sub ? await ctx.db.get(sub.teamId) : null;
+      out.push({
+        id: String(f._id),
+        submissionId: String(f.submissionId),
+        submissionTitle: sub?.title ?? "(removed)",
+        submissionStatus: sub?.status ?? "unknown",
+        teamName: team?.name ?? "—",
+        reason: f.reason,
+        status: f.status,
+        createdAt: f.createdAt,
+        reviewedAt: f.reviewedAt ?? null,
+      });
+    }
+    return out.sort((a, b) => b.createdAt - a.createdAt);
+  },
+});
+
+/** Resolve a duplicate flag as a false positive (organizer only). */
+export const dismissFlag = mutation({
+  args: { flagId: v.id("flags") },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    const flag = await ctx.db.get(args.flagId);
+    if (!flag) throw new Error("Flag not found");
+    await ctx.db.patch(args.flagId, { status: "dismissed", reviewedAt: Date.now() });
+    await appendAudit(ctx, {
+      eventId: flag.eventId,
+      actorId: actor._id,
+      action: "submission.flag_dismiss",
+      targetType: "flag",
+      targetId: String(args.flagId),
+      beforeState: flag.status,
+      afterState: "dismissed",
+    });
+    return { ok: true };
+  },
+});
+
+/** Disqualify a flagged duplicate by withdrawing it from judging (organizer only). */
+export const removeFlaggedSubmission = mutation({
+  args: { flagId: v.id("flags"), reason: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    const flag = await ctx.db.get(args.flagId);
+    if (!flag) throw new Error("Flag not found");
+    const sub = await ctx.db.get(flag.submissionId);
+    if (!sub) throw new Error("Submission no longer exists");
+
+    await ctx.db.patch(sub._id, { status: "withdrawn", updatedAt: Date.now() });
+    await ctx.db.patch(args.flagId, { status: "removed", reviewedAt: Date.now() });
+    // Drop any judging work for the withdrawn entry so it cannot be scored.
+    const assignments = await ctx.db
+      .query("judgeAssignments")
+      .withIndex("by_submission", (q) => q.eq("submissionId", sub._id))
+      .collect();
+    for (const a of assignments) await ctx.db.delete(a._id);
+
+    await appendAudit(ctx, {
+      eventId: flag.eventId,
+      actorId: actor._id,
+      action: "submission.duplicate_remove",
+      targetType: "submission",
+      targetId: String(sub._id),
+      beforeState: sub.status,
+      afterState: JSON.stringify({
+        status: "withdrawn",
+        reason: args.reason ?? flag.reason,
+        assignmentsRemoved: assignments.length,
+      }),
+    });
+    return { ok: true, assignmentRemoved: assignments.length };
+  },
+});
+
+/** Withdraw back to draft (before deadline only). */export const withdraw = mutation({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);

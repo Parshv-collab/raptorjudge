@@ -15,11 +15,19 @@ import { Alert } from "@/components/ui/Alert";
 import { resolveReturnTo } from "@/lib/safeRedirect";
 import { humanizeConvexError } from "@/lib/errors";
 
+/**
+ * Seeded demo accounts (see src/convex/seed.ts).
+ *
+ * These must match what the seed action actually creates — the previous list
+ * pointed at `*@raptors.dev` addresses that were never inserted, so every
+ * "quick fill" button produced an invalid-credentials error.
+ */
 const DEMO_ACCOUNTS = [
-  { email: "admin@raptors.dev", label: "Admin", role: "admin" },
-  { email: "organizer@raptors.dev", label: "Organizer", role: "organizer" },
-  { email: "judge1@raptors.dev", label: "Judge 1", role: "judge" },
-  { email: "participant1@raptors.dev", label: "Participant", role: "participant" },
+  { email: "admin@fixture.local", label: "Admin", role: "admin" },
+  { email: "organizer@fixture.local", label: "Organizer", role: "organizer" },
+  { email: "tomas.varga@example.org", label: "Judge A", role: "judge" },
+  { email: "wei.lindqvist@example.org", label: "Judge B", role: "judge" },
+  { email: "participant@fixture.local", label: "Participant", role: "participant" },
 ];
 
 const PROFESSIONS = [
@@ -115,7 +123,7 @@ export default function Auth() {
         ...(needsCode && code ? { totp: code } : {}),
       });
       toast.success("Welcome back!");
-      navigate("/home", { replace: true });
+      navigate(returnTo, { replace: true });
     } catch (err: any) {
       const raw = String(err?.message ?? "");
       if (raw === "ACCOUNT_DISABLED" || raw.includes("ACCOUNT_DISABLED")) {
@@ -131,6 +139,8 @@ export default function Auth() {
       } else if (raw === "TOTP_LOCKED") {
         setNeedsCode(true);
         setError("Too many wrong codes. Factor locked temporarily.");
+      } else if (/TOO_MANY_ATTEMPTS/.test(raw)) {
+        setError("Too many attempts for this email. Wait a few minutes and try again.");
       } else if (/Invalid email or password/i.test(raw) || /InvalidSecret|InvalidAccountId/i.test(raw)) {
         setError("Invalid email or password. Default demo password is 'dogfood2026'.");
       } else {
@@ -168,7 +178,7 @@ export default function Auth() {
         flow: "signUp",
       });
       toast.success("Account created successfully!");
-      navigate("/home", { replace: true });
+      navigate(returnTo, { replace: true });
     } catch (err: any) {
       setError(humanizeConvexError(err));
     } finally {
@@ -491,7 +501,7 @@ export default function Auth() {
         <div className="w-full mt-6">
           <GlassCard className="p-4 text-xs">
             <div className="flex items-center justify-between mb-2 pb-1 border-b border-black/5">
-              <span className="font-bold text-[#1d1d1f]">Demo Accounts</span>
+              <span className="font-bold text-[#1d1d1f]">Seeded demo accounts</span>
               <span className="text-[10px] font-mono text-[#6e6e73]">Pass: dogfood2026</span>
             </div>
             <div className="grid grid-cols-2 gap-1.5">

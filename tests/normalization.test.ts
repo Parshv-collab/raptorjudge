@@ -2,8 +2,25 @@ import { describe, it, expect } from "vitest";
 import {
   normalizeScores,
   spearmanRho,
+  zToTenPoint,
   type JudgeScoreSet,
 } from "../src/lib/algorithms/normalization";
+
+describe("zToTenPoint", () => {
+  it("maps z = 0 to the middle of the ten-point scale", () => {
+    expect(zToTenPoint(0)).toBe(5);
+  });
+
+  it("spreads one standard deviation to two points", () => {
+    expect(zToTenPoint(1)).toBe(7);
+    expect(zToTenPoint(-1)).toBe(3);
+  });
+
+  it("clamps to [0, 10]", () => {
+    expect(zToTenPoint(99)).toBe(10);
+    expect(zToTenPoint(-99)).toBe(0);
+  });
+});
 
 describe("spearmanRho", () => {
   it("is 1 for monotonically identical rankings", () => {
@@ -93,5 +110,37 @@ describe("normalizeScores", () => {
       expect(Number.isFinite(s.minMaxNormalized)).toBe(true);
       expect(Number.isFinite(s.bayesianAdjusted)).toBe(true);
     }
+  });
+
+  it("maps each judge's own minimum/maximum onto the ten-point scale", () => {
+    const r = normalizeScores(judges);
+    const t = (id: string) => r.submissions.find((s) => s.submissionId === id)!.tenPointNormalized;
+    // Both judges place their own minimum on s1 and maximum on s3, so after
+    // per-judge z-scoring the field spans 3 → 7 on the ten-point scale.
+    expect(t("s1")).toBeCloseTo(3, 6);
+    expect(t("s2")).toBeCloseTo(5, 6);
+    expect(t("s3")).toBeCloseTo(7, 6);
+  });
+
+  it("compresses the harsh/generous judge spread (the normalization proof)", () => {
+    const r = normalizeScores(judges);
+    // Raw judge means are 4 and 9 (spread ~2.5); after per-judge standardization
+    // every judge sits on 0, so the spread collapses to ~0.
+    expect(r.proof.judgeMeanSpreadRaw).toBeGreaterThan(1);
+    expect(r.proof.judgeMeanSpreadNormalized).toBeLessThan(1e-9);
+  });
+
+  it("falls back to min-max for a zero-variance judge instead of collapsing", () => {
+    // This judge has sigma = 0 but a real range across submissions.
+    const flat: JudgeScoreSet[] = [
+      { judgeId: "flat", scores: { a: 1, b: 5, c: 9 } },
+      { judgeId: "normal", scores: { a: 3, b: 4, c: 5 } },
+    ];
+    const r = normalizeScores(flat);
+    const t = (id: string) => r.submissions.find((s) => s.submissionId === id)!.tenPointNormalized;
+    // The flat judge spans 0 → 10, so the composite ordering is preserved and
+    // the values are not a constant 5.
+    expect(t("c")).toBeGreaterThan(t("b"));
+    expect(t("b")).toBeGreaterThan(t("a"));
   });
 });

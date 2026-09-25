@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { DEFAULT_EVENT_SLUG } from "@/lib/featuredEvent";
 
 const SORT_OPTIONS = [
   { value: "default", label: "Default Order" },
@@ -59,7 +60,7 @@ export default function Gallery() {
           </p>
         </div>
 
-        <Link to={`/e/${slug || "dogfood-2026"}`}>
+        <Link to={`/e/${slug || DEFAULT_EVENT_SLUG}`}>
           <span className="text-xs font-semibold text-[#ff0055] hover:underline">
             ← Back to Event
           </span>

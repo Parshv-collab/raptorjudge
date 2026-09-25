@@ -18,6 +18,7 @@ import ProjectDetail from "@/pages/ProjectDetail";
 import Verify from "@/pages/Verify";
 import EmbedGallery from "@/pages/EmbedGallery";
 import ParticipantWorkspace from "@/pages/ParticipantWorkspace";
+import TeamChat from "@/pages/TeamChat";
 import JudgePortal from "@/pages/JudgePortal";
 import JudgeScore from "@/pages/JudgeScore";
 import JudgePairwise from "@/pages/JudgePairwise";
@@ -36,7 +37,7 @@ import AdminSettings from "@/pages/AdminSettings";
 import AdminJudging from "@/pages/AdminJudging";
 import InviteAccept from "@/pages/InviteAccept";
 import ParticipantDashboard from "@/pages/ParticipantDashboard";
-import { Link, Outlet } from "react-router-dom";
+import { Link, Navigate, Outlet, useLocation } from "react-router-dom";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
@@ -73,8 +74,18 @@ function MinimalLayout() {
   );
 }
 
+/**
+ * Auth gate for authenticated routes.
+ *
+ * Signed-out visitors are redirected to `/auth?returnTo=<path>` rather than
+ * having the sign-in form rendered in place, so the destination they asked for
+ * survives the round-trip and they never land back on the public landing page.
+ * A short settle delay avoids bouncing a signed-in user whose token is still
+ * being refreshed.
+ */
 function Protected({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
+  const location = useLocation();
   const [settled, setSettled] = React.useState(false);
 
   React.useEffect(() => {
@@ -93,7 +104,10 @@ function Protected({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (!isAuthenticated) return <Auth />;
+  if (!isAuthenticated) {
+    const returnTo = `${location.pathname}${location.search}`;
+    return <Navigate to={`/auth?returnTo=${encodeURIComponent(returnTo)}`} replace />;
+  }
   return <>{children}</>;
 }
 
@@ -122,6 +136,7 @@ export default function App() {
           <Route path="/verify/judge/:uuid" element={<Verify />} />
           <Route path="/dashboard" element={<Protected><ParticipantDashboard /></Protected>} />
           <Route path="/workspace" element={<Protected><ParticipantWorkspace /></Protected>} />
+          <Route path="/workspace/chat" element={<Protected><TeamChat /></Protected>} />
           <Route path="/judge" element={<Protected><JudgePortal /></Protected>} />
           <Route path="/judge/score/:id" element={<Protected><JudgeScore /></Protected>} />
           <Route path="/judge/pairwise" element={<Protected><JudgePairwise /></Protected>} />

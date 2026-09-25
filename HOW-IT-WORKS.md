@@ -24,7 +24,16 @@ The leader submits a team name in the workspace. `teams.create` checks the event
 
 ### D. A project is submitted
 
-A team member edits the submission form in `ParticipantWorkspace.tsx`. A four-second debounce calls `submissions.saveDraft`. The final button calls `submissions.submit`. The mutation checks team membership, validates URLs and text, checks the event deadline and status, writes submittedAt, and changes the submission status. Submitted work is locked from ordinary participant edits.
+A team member edits the submission form in `ParticipantWorkspace.tsx`. **Save
+draft** calls `submissions.saveDraft` explicitly, which upserts a `status:
+"draft"` row so work survives a refresh without being judged or listed in the
+gallery. The **Submit for judging** button calls `submissions.submit`, which
+re-checks team membership, validates every URL scheme and length, enforces the
+event deadline and stage, sets `submittedAt` and flips the status to `submitted`.
+After submission the form is locked (`isLocked = status === "submitted" ||
+deadlinePassed`), and the deadline raises the same lock on its own. Submitting
+also re-runs duplicate detection and writes a `flags` row if the title or
+repository URL matches another submission in the event.
 
 ### E. An organizer creates an event
 
@@ -32,23 +41,69 @@ A team member edits the submission form in `ParticipantWorkspace.tsx`. A four-se
 
 ### F. An organizer assigns judges
 
-The organizer calls `judging.runAssignment` from the backend-backed organizer controls. The mutation gathers eligible judges, submitted work, team memberships, track affinity, and existing assignments. `planJudgeAssignments` fills each submission to `k` judges using workload, affinity, conflict filtering, and seeded tie-breaking, then performs workload-balancing swaps. It writes judge assignments and returns counts and conflict information.
+The organizer opens the Judges tab, sets `k` (judges per project) and the
+per-judge load cap (default 8), and presses **Preview**. `judging.previewAssignment`
+is a dry-run: it runs the real planner and returns per-judge load, coverage,
+conflicts avoided, which judges would hit the cap, and which projects would go
+unstaffed — writing nothing. Satisfied, the organizer presses **Distribute
+fairly**, which calls `judging.runAssignment`: it gathers eligible judges,
+submitted work, team memberships and `judge_tracks:` specialisations, runs
+`planJudgeAssignments` (fill to `k` by ascending workload, then track affinity,
+then seeded jitter; then affinity-aware balancing swaps that respect the cap),
+replaces the event's assignments and appends an audit entry with the workload,
+cap and conflict counts.
 
 ### G. A judge scores a project
 
-The judge queue comes from `judging.myQueue`, which limits the data to that judge's assignments. `/judge/score/:id` loads the assignment and rubric. Slider values are bounded by criterion min/max values. Submission calls `judging.submitScores`, which writes criterion scores and private notes and completes the assignment when all criteria are present.
+The judge queue comes from `judging.myQueue`, which is scoped to the caller's own
+`judgeId` — a judge cannot see another judge's assignments or scores, and asking
+for someone else's queue requires organizer or admin. `/judge/score/:id` loads the
+assignment and the event rubric (`judging.getRubric`, one round-trip carrying the
+criteria, the weight audit and the lock state). Sliders are bounded by each
+criterion's min/max, and the weighted total updates live. Every keystroke is
+autosaved to `localStorage` as a draft, so a refresh loses nothing. Submitting
+calls `judging.submitScores`, which verifies the assignment belongs to the judge,
+refuses a completed assignment (scores lock on submit), writes one row per
+criterion plus private notes, marks the assignment `completed`, and audits it. The
+header shows "You've scored N of M".
 
-### H. An organizer runs normalization
+### H. An organizer reads results
 
-The normalization source function groups scores per judge, computes sample means and standard deviations, then produces z-score, min-max, and Bayesian values. Z-score output uses the target distribution N(75, 12²) by default. The organizer normalization UI invokes the relevant backend operation and displays proof statistics. The exact formulas are documented in `JUDGING.md` and implemented in `src/lib/algorithms/normalization.ts`.
+The Results tab calls `normalization.analyze`, which groups scores per judge,
+computes each judge's sample mean and standard deviation, then produces z-score,
+min-max and Bayesian values together. Z-score output uses N(75, 12²) by default,
+and each submission also carries a ten-point value (`clamp(5 + 2z, 0, 10)`) used
+for the headline ranking. The tab renders the judge calibration table (mean, σ,
+n — where the harsh and generous panels are obvious), the raw-vs-normalized
+Spearman ρ, the judge-mean spread before → after normalization, and the
+normalized leaderboard. Alongside it, `pairwise.leaderboard` shows the
+Bradley–Terry ranking with win/match records and a convergence flag; it is
+organizer/admin-only until the event is published, because the latent strengths
+are effectively the answer key. The exact formulas are in [JUDGING.md](JUDGING.md)
+and implemented in `src/lib/algorithms/normalization.ts` and
+`src/lib/algorithms/pairwise.ts`.
 
 ### I. Results are published
 
-The event lifecycle mutation `events.setStage` changes the event stage and records an audit entry. Public gallery and result visibility depend on lifecycle and submission checks. A separate result-publication mutation beyond stage changes is **not implemented**.
+`events.setStage` moves the event through
+`draft → registration → submission → judging → voting → published → archived` and
+appends an audit entry. Publication is the stage transition itself — there is no
+separate "publish results" mutation, and none is needed: every visibility rule
+keys off the stage in one place per domain. Moving to `published` reveals community
+tallies (masked until then), opens the pairwise leaderboard to everyone, makes
+judge records publicly readable, and allows certificates to be issued.
 
 ## 4. Why these decisions were made
 
 Convex provides typed reactive queries, transactional mutations, and the self-hosted runtime in one system, so a separate REST server is unnecessary. Convex Auth supplies password sessions and JWT verification without a custom auth protocol. SessionStorage limits token persistence to a browser tab, unlike localStorage. The OIDC discovery document is custom-built because strict clients require more fields than the default helper returns. The audit log is hash-chained so tampering can be detected. Z-score is the default normalization because it directly addresses judge calibration differences and maps scores to an explicit common distribution.
+
+## 4b. Role isolation in one sentence
+
+Every access rule in the flows above is enforced inside the Convex function that
+ows the data, never by hiding a button — the acceptance checker and the T5
+security battery call the API directly, so a control that exists only in React
+would be a false sense of safety. [JUDGING.md §7](JUDGING.md#7-role-isolation)
+lists every endpoint and which roles may reach it.
 
 ## 5. How to extend
 

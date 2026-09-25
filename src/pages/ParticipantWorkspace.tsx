@@ -12,13 +12,15 @@ import { Alert } from "@/components/ui/Alert";
 import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmDialog } from "@/components/ui/Modal";
 import { humanizeConvexError } from "@/lib/errors";
+import { usePrimaryEventSlug } from "@/lib/featuredEvent";
 
 export default function ParticipantWorkspace() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const skip = authLoading || !isAuthenticated;
 
   const [searchParams] = useSearchParams();
-  const eventSlug = searchParams.get("event") ?? "dogfood-2026";
+  const primarySlug = usePrimaryEventSlug();
+  const eventSlug = searchParams.get("event") ?? primarySlug;
 
   const event = useQuery(api.events.getBySlug, skip || !eventSlug ? "skip" : { slug: eventSlug });
   const tracks = useQuery(api.tracks.listByEvent, skip || !event ? "skip" : { eventId: event._id });
@@ -646,7 +648,13 @@ export default function ParticipantWorkspace() {
   );
 }
 
-function TeamChatSection({ teamId }: { teamId: any }) {
+/**
+ * Private team chat + file sharing.
+ *
+ * Exported so the dedicated `/workspace/chat` route can reuse the exact same
+ * composer instead of maintaining a second copy of the upload logic.
+ */
+export function TeamChatSection({ teamId, className = "" }: { teamId: any; className?: string }) {
   const messages = useQuery((api as any).teamChat.listMessages, { teamId });
   const sendMessage = useMutation((api as any).teamChat.sendMessage);
   const generateUploadUrl = useMutation((api as any).teamChat.generateUploadUrl);
@@ -690,7 +698,8 @@ function TeamChatSection({ teamId }: { teamId: any }) {
     }
     setUploading(true);
     try {
-      const uploadUrl = await generateUploadUrl();
+      // The mutation is membership-gated, so it must be scoped to this team.
+      const uploadUrl = await generateUploadUrl({ teamId });
       const res = await fetch(uploadUrl, {
         method: "POST",
         headers: { "Content-Type": file.type || "application/octet-stream" },
@@ -707,8 +716,8 @@ function TeamChatSection({ teamId }: { teamId: any }) {
   }
 
   return (
-    <GlassCard className="p-6">
-      <div className="flex justify-between items-center mb-4">
+    <GlassCard className={`p-6 ${className}`}>
+      <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
         <div>
           <h2 className="text-lg font-bold text-[#1d1d1f]">Team Member Chat & File Sharing</h2>
           <p className="text-xs text-[#6e6e73]">

@@ -216,6 +216,12 @@ const OPENAPI_SPEC = {
     license: { name: "MIT" },
   },
   servers: [{ url: "/" }],
+  components: {
+    securitySchemes: {
+      bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT (RS256)" },
+      sessionCookie: { type: "apiKey", in: "cookie", name: "session" },
+    },
+  },
   paths: {
     "/api/health": { get: { summary: "Health check", responses: { "200": { description: "OK" } } } },
     "/api/v1/gallery/{slug}": {
@@ -273,6 +279,57 @@ const OPENAPI_SPEC = {
     },
     "/api/v1/acceptance": {
       post: { summary: "Run the acceptance suite (organizer/admin)", responses: { "200": { description: "Tier report" } } },
+    },
+    "/api/v1/preflight": {
+      options: { summary: "CORS preflight (no store)", responses: { "204": { description: "No content" } } },
+    },
+    "/api/submissions": {
+      post: {
+        summary: "Submit a project (participant; rejected once the event closes)",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        responses: {
+          "200": { description: "Accepted" },
+          "400": { description: "Submissions are closed" },
+          "401": { description: "Unauthenticated" },
+          "403": { description: "Participant role required" },
+        },
+      },
+    },
+    "/api/judging/me/scores": {
+      get: {
+        summary: "The caller's own judging scores and assignments",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        responses: {
+          "200": { description: "Own scores" },
+          "401": { description: "Unauthenticated" },
+          "403": { description: "Judge/organizer/admin role required" },
+        },
+      },
+    },
+    "/api/judging/judges/{judgeId}/scores": {
+      get: {
+        summary: "A judge's scores (self, or organizer/admin only — peers get 403)",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        parameters: [
+          { name: "judgeId", in: "path", required: true, schema: { type: "string" } },
+        ],
+        responses: {
+          "200": { description: "Judge scores" },
+          "401": { description: "Unauthenticated" },
+          "403": { description: "Cannot view peer judge scores" },
+        },
+      },
+    },
+    "/api/v1/auth/switch-role": {
+      post: {
+        summary: "Change a role through the RBAC policy (admin-only elevation)",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        responses: {
+          "200": { description: "Role changed" },
+          "400": { description: "Policy refused the change" },
+          "401": { description: "Token required" },
+        },
+      },
     },
     "/.well-known/openid-configuration": {
       get: { summary: "OIDC discovery document (full, RFC 8414)", responses: { "200": { description: "OIDC discovery document" } } },

@@ -16,6 +16,7 @@
     "test:watch": "vitest",
     "seed": "node scripts/run-seed.mjs",
     "acceptance": "node scripts/run-acceptance.mjs",
+    "proof:normalization": "node scripts/normalization-proof.mjs",
     "keys:generate": "node scripts/generate-auth-keys.mjs",
     "docker:up": "docker compose up --build",
     "docker:down": "docker compose down -v",

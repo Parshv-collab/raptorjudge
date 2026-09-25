@@ -69,17 +69,30 @@ export const getJudgeScoresForUser = internalQuery({
   },
 });
 
+/**
+ * Public event lookup for the REST surface.
+ *
+ * A `draft` event is unpublished, so the public API treats it as absent — the
+ * same rule `events.get`/`getBySlug` apply for signed-in callers. Without this,
+ * an unannounced event's title and schedule would be readable over REST while
+ * the SPA correctly hid it.
+ */
 export const getEventBySlugPublic = internalQuery({
   args: { slug: v.string() },
-  handler: async (ctx, args) =>
-    ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique(),
+  handler: async (ctx, args) => {
+    const event = await ctx.db
+      .query("events")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .unique();
+    return event && event.status !== "draft" ? event : null;
+  },
 });
 
 export const eventDetailPublic = internalQuery({
   args: { slug: v.string() },
   handler: async (ctx, args) => {
     const event = await ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique();
-    if (!event) return null;
+    if (!event || event.status === "draft") return null;
     const tracks = await ctx.db
       .query("tracks")
       .withIndex("by_event", (q) => q.eq("eventId", event._id))

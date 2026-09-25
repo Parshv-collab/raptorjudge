@@ -8,17 +8,26 @@ import { Button } from "@/components/ui/Button";
 import { Tabs } from "@/components/ui/Tabs";
 import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
+import { ChipGroup } from "@/components/ui/ChipGroup";
 import { Modal, ConfirmDialog } from "@/components/ui/Modal";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { humanizeConvexError } from "@/lib/errors";
 import { downloadRawCsv } from "@/lib/csv";
 
 export function OrganizerEventManage() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
-  const skip = authLoading || !isAuthenticated;
-
   const { slug } = useParams<{ slug: string }>();
+
+  // Resolve the role first and gate every data query on it. Most queries here
+  // are organizer-only server-side, so firing them as a participant would throw
+  // instead of rendering a clean "access required" state.
+  const me = useQuery(api.users.me, authLoading || !isAuthenticated ? "skip" : {});
+  const isOrganizer = me?.role === "organizer" || me?.role === "admin";
+  const authPending = authLoading || (isAuthenticated && me === undefined);
+  const skip = !isAuthenticated || !isOrganizer;
+
   const event = useQuery(api.events.getBySlug, skip || !slug ? "skip" : { slug });
   const setStage = useMutation(api.events.setStage);
   const tracks = useQuery(api.tracks.listByEvent, skip || !event ? "skip" : { eventId: event._id });
@@ -40,6 +49,22 @@ export function OrganizerEventManage() {
   const flagsData = useQuery((api.submissions as any).listFlags, skip || !event ? "skip" : { eventId: event._id });
   const dismissFlag = useMutation((api.submissions as any).dismissFlag);
   const removeFlaggedSub = useMutation((api.submissions as any).removeFlaggedSubmission);
+  const checkDuplicates = useMutation((api.submissions as any).checkDuplicates);
+
+  // Normalization + Bradley-Terry + audit chain (Phase 2 / T3 results view).
+  const normalization = useQuery(
+    api.normalization.analyze,
+    skip || !event ? "skip" : { eventId: event._id },
+  );
+  const pairwiseBoard = useQuery(
+    api.pairwise.leaderboard,
+    skip || !event ? "skip" : { eventId: event._id },
+  );
+  const auditLogs = useQuery(
+    api.audit.list,
+    skip || !event ? "skip" : { eventId: event._id, limit: 30 },
+  );
+  const chain = useQuery(api.audit.verifyChain, skip ? "skip" : {});
 
   const webhooks = useQuery(api.webhooks.list, skip || !event ? "skip" : { eventId: event._id });
   const webhookDeliveries = useQuery(api.webhooks.deliveries, skip || !event ? "skip" : { eventId: event._id });
@@ -123,12 +148,29 @@ export function OrganizerEventManage() {
     }
   }
 
+  async function handleRunDuplicateScan() {
+    if (!event) return;
+    setBusy(true);
+    try {
+      const res = await checkDuplicates({ eventId: event._id });
+      toast.success(
+        res.matches > 0
+          ? `Scanned ${res.scanned} submissions — ${res.matches} duplicate match(es), ${res.newlyFlagged} new flag(s).`
+          : `Scanned ${res.scanned} submissions — no duplicates found.`,
+      );
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // New track state
   const [newTrackName, setNewTrackName] = useState("");
   const [newTrackDesc, setNewTrackDesc] = useState("");
   const [newTrackPrize, setNewTrackPrize] = useState("");
 
-  if (authLoading) {
+  if (authPending) {
     return (
       <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
         <SkeletonCard lines={3} />
@@ -138,6 +180,21 @@ export function OrganizerEventManage() {
   }
 
   if (!isAuthenticated) return <Navigate to="/auth" replace />;
+
+  if (!isOrganizer) {
+    return (
+      <div className="max-w-2xl mx-auto py-12 px-4">
+        <EmptyState
+          title="Organizer access required"
+          description="This event management screen is limited to the event's organizers and platform admins."
+          actionLabel="Go to my dashboard"
+          onAction={() => {
+            window.location.href = "/home";
+          }}
+        />
+      </div>
+    );
+  }
 
   if (!event) {
     return (
@@ -516,13 +573,23 @@ export function OrganizerEventManage() {
 
       {activeTab === "duplicates" && (
         <GlassCard className="p-6">
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
             <div>
               <h3 className="text-base font-bold text-[#1d1d1f]">Flagged Duplicate Submissions</h3>
               <p className="text-xs text-[#6e6e73] mt-0.5">
-                Review automated flags for projects with matching titles or repository URLs.
+                Duplicate detection matches normalised titles <em>or</em> repository URLs within
+                this event. The later submission is flagged.
               </p>
             </div>
+            <Button
+              variant="primary"
+              size="sm"
+              isLoading={busy}
+              onClick={handleRunDuplicateScan}
+              className="shrink-0"
+            >
+              Run duplicate scan
+            </Button>
           </div>
 
           <div className="flex flex-col gap-3">
@@ -572,7 +639,14 @@ export function OrganizerEventManage() {
               </div>
             ))}
             {(!flagsData || flagsData.length === 0) && (
-              <p className="text-xs text-[#6e6e73] text-center py-6">No duplicate flags recorded.</p>
+              <div className="py-4">
+                <EmptyState
+                  title="No duplicate flags"
+                  description="Run a duplicate scan to check every submitted project for matching titles or repository URLs."
+                  actionLabel="Run duplicate scan"
+                  onAction={handleRunDuplicateScan}
+                />
+              </div>
             )}
           </div>
         </GlassCard>
@@ -621,48 +695,237 @@ export function OrganizerEventManage() {
       )}
 
       {activeTab === "results" && (
-        <GlassCard className="p-6 text-center flex flex-col items-center gap-4">
-          <div>
-            <h3 className="text-base font-bold text-[#1d1d1f] mb-2">Results & Rankings</h3>
-            <p className="text-xs text-[#6e6e73] max-w-md mx-auto leading-relaxed">
-              Final judging rankings and score normalization models are calculated after the judging phase closes.
-            </p>
-          </div>
-          <div className="flex gap-3 mt-2">
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                if (!rankingsCsv) {
-                  toast.error("No data to export yet");
-                  return;
-                }
-                downloadRawCsv(`${event.slug}-rankings.csv`, rankingsCsv);
-              }}
-            >
-              Export Rankings CSV
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                if (!scoresCsv) {
-                  toast.error("No data to export yet");
-                  return;
-                }
-                downloadRawCsv(`${event.slug}-scores.csv`, scoresCsv);
-              }}
-            >
-              Export Scores CSV
-            </Button>
-          </div>
-        </GlassCard>
+        <div className="flex flex-col gap-6">
+          <GlassCard className="p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h3 className="text-base font-bold text-[#1d1d1f]">Results & rankings</h3>
+              <p className="text-xs text-[#6e6e73] mt-0.5">
+                Z-score normalized rankings (clamped to 0–10) and the Bradley-Terry pairwise
+                leaderboard, computed from the scores recorded so far.
+              </p>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  if (!rankingsCsv) {
+                    toast.error("No data to export yet");
+                    return;
+                  }
+                  downloadRawCsv(`${event.slug}-rankings.csv`, rankingsCsv);
+                }}
+              >
+                Export rankings CSV
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  if (!scoresCsv) {
+                    toast.error("No data to export yet");
+                    return;
+                  }
+                  downloadRawCsv(`${event.slug}-scores.csv`, scoresCsv);
+                }}
+              >
+                Export scores CSV
+              </Button>
+            </div>
+          </GlassCard>
+
+          {normalization === undefined ? (
+            <SkeletonCard lines={4} />
+          ) : !normalization.ok ? (
+            <EmptyState
+              title="No scores yet"
+              description={normalization.reason ?? "Judge scores have not been recorded for this event."}
+            />
+          ) : (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+                <GlassCard className="p-5">
+                  <span className="text-xs font-semibold text-[#6e6e73]">Judges scored</span>
+                  <p className="text-2xl font-black text-[#1d1d1f] mt-1">
+                    {normalization.result?.judgeCalibrations?.length ?? 0}
+                  </p>
+                </GlassCard>
+                <GlassCard className="p-5">
+                  <span className="text-xs font-semibold text-[#6e6e73]">Projects ranked</span>
+                  <p className="text-2xl font-black text-[#1d1d1f] mt-1">
+                    {normalization.result?.submissions?.length ?? 0}
+                  </p>
+                </GlassCard>
+                <GlassCard className="p-5">
+                  <span className="text-xs font-semibold text-[#6e6e73]">Raw vs norm ρ</span>
+                  <p className="text-2xl font-black text-[#1d1d1f] mt-1">
+                    {(normalization.result?.proof?.rawVsNormalizedRho ?? 0).toFixed(3)}
+                  </p>
+                </GlassCard>
+                <GlassCard className="p-5">
+                  <span className="text-xs font-semibold text-[#6e6e73]">Judge mean spread</span>
+                  <p className="text-2xl font-black text-[#1d1d1f] mt-1">
+                    {(normalization.result?.proof?.judgeMeanSpreadRaw ?? 0).toFixed(2)}
+                    <span className="text-sm font-bold text-emerald-600"> → {(normalization.result?.proof?.judgeMeanSpreadNormalized ?? 0).toFixed(2)}</span>
+                  </p>
+                  <p className="text-[10px] text-[#6e6e73] mt-0.5">raw → normalized</p>
+                </GlassCard>
+              </div>
+
+              {/* Judge calibration table: shows harsh vs generous panels. */}
+              <GlassCard className="p-6">
+                <h4 className="text-sm font-bold text-[#1d1d1f] mb-3">Judge calibration</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs min-w-[420px]">
+                    <thead>
+                      <tr className="border-b border-black/10 font-bold uppercase text-[#6e6e73]">
+                        <th className="py-2.5 px-3">Judge</th>
+                        <th className="py-2.5 px-3">Raw mean</th>
+                        <th className="py-2.5 px-3">Std dev</th>
+                        <th className="py-2.5 px-3">Projects</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...(normalization.result?.judgeCalibrations ?? [])]
+                        .sort((a: any, b: any) => b.mean - a.mean)
+                        .map((j: any) => (
+                          <tr key={j.judgeId} className="border-b border-black/5 last:border-0">
+                            <td className="py-2.5 px-3 font-semibold text-[#1d1d1f]">{j.judgeName}</td>
+                            <td className="py-2.5 px-3 font-mono text-[#1d1d1f]">{j.mean.toFixed(3)}</td>
+                            <td className="py-2.5 px-3 font-mono text-[#6e6e73]">{j.sigma.toFixed(3)}</td>
+                            <td className="py-2.5 px-3 text-[#6e6e73]">{j.n}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </GlassCard>
+
+              {/* Normalized leaderboard */}
+              <GlassCard className="p-6">
+                <h4 className="text-sm font-bold text-[#1d1d1f] mb-3">
+                  Normalized leaderboard (z → 0–10)
+                </h4>
+                <div className="flex flex-col gap-2">
+                  {(normalization.result?.submissions ?? []).slice(0, 12).map((s: any, i: number) => (
+                    <div
+                      key={s.submissionId}
+                      className="p-3 rounded-input bg-white/60 border border-white flex items-center gap-3 text-xs"
+                    >
+                      <span className="w-7 text-center font-black text-[#6e6e73]">{i + 1}</span>
+                      <Link
+                        to={`/project/${s.submissionId}`}
+                        className="font-bold text-[#1d1d1f] hover:underline flex-1 truncate"
+                      >
+                        {s.title}
+                      </Link>
+                      <span className="font-mono text-[#6e6e73] hidden sm:inline">
+                        raw {s.rawMean.toFixed(2)}
+                      </span>
+                      <span className="font-black text-[#ff0055] w-14 text-right">
+                        {s.tenPointNormalized.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </GlassCard>
+
+              {/* Bradley-Terry */}
+              <GlassCard className="p-6">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <h4 className="text-sm font-bold text-[#1d1d1f]">Bradley-Terry pairwise ranking</h4>
+                  <span className="text-[11px] text-[#6e6e73]">
+                    {pairwiseBoard?.totalMatches ?? 0} comparison
+                    {(pairwiseBoard?.totalMatches ?? 0) === 1 ? "" : "s"} recorded
+                  </span>
+                </div>
+                {pairwiseBoard === undefined ? (
+                  <SkeletonCard lines={3} />
+                ) : (pairwiseBoard?.ranking?.length ?? 0) === 0 ? (
+                  <p className="text-xs text-[#6e6e73] text-center py-6">
+                    No pairwise comparisons yet. Judges create them from the pairwise judging screen.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {pairwiseBoard.ranking.slice(0, 12).map((r: any, i: number) => (
+                      <div
+                        key={r.submissionId}
+                        className="p-3 rounded-input bg-white/60 border border-white flex items-center gap-3 text-xs"
+                      >
+                        <span className="w-7 text-center font-black text-[#6e6e73]">{i + 1}</span>
+                        <Link
+                          to={`/project/${r.submissionId}`}
+                          className="font-bold text-[#1d1d1f] hover:underline flex-1 truncate"
+                        >
+                          {r.title}
+                        </Link>
+                        <span className="font-mono text-[#6e6e73] hidden sm:inline">
+                          {r.wins}W / {r.matches}M
+                        </span>
+                        <span className="font-black text-[#ff0055] w-16 text-right">
+                          {Number(r.rating ?? 0).toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                    {pairwiseBoard.converged === false && (
+                      <p className="text-[10px] text-amber-700 text-center pt-2">
+                        Bradley-Terry has not fully converged yet — more comparisons will sharpen it.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </GlassCard>
+            </>
+          )}
+        </div>
       )}
 
       {activeTab === "audit" && (
-        <GlassCard className="p-6 text-center text-xs text-[#6e6e73]">
-          Audit records view for {event.title} is available in Admin panel.
-        </GlassCard>
+        <div className="flex flex-col gap-6">
+          <GlassCard className="p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h3 className="text-base font-bold text-[#1d1d1f]">Audit trail</h3>
+              <p className="text-xs text-[#6e6e73] mt-0.5">
+                Append-only, hash-chained log of every privileged write on this event.
+              </p>
+            </div>
+            {chain && (
+              <span
+                className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-full ${
+                  chain.valid ? "bg-emerald-500/10 text-emerald-700" : "bg-red-500/10 text-red-700"
+                }`}
+              >
+                {chain.valid
+                  ? `Chain verified · ${chain.entries} entries`
+                  : `Chain broken at ${chain.brokenAt}`}
+              </span>
+            )}
+          </GlassCard>
+
+          <GlassCard className="p-6">
+            <div className="flex flex-col gap-2">
+              {(auditLogs || []).map((log: any) => (
+                <div
+                  key={log.id}
+                  className="p-3 rounded-input bg-white/60 border border-white flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs"
+                >
+                  <span className="font-semibold text-[#1d1d1f]">{log.action}</span>
+                  <span className="text-[#6e6e73] truncate sm:max-w-xs">
+                    {log.actorEmail} → {log.targetType}:{log.targetId.slice(0, 10)}
+                  </span>
+                  <span className="font-mono text-[10px] text-[#6e6e73]">
+                    {new Date(log.timestamp).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+              {(!auditLogs || auditLogs.length === 0) && (
+                <p className="text-xs text-[#6e6e73] text-center py-6">
+                  No audit entries for this event yet.
+                </p>
+              )}
+            </div>
+          </GlassCard>
+        </div>
       )}
 
       <ConfirmDialog
@@ -691,9 +954,14 @@ function RubricTab({
   deleteCriterion: any;
 }) {
   const upsertCriterion = useMutation(api.judging.upsertCriterion);
+  const lockRubric = useMutation(api.judging.lockRubric);
+  const unlockRubric = useMutation(api.judging.unlockRubric);
+  const me = useQuery(api.users.me, {});
+  const isAdmin = me?.role === "admin";
   const [busy, setBusy] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editCriterion, setEditCriterion] = useState<any>(null);
+  const [allowMismatch, setAllowMismatch] = useState(false);
 
   // Form states
   const [name, setName] = useState("");
@@ -709,6 +977,39 @@ function RubricTab({
 
   const totalWeight = criteria.reduce((acc: number, c: any) => acc + (c.weight || 0), 0);
   const isWeightValid = Math.abs(totalWeight - 1.0) <= 0.001;
+
+  // Live weight preview inside the modal: what the rubric would sum to after
+  // saving this criterion (the edit form is where mistakes are made).
+  const editingId = String(editCriterion?._id ?? editCriterion?.id ?? "");
+  const siblingWeight = criteria
+    .filter((c: any) => String(c._id || c.id) !== editingId)
+    .reduce((acc: number, c: any) => acc + (c.weight || 0), 0);
+  const projectedWeight = siblingWeight + Number(weight || 0);
+  const projectedValid = Math.abs(projectedWeight - 1.0) <= 0.001;
+
+  async function handleLock() {
+    setBusy(true);
+    try {
+      await lockRubric({ eventId });
+      toast.success("Rubric locked. Judges can no longer be affected by rubric edits.");
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleUnlock() {
+    setBusy(true);
+    try {
+      await unlockRubric({ eventId });
+      toast.success("Rubric unlocked.");
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleCustomize() {
     setBusy(true);
@@ -740,6 +1041,7 @@ function RubricTab({
       setMaxScore(10);
       setSortOrder((criteria.length + 1) * 10);
     }
+    setAllowMismatch(false);
     setModalOpen(true);
   }
 
@@ -763,9 +1065,11 @@ function RubricTab({
         weight: Number(weight),
         minScore: Number(minScore),
         maxScore: Number(maxScore),
+        allowWeightMismatch: allowMismatch,
       });
       toast.success(editCriterion ? "Criterion updated!" : "Criterion added!");
       setModalOpen(false);
+      setAllowMismatch(false);
     } catch (e: any) {
       toast.error(humanizeConvexError(e));
     } finally {
@@ -820,19 +1124,43 @@ function RubricTab({
             )}
           </div>
           <p className="text-xs text-[#6e6e73] mt-1">
-            Total Weight:{" "}
+            Total weight:{" "}
             <span className={`font-bold ${isWeightValid ? "text-emerald-600" : "text-red-600"}`}>
-              {totalWeight.toFixed(2)} / 1.00
+              {totalWeight.toFixed(3)} / 1.000
             </span>{" "}
-            {!isWeightValid && "(Weights should sum to 1.00)"}
+            {isWeightValid ? (
+              <span className="text-emerald-600">✓ valid</span>
+            ) : (
+              <span className="text-red-600">— weights must sum to 1.000</span>
+            )}
           </p>
+          {locked && rubricData?.lockReason && (
+            <p className="text-[11px] text-[#6e6e73] mt-1">🔒 {rubricData.lockReason}</p>
+          )}
         </div>
 
-        {!locked && (
-          <Button variant="secondary" size="sm" onClick={() => handleOpenModal()}>
-            + Add Criterion
-          </Button>
-        )}
+        <div className="flex flex-wrap gap-2 shrink-0">
+          {!locked && (
+            <Button variant="secondary" size="sm" onClick={() => handleOpenModal()}>
+              + Add criterion
+            </Button>
+          )}
+          {!locked && (
+            <Button variant="secondary" size="sm" isLoading={busy} onClick={handleLock}>
+              Lock rubric
+            </Button>
+          )}
+          {rubricData?.lockedExplicitly && isAdmin && (
+            <Button variant="secondary" size="sm" isLoading={busy} onClick={handleUnlock}>
+              Unlock (admin)
+            </Button>
+          )}
+          {rubricData?.lockedExplicitly && !isAdmin && (
+            <span className="text-[10px] text-[#6e6e73] self-center max-w-[180px]">
+              Locked explicitly — an admin must unlock it.
+            </span>
+          )}
+        </div>
       </GlassCard>
 
       {/* Criteria Table */}
@@ -915,6 +1243,36 @@ function RubricTab({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
+          {/* Live weight validation: the sum the rubric would have after saving. */}
+          <div
+            className={`p-3 rounded-input border text-xs font-medium flex items-center justify-between ${
+              projectedValid
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-800"
+                : "bg-amber-500/10 border-amber-500/30 text-amber-900"
+            }`}
+          >
+            <span>
+              Weights would sum to <strong>{projectedWeight.toFixed(3)}</strong>
+              {projectedValid ? " — valid" : " — should be 1.000"}
+            </span>
+            <span aria-hidden="true">{projectedValid ? "✓" : "⚠"}</span>
+          </div>
+
+          {!projectedValid && (
+            <label className="flex items-start gap-2 text-[11px] text-[#6e6e73] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={allowMismatch}
+                onChange={(e) => setAllowMismatch(e.target.checked)}
+                className="mt-0.5 rounded border-gray-300 text-[#ff0055] focus:ring-[#ff0055]"
+              />
+              <span>
+                Save anyway as a draft rubric. Judges cannot submit scores until the weights sum to
+                1.000.
+              </span>
+            </label>
+          )}
+
           <div className="grid grid-cols-3 gap-3">
             <Input
               label="Weight (0.0-1.0)"
@@ -946,8 +1304,14 @@ function RubricTab({
             <Button variant="ghost" size="md" onClick={() => setModalOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" size="md" isLoading={busy} type="submit">
-              Save Criterion
+            <Button
+              variant="primary"
+              size="md"
+              isLoading={busy}
+              type="submit"
+              disabled={!projectedValid && !allowMismatch}
+            >
+              Save criterion
             </Button>
           </div>
         </form>
@@ -963,27 +1327,55 @@ function JudgesTab({ eventId }: { eventId: any }) {
   const progress = useQuery(api.judging.progress, skip || !eventId ? "skip" : { eventId });
   const submissions = useQuery(api.submissions.byEvent, skip || !eventId ? "skip" : { eventId });
   const users = useQuery(api.users.list, skip ? "skip" : {});
+  const tracks = useQuery(api.tracks.listByEvent, skip || !eventId ? "skip" : { eventId });
+  const judgeTracks = useQuery(api.judging.getJudgeTracks, skip ? "skip" : {});
   const runAssignment = useMutation(api.judging.runAssignment);
   const assignProjects = useMutation(api.judging.assignProjects);
+  const setJudgeTracks = useMutation(api.judging.setJudgeTracks);
 
   const [busy, setBusy] = useState(false);
   const [k, setK] = useState(3);
+  const [cap, setCap] = useState(8);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [selectedJudgeId, setSelectedJudgeId] = useState("");
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [trackJudgeId, setTrackJudgeId] = useState("");
 
   const judgesList = (users || []).filter((u: any) => u.role === "judge");
+
+  // Dry-run of the assignment planner for the current k / cap (T2.1). It is a
+  // query, so the preview updates live as the organizer tunes the inputs.
+  const preview = useQuery(
+    api.judging.previewAssignment,
+    skip || !eventId ? "skip" : { eventId, minJudgesPerSubmission: k, maxAssignmentsPerJudge: cap },
+  );
 
   async function handleAlgorithmicAssign() {
     setBusy(true);
     try {
-      const res = await runAssignment({ eventId, minJudgesPerSubmission: k });
-      toast.success(`Assigned ${res.totalAssignments} projects fairly across judges (k=${k})!`);
+      const res = await runAssignment({
+        eventId,
+        minJudgesPerSubmission: k,
+        maxAssignmentsPerJudge: cap,
+      });
+      toast.success(
+        `Assigned ${res.totalAssignments} projects across judges (k=${k}, cap=${res.maxAssignmentsPerJudge}).`,
+      );
     } catch (e: any) {
       toast.error(humanizeConvexError(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleSaveTracks(judgeId: string, ids: string[]) {
+    try {
+      await setJudgeTracks({ eventId, judgeId: judgeId as never, tracks: ids });
+      toast.success("Judge track specialisation saved.");
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
     }
   }
 
@@ -1008,6 +1400,92 @@ function JudgesTab({ eventId }: { eventId: any }) {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Assignment preview (dry run — writes nothing) */}
+      <Modal
+        isOpen={previewModalOpen}
+        onClose={() => setPreviewModalOpen(false)}
+        title="Assignment preview (dry run)"
+        description="Nothing is written until you click Distribute Fairly."
+      >
+        <div className="flex flex-col gap-4 mt-2 max-h-[70vh] overflow-y-auto">
+          {preview === undefined ? (
+            <SkeletonCard lines={4} />
+          ) : !preview.ok || !preview.plan ? (
+            <p className="text-xs text-[#6e6e73] py-4 text-center">
+              {preview.reason ?? "Cannot preview an assignment plan right now."}
+            </p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="p-3 rounded-input bg-white/60 border border-white">
+                  <span className="text-[#6e6e73]">Total assignments</span>
+                  <p className="text-lg font-black text-[#1d1d1f]">{preview.plan.totalAssignments}</p>
+                </div>
+                <div className="p-3 rounded-input bg-white/60 border border-white">
+                  <span className="text-[#6e6e73]">Projects with &gt;= k judges</span>
+                  <p className="text-lg font-black text-[#1d1d1f]">
+                    {preview.plan.perSubmission.filter((s: any) => s.judgeCount >= k).length} /{" "}
+                    {preview.plan.perSubmission.length}
+                  </p>
+                </div>
+                <div className="p-3 rounded-input bg-white/60 border border-white">
+                  <span className="text-[#6e6e73]">Conflicts avoided</span>
+                  <p className="text-lg font-black text-emerald-700">
+                    {preview.plan.conflictsAvoided.length}
+                  </p>
+                </div>
+                <div className="p-3 rounded-input bg-white/60 border border-white">
+                  <span className="text-[#6e6e73]">Load cap</span>
+                  <p className="text-lg font-black text-[#1d1d1f]">
+                    {preview.plan.maxAssignmentsPerJudge}
+                  </p>
+                </div>
+              </div>
+
+              {preview.plan.capReached.length > 0 && (
+                <p className="text-[11px] text-amber-800 bg-amber-500/10 border border-amber-500/30 rounded-input p-2.5">
+                  ⚠️ {preview.plan.capReached.length} judge(s) hit the load cap:{" "}
+                  {preview.plan.capReached.map((c: any) => c.name).join(", ")}. Raise the cap or add
+                  more judges to cover everything.
+                </p>
+              )}
+
+              {preview.plan.unstaffedSubmissions.length > 0 && (
+                <p className="text-[11px] text-red-700 bg-red-500/10 border border-red-500/30 rounded-input p-2.5">
+                  ⚠️ {preview.plan.unstaffedSubmissions.length} project(s) would get no judges:{" "}
+                  {preview.plan.unstaffedSubmissions.map((s: any) => s.title).join(", ")}.
+                </p>
+              )}
+
+              <div>
+                <h4 className="text-xs font-bold text-[#1d1d1f] mb-2">Per-judge load</h4>
+                <div className="flex flex-col gap-1.5">
+                  {preview.plan.workload.map((w: any) => (
+                    <div
+                      key={w.judgeId}
+                      className="flex items-center gap-3 text-xs p-2 rounded-input bg-white/60 border border-white"
+                    >
+                      <span className="font-semibold text-[#1d1d1f] flex-1 truncate">{w.name}</span>
+                      <div className="w-32">
+                        <ProgressBar
+                          value={w.load}
+                          max={preview.plan.maxAssignmentsPerJudge || 1}
+                          size="sm"
+                        />
+                      </div>
+                      <span className="font-mono text-[#6e6e73] w-8 text-right">{w.load}</span>
+                    </div>
+                  ))}
+                  {preview.plan.workload.length === 0 && (
+                    <p className="text-xs text-[#6e6e73] py-2">No judges to assign.</p>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
+
       <GlassCard className="p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h3 className="text-base font-bold text-[#1d1d1f]">Judge Project Assignments</h3>
@@ -1016,7 +1494,7 @@ function JudgesTab({ eventId }: { eventId: any }) {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <Button variant="secondary" size="sm" onClick={() => setInviteModalOpen(true)}>
             Invite Judge
           </Button>
@@ -1025,22 +1503,71 @@ function JudgesTab({ eventId }: { eventId: any }) {
             Manual Assign
           </Button>
 
-          <div className="flex items-center gap-1 text-xs font-semibold ml-2">
-            <span>k =</span>
+          <label className="flex items-center gap-1 text-xs font-semibold ml-2">
+            <span>Judges per project k =</span>
             <input
               type="number"
               min={1}
-              max={6}
+              max={10}
+              aria-label="Judges per submission"
               value={k}
               onChange={(e) => setK(Number(e.target.value))}
-              className="w-10 px-1 py-1 text-center rounded-input bg-white/60 border border-white text-xs"
+              className="w-12 px-1 py-1 text-center rounded-input bg-white/60 border border-white text-xs"
             />
-          </div>
+          </label>
+
+          <label className="flex items-center gap-1 text-xs font-semibold">
+            <span>Per-judge load cap =</span>
+            <input
+              type="number"
+              min={1}
+              max={40}
+              aria-label="Maximum assignments per judge"
+              value={cap}
+              onChange={(e) => setCap(Number(e.target.value))}
+              className="w-12 px-1 py-1 text-center rounded-input bg-white/60 border border-white text-xs"
+            />
+          </label>
+
+          <Button variant="secondary" size="sm" onClick={() => setPreviewModalOpen(true)}>
+            Preview
+          </Button>
 
           <Button variant="primary" size="sm" isLoading={busy} onClick={handleAlgorithmicAssign}>
             Distribute Fairly
           </Button>
         </div>
+      </GlassCard>
+
+      {/* Track specialisation (T2.1): judges preferred for projects in their tracks. */}
+      <GlassCard className="p-6">
+        <h3 className="text-sm font-bold text-[#1d1d1f]">Judge track specialisation</h3>
+        <p className="text-xs text-[#6e6e73] mt-0.5 mb-3">
+          The assigner prefers judges whose specialisation matches a project&apos;s track, then falls
+          back to load balancing.
+        </p>
+        <Dropdown
+          label="Select judge"
+          options={[
+            { value: "", label: "Choose a judge..." },
+            ...judgesList.map((j: any) => ({
+              value: j._id,
+              label: `${j.name} (${(judgeTracks?.[j._id] || []).length} track(s))`,
+            })),
+          ]}
+          value={trackJudgeId}
+          onChange={(v) => setTrackJudgeId(v)}
+        />
+        {trackJudgeId && (
+          <div className="mt-3">
+            <ChipGroup
+              label="Tracks this judge specialises in"
+              options={(tracks || []).map((t: any) => ({ id: t.name, label: t.name }))}
+              selectedIds={judgeTracks?.[trackJudgeId] || []}
+              onChange={(ids) => handleSaveTracks(trackJudgeId, ids)}
+            />
+          </div>
+        )}
       </GlassCard>
 
       <GlassCard className="p-6">

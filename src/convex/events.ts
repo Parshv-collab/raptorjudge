@@ -1,6 +1,7 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
-import { requireOrganizer, requireUser } from "./lib/common";
+import { mutation, query, type QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+import { getCurrentUser, requireOrganizer, requireUser } from "./lib/common";
 import { appendAudit } from "./lib/audit";
 
 const eventArgs = {
@@ -22,8 +23,31 @@ export const listMine = query({ args: {}, handler: async (ctx) => {
   return (user.role === "admin" ? all : all.filter((e) => e.organizerId === user._id));
 } });
 export const listPublic = query({ args: {}, handler: async (ctx) => (await ctx.db.query("events").collect()).filter((e) => e.status !== "draft") });
-export const get = query({ args: { eventId: v.id("events") }, handler: async (ctx, args) => { const event = await ctx.db.get(args.eventId); if (!event) throw new Error("Event not found"); return event; } });
-export const getBySlug = query({ args: { slug: v.string() }, handler: async (ctx, args) => ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique() });
+export const get = query({ args: { eventId: v.id("events") }, handler: async (ctx, args) => {
+  const event = await ctx.db.get(args.eventId);
+  if (!event) throw new Error("Event not found");
+  await assertEventVisible(ctx, event);
+  return event;
+} });
+export const getBySlug = query({ args: { slug: v.string() }, handler: async (ctx, args) => {
+  const event = await ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique();
+  if (!event) return null;
+  await assertEventVisible(ctx, event);
+  return event;
+} });
+
+/**
+ * Role isolation: a draft event is unpublished, so only the people running it
+ * may read it. Every other page (gallery, event page, embed) treats a draft as
+ * absent rather than revealing the announcement early. Non-draft stages stay
+ * fully public — the lifecycle, not this check, governs what they may contain.
+ */
+async function assertEventVisible(ctx: QueryCtx, event: Doc<"events">) {
+  if (event.status !== "draft") return;
+  const viewer = await getCurrentUser(ctx);
+  if (viewer && (viewer.role === "organizer" || viewer.role === "admin")) return;
+  throw new Error("Event not found");
+}
 
 export const create = mutation({ args: eventArgs, handler: async (ctx, args) => {
   const actor = await requireOrganizer(ctx);

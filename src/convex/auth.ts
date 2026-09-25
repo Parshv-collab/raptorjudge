@@ -2,9 +2,11 @@ import { Password } from "@convex-dev/auth/providers/Password";
 import { convexAuth } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
 import { installProviderGuard, type CredentialsAuthorize } from "./lib/authProvider";
+import { sha256Hex } from "./crypto";
 import {
   describeSignInFailure,
   INVALID_TOTP,
+  TOO_MANY_ATTEMPTS,
   TOTP_REQUIRED,
 } from "./lib/signInErrors";
 
@@ -25,7 +27,14 @@ import {
  *     before it leaves the server. Sign-up is exempt on purpose: registration
  *     has to say "that address is taken".
  *
- *  2. **Optional TOTP (item 55).** After the password check passes, we ask the
+ *  2. **Credential-attempt throttle (T3.5).** Every sign-in and sign-up attempt
+ *     consumes one slot from a fixed window keyed by a hash of the submitted
+ *     address. The password provider locks an account after repeated failures,
+ *     but a success resets that counter and nothing at all throttles sign-up;
+ *     this closes both gaps without the bucket for an unknown address behaving
+ *     any differently.
+ *
+ *  3. **Optional TOTP (item 55).** After the password check passes, we ask the
  *     backend whether the account has an enrolled second factor. If it does, a
  *     live 6-digit code is required and `authorize` throws *before* the library
  *     calls `callSignIn` — so a wrong or missing code never mints a session.
@@ -83,9 +92,31 @@ async function enforceDisabledCheck(ctx: unknown, userId: string): Promise<void>
   }
 }
 
+/**
+ * Charge one credential attempt against this address's bucket (T3.5).
+ *
+ * Skipped when no email is present (e.g. a TOTP retry flow that only carries a
+ * code) so a legitimate second factor is never throttled by the first step.
+ */
+async function enforceAttemptThrottle(
+  ctx: unknown,
+  params: Record<string, unknown>,
+): Promise<void> {
+  const raw = typeof params.email === "string" ? params.email.trim().toLowerCase() : "";
+  if (!raw) return;
+  const actionCtx = ctx as {
+    runMutation: (ref: unknown, args: unknown) => Promise<{ allowed: boolean }>;
+  };
+  const bucket = await sha256Hex(raw);
+  const gate = await actionCtx.runMutation(internal.voting.consumeAuthAttempt, { bucket });
+  if (!gate.allowed) throw new Error(TOO_MANY_ATTEMPTS);
+}
+
 /** Wrap the authorize function that actually runs (see lib/authProvider.ts). */
 function hardenAuthorize(authorize: CredentialsAuthorize): CredentialsAuthorize {
   return async (params, ctx) => {
+    await enforceAttemptThrottle(ctx, params);
+
     let result: { userId: string; sessionId?: string } | null;
     try {
       result = await authorize(params, ctx);

@@ -1,19 +1,59 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getCurrentUser, requireUser, parseSettings } from "./lib/common";
+
 import { assertWithinWindow } from "./lib/timeWindows";
 import { appendAudit } from "./lib/audit";
 import { randomHex } from "./crypto";
 
 /** Teams & invites (T1). Invite codes are 12-hex random, single-team-join per event. */
 
+/**
+ * Teams in an event.
+ *
+ * Role isolation: the team document carries the **invite code**, which is a
+ * capability — anyone holding it can join the team. The roster is therefore
+ * public (participants browse teams to find one to join) but the invite code is
+ * only included for members of that team and for organizers/admins.
+ */
 export const listByEvent = query({
   args: { eventId: v.id("events") },
-  handler: async (ctx, args) =>
-    ctx.db
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const isStaff = user?.role === "organizer" || user?.role === "admin";
+    const teams = await ctx.db
       .query("teams")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect(),
+      .collect();
+
+    const myTeamIds = new Set<string>();
+    if (user) {
+      const memberships = await ctx.db
+        .query("teamMembers")
+        .withIndex("by_user", (q) => q.eq("userId", user._id))
+        .collect();
+      for (const m of memberships) myTeamIds.add(String(m.teamId));
+    }
+
+    const out = [];
+    for (const t of teams) {
+      const members = await ctx.db
+        .query("teamMembers")
+        .withIndex("by_team", (q) => q.eq("teamId", t._id))
+        .collect();
+      const canSeeCode = isStaff || myTeamIds.has(String(t._id));
+      out.push({
+        _id: t._id,
+        eventId: t.eventId,
+        name: t.name,
+        trackId: t.trackId,
+        inviteCode: canSeeCode ? t.inviteCode : null,
+        memberCount: members.length,
+        isMine: myTeamIds.has(String(t._id)),
+      });
+    }
+    return out;
+  },
 });
 
 /** Teams the current user belongs to, with member details. */
@@ -49,6 +89,11 @@ export const myTeams = query({
   },
 });
 
+/**
+ * A single team. Role isolation: the roster (member names **and emails**) is only
+ * returned to the team's own members and to organizers/admins — an arbitrary
+ * signed-in participant must not be able to enumerate other people's emails.
+ */
 export const getTeam = query({
   args: { teamId: v.id("teams") },
   handler: async (ctx, args) => {
@@ -59,12 +104,43 @@ export const getTeam = query({
       .query("teamMembers")
       .withIndex("by_team", (q) => q.eq("teamId", args.teamId))
       .collect();
+    const isMember = members.some((m) => m.userId === user._id);
+    const isStaff = user.role === "organizer" || user.role === "admin";
+
+    if (!isMember && !isStaff) {
+      return {
+        _id: team._id,
+        eventId: team.eventId,
+        name: team.name,
+        trackId: team.trackId,
+        memberCount: members.length,
+        members: [],
+        isMember: false,
+        canViewRoster: false,
+      };
+    }
+
     const memberUsers = [];
     for (const m of members) {
       const u = await ctx.db.get(m.userId);
-      if (u) memberUsers.push({ userId: m.userId, name: u.name, email: u.email, memberRole: m.memberRole });
+      if (u) {
+        memberUsers.push({
+          userId: m.userId,
+          name: u.name,
+          // Email is only exposed to organizers/admins; teammates already
+          // share a workspace, so they get names and roles instead.
+          email: isStaff ? u.email : undefined,
+          memberRole: m.memberRole,
+        });
+      }
     }
-    return { ...team, members: memberUsers, isMember: members.some((m) => m.userId === user._id) };
+    return {
+      ...team,
+      inviteCode: isMember || isStaff ? team.inviteCode : null,
+      members: memberUsers,
+      isMember,
+      canViewRoster: true,
+    };
   },
 });
 
@@ -94,7 +170,6 @@ export const create = mutation({
     }
 
     const settings = parseSettings(event.settings);
-    const maxTeamSize = Number(settings["max_team_size"] ?? 4);
     const inviteCode = randomHex(6);
 
     const teamId = await ctx.db.insert("teams", {
@@ -129,7 +204,7 @@ export const joinByInviteCode = mutation({
     if (user.role === "judge") throw new Error("Judges cannot join teams");
     const team = await ctx.db
       .query("teams")
-      .withIndex("by_invite", (q) => q.eq("inviteCode", args.inviteCode))
+      .withIndex("by_invite", (q) => q.eq("inviteCode", args.inviteCode.trim().toLowerCase()))
       .unique();
     if (!team) throw new Error("Invalid invite code");
     const event = await ctx.db.get(team.eventId);

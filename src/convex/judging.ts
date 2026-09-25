@@ -1,16 +1,16 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { Id } from "./_generated/dataModel";
 import {
   requireOrganizer,
   requireUser,
   requireRole,
-  stageAllowsJudging,
 } from "./lib/common";
 import { assertWithinWindow } from "./lib/timeWindows";
 import { appendAudit } from "./lib/audit";
-import { planJudgeAssignments } from "../lib/algorithms/assignment";
+import { planJudgeAssignments, type AssignmentPlan } from "../lib/algorithms/assignment";
 import { DEFAULT_RUBRIC } from "./lib/defaultRubric";
-import { hmacSha256Hex, randomHex } from "./crypto";
+import { hmacSha256Hex } from "./crypto";
 
 async function getCertSecretReadOnly(ctx: any): Promise<string> {
   const row = await ctx.db
@@ -21,28 +21,88 @@ async function getCertSecretReadOnly(ctx: any): Promise<string> {
   return "raptor-cert-default-secret-key-fallback";
 }
 
+/** Default per-judge ceiling for the algorithmic assigner. */
+export const DEFAULT_JUDGE_LOAD_CAP = 8;
+
+/** Stages in which the rubric is frozen because scoring has started. */
+const RUBRIC_FROZEN_STAGES = ["judging", "voting", "published", "archived"];
+
+function rubricLockKey(eventId: string) {
+  return `rubric_lock:${eventId}`;
+}
+
+function judgeTracksKey(judgeId: string) {
+  return `judge_tracks:${judgeId}`;
+}
+
 /**
  * Judging engine (T2): rubrics, algorithmic assignments, score capture,
  * judge progress. Role isolation: judges see only their own assigned
  * submissions, and only while the event is in the judging stage.
+ *
+ * Access matrix (see JUDGING.md → "Role Isolation"):
+ *   myQueue / submitScores / pairwise.*  judge · organizer · admin
+ *   progress / allScores / preview / runAssignment / rubric edits / flags
+ *                                        organizer · admin
+ *   rubric reads                          anyone (rubric is published in the UI)
  */
+
+/** Rubric lock state: explicit lock wins, otherwise the lifecycle stage freezes it. */
+async function rubricLockState(ctx: any, eventId: Id<"events">) {
+  const event = await ctx.db.get(eventId);
+  const row = await ctx.db
+    .query("platform")
+    .withIndex("by_key", (q: any) => q.eq("key", rubricLockKey(String(eventId))))
+    .unique();
+  const explicitlyLocked = row?.value === "locked";
+  const stageLocked = event ? RUBRIC_FROZEN_STAGES.includes(event.status) : false;
+  return {
+    explicitlyLocked,
+    stageLocked,
+    locked: explicitlyLocked || stageLocked,
+    reason: explicitlyLocked
+      ? "Locked by an organizer"
+      : stageLocked
+        ? `Frozen because the event is in the "${event?.status}" stage`
+        : null,
+  };
+}
+
+/**
+ * Refuse a rubric write while the rubric is frozen.
+ * A stage freeze can only be undone by moving the event back (organizer), an
+ * explicit lock only by `unlockRubric` (admin).
+ */
+async function assertRubricEditable(ctx: any, eventId: Id<"events">, actorRole: string) {
+  const state = await rubricLockState(ctx, eventId);
+  if (!state.locked) return;
+  if (actorRole === "admin" && !state.explicitlyLocked) return;
+  throw new Error(
+    state.explicitlyLocked
+      ? "The rubric is locked. An admin must unlock it before criteria can change."
+      : `The rubric is frozen: ${state.reason}. Move the event back a stage to edit it.`,
+  );
+}
 
 // ---------------------------------------------------------------- rubrics ---
 
+/**
+ * The event rubric, with the weight audit the organizer UI needs.
+ * `weightSum` / `weightValid` are the live validation signal (weights must sum
+ * to exactly 1.0), and `locked` / `lockReason` drive the frozen-rubric UI.
+ */
 export const getRubric = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
-    const event = await ctx.db.get(args.eventId);
     const criteria = await ctx.db
       .query("rubricCriteria")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
       .collect();
 
-    const locked = event ? event.status === "judging" || event.status === "voting" || event.status === "published" || event.status === "archived" : false;
-
-    if (criteria.length > 0) {
-      return {
-        criteria: criteria.sort((a, b) => a.sortOrder - b.sortOrder).map((c) => ({
+    const lock = await rubricLockState(ctx, args.eventId);
+    const stored = criteria.sort((a, b) => a.sortOrder - b.sortOrder);
+    const rows = stored.length > 0
+      ? stored.map((c) => ({
           id: String(c._id),
           _id: String(c._id),
           name: c.name,
@@ -51,28 +111,68 @@ export const getRubric = query({
           minScore: c.minScore,
           maxScore: c.maxScore,
           sortOrder: c.sortOrder,
-        })),
-        isDefault: false,
-        locked,
-      };
-    }
+        }))
+      : DEFAULT_RUBRIC.criteria.map((c) => ({ ...c }));
 
+    const weightSum = rows.reduce((acc, c) => acc + (c.weight ?? 0), 0);
     return {
-      criteria: DEFAULT_RUBRIC.criteria.map((c) => ({
-        id: c.id,
-        _id: c.id,
-        name: c.name,
-        description: c.description,
-        weight: c.weight,
-        minScore: c.minScore,
-        maxScore: c.maxScore,
-        sortOrder: c.sortOrder,
-      })),
-      isDefault: true,
-      locked,
+      criteria: rows,
+      isDefault: stored.length === 0,
+      locked: lock.locked,
+      lockedByStage: lock.stageLocked,
+      lockedExplicitly: lock.explicitlyLocked,
+      lockReason: lock.reason,
+      weightSum,
+      weightValid: Math.abs(weightSum - 1) <= 0.001,
     };
   },
 });
+
+/** Explicitly lock the rubric ahead of judging (organizer/admin, audited). */
+export const lockRubric = mutation({
+  args: { eventId: v.id("events"), note: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    await setPlatform(ctx, rubricLockKey(String(args.eventId)), "locked");
+    await appendAudit(ctx, {
+      eventId: args.eventId,
+      actorId: actor._id,
+      action: "rubric.lock",
+      targetType: "event",
+      targetId: String(args.eventId),
+      afterState: JSON.stringify({ note: args.note ?? "" }),
+    });
+    return { ok: true, locked: true };
+  },
+});
+
+/** Unlock an explicitly locked rubric (admin only, per the T2 requirement). */
+export const unlockRubric = mutation({
+  args: { eventId: v.id("events"), note: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, "admin");
+    await setPlatform(ctx, rubricLockKey(String(args.eventId)), "unlocked");
+    await appendAudit(ctx, {
+      eventId: args.eventId,
+      actorId: actor._id,
+      action: "rubric.unlock",
+      targetType: "event",
+      targetId: String(args.eventId),
+      afterState: JSON.stringify({ note: args.note ?? "" }),
+    });
+    return { ok: true, locked: false };
+  },
+});
+
+/** Insert-or-update a `platform` key/value row. */
+async function setPlatform(ctx: any, key: string, value: string) {
+  const existing = await ctx.db
+    .query("platform")
+    .withIndex("by_key", (q: any) => q.eq("key", key))
+    .unique();
+  if (existing) await ctx.db.patch(existing._id, { value });
+  else await ctx.db.insert("platform", { key, value });
+}
 
 export const rubricForEvent = query({
   args: { eventId: v.id("events") },
@@ -134,6 +234,7 @@ export const deleteCriterion = mutation({
   args: { eventId: v.id("events"), criterionId: v.id("rubricCriteria") },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
+    await assertRubricEditable(ctx, args.eventId, actor.role ?? "participant");
     const criterion = await ctx.db.get(args.criterionId);
     if (!criterion) throw new Error("Criterion not found");
     const criteria = await ctx.db
@@ -164,36 +265,274 @@ export const upsertCriterion = mutation({
     weight: v.number(),
     minScore: v.number(),
     maxScore: v.number(),
+    /** Set true to save a rubric that does not yet sum to 1.0 (organizer intent). */
+    allowWeightMismatch: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    await requireOrganizer(ctx);
+    const actor = await requireOrganizer(ctx);
+    await assertRubricEditable(ctx, args.eventId, actor.role ?? "participant");
+
+    const name = args.name.trim();
+    if (name.length < 2 || name.length > 60) {
+      throw new Error("Criterion name must be 2-60 characters");
+    }
+    if (args.description.length > 500) {
+      throw new Error("Criterion description must be at most 500 characters");
+    }
+    if (!Number.isFinite(args.weight) || args.weight <= 0 || args.weight > 1) {
+      throw new Error("Weight must be greater than 0 and at most 1.0");
+    }
+    if (!Number.isFinite(args.minScore) || !Number.isFinite(args.maxScore) || args.minScore >= args.maxScore) {
+      throw new Error("Minimum score must be lower than maximum score");
+    }
+    if (args.minScore < 0) throw new Error("Minimum score cannot be negative");
+
+    // Weight audit: warn (default) or accept explicitly. Never store silently
+    // broken weights — a rubric whose weights do not sum to 1.0 distorts every
+    // weighted total the judges see.
+    const siblings = (
+      await ctx.db
+        .query("rubricCriteria")
+        .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+        .collect()
+    ).filter((c) => c._id !== args.criterionId);
+    const projected = siblings.reduce((acc, c) => acc + c.weight, 0) + args.weight;
+    if (Math.abs(projected - 1) > 0.001 && !args.allowWeightMismatch) {
+      throw new Error(
+        `Weights would sum to ${projected.toFixed(3)} instead of 1.000. ` +
+          "Adjust the weights, or confirm to save a draft rubric.",
+      );
+    }
+
     if (args.criterionId) {
       await ctx.db.patch(args.criterionId, {
-        name: args.name,
+        name,
         description: args.description,
         weight: args.weight,
         minScore: args.minScore,
         maxScore: args.maxScore,
       });
+      await appendAudit(ctx, {
+        eventId: args.eventId,
+        actorId: actor._id,
+        action: "rubric.update_criterion",
+        targetType: "criterion",
+        targetId: String(args.criterionId),
+        afterState: JSON.stringify({
+          name,
+          weight: args.weight,
+          range: [args.minScore, args.maxScore],
+        }),
+      });
       return args.criterionId;
     }
-    const existing = await ctx.db
-      .query("rubricCriteria")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    return ctx.db.insert("rubricCriteria", {
+    const id = await ctx.db.insert("rubricCriteria", {
       eventId: args.eventId,
-      name: args.name,
+      name,
       description: args.description,
       weight: args.weight,
       minScore: args.minScore,
       maxScore: args.maxScore,
-      sortOrder: existing.length,
+      sortOrder: siblings.length,
     });
+    await appendAudit(ctx, {
+      eventId: args.eventId,
+      actorId: actor._id,
+      action: "rubric.add_criterion",
+      targetType: "criterion",
+      targetId: String(id),
+      afterState: JSON.stringify({ name, weight: args.weight }),
+    });
+    return id;
   },
 });
 
 // ------------------------------------------------------------ assignments ---
+
+/**
+ * Judge track specialisation.
+ *
+ * Stored in the `platform` key/value table as `judge_tracks:<userId>` instead of
+ * a new column so the (already deployed) schema does not have to change. The
+ * assigner reads it automatically; organizers can override it per event.
+ */
+export const getJudgeTracks = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireOrganizer(ctx);
+    const rows = await ctx.db.query("platform").collect();
+    const out: Record<string, string[]> = {};
+    for (const row of rows) {
+      if (!row.key.startsWith("judge_tracks:")) continue;
+      try {
+        const parsed = JSON.parse(row.value);
+        if (Array.isArray(parsed)) out[row.key.slice("judge_tracks:".length)] = parsed.map(String);
+      } catch {
+        // Ignore malformed rows rather than failing the whole query.
+      }
+    }
+    return out;
+  },
+});
+
+/** Set the tracks a judge specialises in (organizer/admin, audited). */
+export const setJudgeTracks = mutation({
+  args: { eventId: v.id("events"), judgeId: v.id("users"), tracks: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    const tracks = await ctx.db
+      .query("tracks")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    const valid = new Set(tracks.map((t) => t.name));
+    const cleaned = Array.from(new Set(args.tracks.map((t) => t.trim()).filter((t) => t.length > 0)));
+    const unknown = cleaned.filter((name) => !valid.has(name));
+    if (unknown.length > 0) {
+      throw new Error(`Unknown track(s): ${unknown.join(", ")}`);
+    }
+
+    await setPlatform(ctx, judgeTracksKey(String(args.judgeId)), JSON.stringify(cleaned));
+    await appendAudit(ctx, {
+      eventId: args.eventId,
+      actorId: actor._id,
+      action: "judging.set_tracks",
+      targetType: "judge",
+      targetId: String(args.judgeId),
+      afterState: JSON.stringify({ tracks: cleaned }),
+    });
+    return { ok: true, tracks: cleaned };
+  },
+});
+
+/** Everything the assignment planner needs, gathered from the database. */
+async function buildAssignmentInputs(ctx: any, eventId: Id<"events">) {
+  const event = await ctx.db.get(eventId);
+  if (!event) throw new Error("Event not found");
+
+  const subs = await ctx.db
+    .query("submissions")
+    .withIndex("by_event", (q: any) => q.eq("eventId", eventId))
+    .collect();
+  const submitted = subs.filter((s: any) => s.status === "submitted");
+
+  const judges = (await ctx.db.query("users").collect()).filter(
+    (u: any) => u.role === "judge",
+  );
+
+  const teamRows = await ctx.db
+    .query("teams")
+    .withIndex("by_event", (q: any) => q.eq("eventId", eventId))
+    .collect();
+  const memberRows = await ctx.db.query("teamMembers").collect();
+  const teamMembersMap: Record<string, string[]> = {};
+  const judgeTeamMemberships: Record<string, string[]> = {};
+  const judgeUserIds = new Set(judges.map((j: any) => j._id));
+  for (const t of teamRows) teamMembersMap[String(t._id)] = [];
+  for (const m of memberRows) {
+    const tid = String(m.teamId);
+    if (tid in teamMembersMap) teamMembersMap[tid].push(String(m.userId));
+    if (judgeUserIds.has(m.userId)) {
+      (judgeTeamMemberships[String(m.userId)] ??= []).push(tid);
+    }
+  }
+
+  const tracks = await ctx.db
+    .query("tracks")
+    .withIndex("by_event", (q: any) => q.eq("eventId", eventId))
+    .collect();
+
+  // Judge specialisations: `judge_tracks:<userId>` platform rows.
+  const platformRows = await ctx.db.query("platform").collect();
+  const tracksByJudge: Record<string, string[]> = {};
+  for (const row of platformRows) {
+    if (!row.key.startsWith("judge_tracks:")) continue;
+    try {
+      const parsed = JSON.parse(row.value);
+      if (Array.isArray(parsed)) tracksByJudge[row.key.slice("judge_tracks:".length)] = parsed.map(String);
+    } catch {
+      // Ignore malformed rows.
+    }
+  }
+
+  return {
+    event,
+    submitted,
+    judges,
+    trackNames: tracks.map((t: any) => t.name),
+    tracks,
+    planInput: {
+      submissions: submitted.map((s: any) => {
+        const track = s.trackId ? tracks.find((t: any) => t._id === s.trackId) : null;
+        return {
+          submissionId: String(s._id),
+          teamId: String(s.teamId),
+          trackName: track?.name ?? "Open",
+        };
+      }),
+      judges: judges.map((j: any) => ({
+        judgeId: String(j._id),
+        affinityTracks: tracksByJudge[String(j._id)] ?? [],
+      })),
+      teamMembers: teamMembersMap,
+      judgeTeamMemberships,
+    },
+  };
+}
+
+function serializePlan(plan: AssignmentPlan, judges: any[], submitted: any[]) {
+  const nameOf = (id: string) => judges.find((j: any) => String(j._id) === id)?.name ?? id;
+  return {
+    totalAssignments: plan.totalAssignments,
+    minJudgesMet: plan.minJudgesMet,
+    conflictsAvoided: plan.conflictsAvoided,
+    capReached: plan.capReached.map((id) => ({ judgeId: id, name: nameOf(id) })),
+    maxAssignmentsPerJudge: plan.maxAssignmentsPerJudge,
+    unstaffedSubmissions: plan.unstaffedSubmissions.map((id) => ({
+      submissionId: id,
+      title: submitted.find((s: any) => String(s._id) === id)?.title ?? id,
+    })),
+    workload: Object.entries(plan.workload)
+      .map(([judgeId, load]) => ({ judgeId, name: nameOf(judgeId), load }))
+      .sort((a, b) => b.load - a.load),
+    perSubmission: Object.entries(plan.assignments).map(([submissionId, judgeIds]) => ({
+      submissionId,
+      title: submitted.find((s: any) => String(s._id) === submissionId)?.title ?? submissionId,
+      judgeIds,
+      judgeNames: judgeIds.map(nameOf),
+      judgeCount: judgeIds.length,
+    })),
+  };
+}
+
+/**
+ * Dry-run the assignment engine without writing anything (T2.1).
+ * The organizer reviews per-judge load, coverage and conflicts, then commits.
+ */
+export const previewAssignment = query({
+  args: {
+    eventId: v.id("events"),
+    minJudgesPerSubmission: v.optional(v.number()),
+    maxAssignmentsPerJudge: v.optional(v.number()),
+    seed: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireOrganizer(ctx);
+    const { submitted, judges, planInput } = await buildAssignmentInputs(ctx, args.eventId);
+    if (submitted.length === 0) {
+      return { ok: false, reason: "No submitted projects to assign", plan: null };
+    }
+    if (judges.length === 0) {
+      return { ok: false, reason: "No judge accounts exist", plan: null };
+    }
+    const plan = planJudgeAssignments({
+      ...planInput,
+      minJudgesPerSubmission: args.minJudgesPerSubmission ?? 3,
+      maxAssignmentsPerJudge: args.maxAssignmentsPerJudge ?? DEFAULT_JUDGE_LOAD_CAP,
+      seed: args.seed,
+    });
+    return { ok: true, reason: null, plan: serializePlan(plan, judges, submitted) };
+  },
+});
 
 /** Assign projects to a specific judge manually/batch. */
 export const assignProjects = mutation({
@@ -234,78 +573,40 @@ export const assignProjects = mutation({
   },
 });
 
-/** Trigger the algorithmic assignment engine (organizer/admin only, audited). */
+/**
+ * Algorithmic assignment engine (organizer/admin only, audited).
+ *
+ * Load-balanced, conflict-of-interest aware, track-affinity preferring and
+ * capped at `maxAssignmentsPerJudge` (default 8) per judge. Judges whose
+ * specialisation (set with `setJudgeTracks`) matches a project's track are
+ * preferred, matching the `tracks` list carried by each judge in fixtures.json.
+ * Run `previewAssignment` first to review the plan before committing.
+ */
 export const runAssignment = mutation({
   args: {
     eventId: v.id("events"),
     minJudgesPerSubmission: v.optional(v.number()),
-    judgeTrackAffinity: v.optional(v.string()),
+    maxAssignmentsPerJudge: v.optional(v.number()),
+    seed: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
-    const event = await ctx.db.get(args.eventId);
-    if (!event) throw new Error("Event not found");
-
-    const subs = await ctx.db
-      .query("submissions")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    const submitted = subs.filter((s) => s.status === "submitted");
+    const { submitted, judges, planInput } = await buildAssignmentInputs(ctx, args.eventId);
     if (submitted.length === 0) throw new Error("No submitted projects to assign");
-
-    const judges = (await ctx.db.query("users").collect()).filter(
-      (u) => u.role === "judge",
-    );
     if (judges.length === 0) throw new Error("No judge accounts exist");
 
-    // team memberships for conflict-of-interest detection
-    const teamRows = await ctx.db
-      .query("teams")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    const memberRows = await ctx.db.query("teamMembers").collect();
-    const teamMembersMap: Record<string, string[]> = {};
-    const judgeTeamMemberships: Record<string, string[]> = {};
-    const judgeUserIds = new Set(judges.map((j) => j._id));
-    for (const t of teamRows) teamMembersMap[String(t._id)] = [];
-    for (const m of memberRows) {
-      const tid = String(m.teamId);
-      if (tid in teamMembersMap) teamMembersMap[tid].push(String(m.userId));
-      if (judgeUserIds.has(m.userId)) {
-        (judgeTeamMemberships[String(m.userId)] ??= []).push(tid);
-      }
-    }
-
-    const tracks = await ctx.db
-      .query("tracks")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-
-    const affinity: Record<string, string[]> = {};
-    if (args.judgeTrackAffinity) {
-      // "judgeId|track1,track2;judgeId|track3"
-      for (const part of args.judgeTrackAffinity.split(";")) {
-        const [id, names] = part.split("|");
-        if (id && names) affinity[id] = names.split(",").map((n) => n.trim());
-      }
+    const requestedK = args.minJudgesPerSubmission ?? 3;
+    const cap = args.maxAssignmentsPerJudge ?? DEFAULT_JUDGE_LOAD_CAP;
+    if (requestedK < 1 || requestedK > 10) throw new Error("Judges per submission must be between 1 and 10");
+    if (cap < requestedK) {
+      throw new Error(`The per-judge load cap (${cap}) cannot be lower than judges per submission (${requestedK})`);
     }
 
     const plan = planJudgeAssignments({
-      submissions: submitted.map((s) => {
-        const track = s.trackId ? tracks.find((t) => t._id === s.trackId) : null;
-        return {
-          submissionId: String(s._id),
-          teamId: String(s.teamId),
-          trackName: track?.name ?? "Open",
-        };
-      }),
-      judges: judges.map((j) => ({
-        judgeId: String(j._id),
-        affinityTracks: affinity[String(j._id)] ?? [],
-      })),
-      teamMembers: teamMembersMap,
-      judgeTeamMemberships,
-      minJudgesPerSubmission: args.minJudgesPerSubmission ?? 3,
+      ...planInput,
+      minJudgesPerSubmission: requestedK,
+      maxAssignmentsPerJudge: cap,
+      seed: args.seed,
     });
 
     // replace existing assignments for this event
@@ -342,8 +643,11 @@ export const runAssignment = mutation({
       targetId: String(args.eventId),
       afterState: JSON.stringify({
         totalAssignments: inserted,
+        judgesPerSubmission: requestedK,
+        loadCap: cap,
         workload: plan.workload,
         conflictsAvoided: plan.conflictsAvoided.length,
+        capReached: plan.capReached,
       }),
     });
     return {
@@ -351,18 +655,32 @@ export const runAssignment = mutation({
       workload: plan.workload,
       minJudgesMet: plan.minJudgesMet,
       conflictsAvoided: plan.conflictsAvoided,
+      capReached: plan.capReached,
+      maxAssignmentsPerJudge: cap,
     };
   },
 });
 
 // ---------------------------------------------------------------- scoring ---
 
-/** Judge queue: only my assigned submissions, across all events or filtered. */
+/**
+ * Judge queue: the caller's own assigned submissions.
+ *
+ * Role isolation: a judge must never see another judge's assignments or their
+ * draft scores. The queue is therefore always scoped to the caller's own
+ * `judgeId`; only an organizer/admin may inspect a different judge's queue by
+ * passing `judgeId` explicitly (used by the organizer judge-drilldown view).
+ */
 export const myQueue = query({
-  args: { eventId: v.optional(v.id("events")) },
+  args: { eventId: v.optional(v.id("events")), judgeId: v.optional(v.id("users")) },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
     const isStaff = user.role === "admin" || user.role === "organizer";
+
+    if (args.judgeId && String(args.judgeId) !== String(user._id)) {
+      await requireOrganizer(ctx);
+    }
+    const judgeId = args.judgeId ?? user._id;
 
     let assignments;
     if (args.eventId) {
@@ -370,15 +688,12 @@ export const myQueue = query({
         .query("judgeAssignments")
         .withIndex("by_event", (q) => q.eq("eventId", args.eventId!))
         .collect();
-      assignments = isStaff ? all : all.filter((a) => a.judgeId === user._id);
+      assignments = all.filter((a) => a.judgeId === judgeId);
     } else {
-      const all = isStaff
-        ? await ctx.db.query("judgeAssignments").collect()
-        : await ctx.db
-            .query("judgeAssignments")
-            .withIndex("by_judge", (q) => q.eq("judgeId", user._id))
-            .collect();
-      assignments = all;
+      assignments = await ctx.db
+        .query("judgeAssignments")
+        .withIndex("by_judge", (q) => q.eq("judgeId", judgeId))
+        .collect();
     }
 
     const out = [];
@@ -560,11 +875,15 @@ export const submitScores = mutation({
   },
 });
 
-/** Organizer progress dashboard: per-judge completion and per-submission coverage. */
+/**
+ * Organizer progress dashboard: per-judge completion, per-submission coverage
+ * and the reviewer-bias heatmap. Organizer/admin only — the heatmap exposes
+ * every judge's average score, which peers must never see.
+ */
 export const progress = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
+    await requireOrganizer(ctx);
     const assignments = await ctx.db
       .query("judgeAssignments")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
@@ -634,13 +953,26 @@ export const progress = query({
   },
 });
 
-/** All scores for an event (organizer view — feeds normalization + exports). */
-/** Verifiable signed judge participation record (T4.4). */
+/**
+ * Verifiable signed judge participation record (T4.4).
+ *
+ * Visibility: a judge may always read their own record, staff may read any,
+ * and everyone else may read it once results are published. Before publish the
+ * record stays private so participation counts cannot leak mid-event.
+ */
 export const judgeRecord = query({
   args: { eventId: v.id("events"), judgeId: v.id("users") },
   handler: async (ctx, args) => {
+    const viewer = await requireUser(ctx);
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("Event not found");
+
+    const isStaff = viewer.role === "admin" || viewer.role === "organizer";
+    const isSelf = String(viewer._id) === String(args.judgeId);
+    const resultsPublished = event.status === "published" || event.status === "archived";
+    if (!isStaff && !isSelf && !resultsPublished) {
+      throw new Error("Forbidden: judge records are published with the results");
+    }
 
     const judge = await ctx.db.get(args.judgeId);
     if (!judge) throw new Error("Judge not found");
@@ -659,7 +991,6 @@ export const judgeRecord = query({
 
     const projectsScoredCount = new Set(judgeScores.map((s) => String(s.submissionId))).size;
     const issuedAt = Date.now();
-    const uuid = randomHex(16);
 
     const secret = await getCertSecretReadOnly(ctx);
     const payloadStr = [
@@ -687,10 +1018,11 @@ export const judgeRecord = query({
   },
 });
 
+/** All scores for an event (organizer/admin only — feeds normalization + exports). */
 export const allScores = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
+    await requireOrganizer(ctx);
     const scores = await ctx.db
       .query("judgeScores")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))

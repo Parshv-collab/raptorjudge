@@ -6,6 +6,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { DEFAULT_EVENT_SLUG } from "@/lib/featuredEvent";
 
 export default function ParticipantDashboard() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -122,7 +123,7 @@ export default function ParticipantDashboard() {
             description="Browse upcoming and live hackathons to join a team and start building."
             actionLabel="Browse events"
             onAction={() => {
-              window.location.href = "/e/dogfood-2026";
+              window.location.href = `/e/${DEFAULT_EVENT_SLUG}`;
             }}
           />
         )}

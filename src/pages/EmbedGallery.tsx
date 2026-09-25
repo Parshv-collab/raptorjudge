@@ -4,6 +4,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Input } from "@/components/ui/Input";
+import { DEFAULT_EVENT_SLUG } from "@/lib/featuredEvent";
 
 export default function EmbedGallery() {
   const { slug } = useParams<{ slug: string }>();
@@ -41,7 +42,7 @@ export default function EmbedGallery() {
         <details className="text-[10px] text-[#6e6e73] bg-white/60 p-2 rounded border border-white">
           <summary className="cursor-pointer font-semibold hover:text-[#1d1d1f]">Get Embed Code</summary>
           <code className="block mt-1 font-mono text-[10px] select-all bg-black/5 p-1 rounded">
-            {`<iframe src="${window.location.origin}/embed/gallery/${slug || "dogfood-2026"}" width="100%" height="600" frameborder="0"></iframe>`}
+            {`<iframe src="${window.location.origin}/embed/gallery/${slug || DEFAULT_EVENT_SLUG}" width="100%" height="600" frameborder="0"></iframe>`}
           </code>
         </details>
       </div>

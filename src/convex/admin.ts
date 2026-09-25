@@ -1,26 +1,60 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireOrganizer } from "./lib/common";
+import { getCurrentUser, requireOrganizer, requireUser, ROLES, type Role } from "./lib/common";
 import { appendAudit } from "./lib/audit";
 import { randomHex } from "./crypto";
+
+/**
+ * Platform KV keys that must never leave the server (security).
+ *
+ * The `platform` table doubles as a secret store, so echoing every row to a
+ * client leaked the certificate-signing key (`cert_secret`) — which would let
+ * anyone forge a verifiable certificate — plus session hashes, rate-limit
+ * counters and per-judge specialisations.
+ */
+const SECRET_PLATFORM_KEYS = new Set(["cert_secret"]);
+const SECRET_PLATFORM_PREFIXES = [
+  "session:",
+  "ratelimit:",
+  "lookup:",
+  "invite:",
+  "judge_tracks:",
+  "rubric_lock:",
+];
+
+/**
+ * Project `platform` rows down to what may leave the server.
+ * Pure and exported so the T5 self-check (`sec.platform_secrets`) can prove the
+ * projection against the live table rather than trusting this function by
+ * inspection.
+ */
+export function projectPublicSettings(
+  rows: { key: string; value: string }[],
+): Record<string, string> {
+  const settings: Record<string, string> = {};
+  for (const r of rows) {
+    if (SECRET_PLATFORM_KEYS.has(r.key)) continue;
+    if (SECRET_PLATFORM_PREFIXES.some((p) => r.key.startsWith(p))) continue;
+    settings[r.key] = r.value;
+  }
+  return settings;
+}
 
 export const getSettings = query({
   args: {},
   handler: async (ctx) => {
+    // Signed-in only: this surfaces deployment-wide configuration.
+    await requireUser(ctx);
     const rows = await ctx.db.query("platform").collect();
-    const settings: Record<string, string> = {};
-    for (const r of rows) {
-      if (!r.key.startsWith("lookup:") && !r.key.startsWith("invite:")) {
-        settings[r.key] = r.value;
-      }
-    }
-    return settings;
+    return projectPublicSettings(rows);
   },
 });
 
+/** Reference data (professions, experience levels…). Signed-in readers only. */
 export const listLookups = query({
   args: { type: v.string() },
   handler: async (ctx, args) => {
+    await requireUser(ctx);
     const row = await ctx.db
       .query("platform")
       .withIndex("by_key", (q) => q.eq("key", `lookup:${args.type}`))
@@ -221,6 +255,24 @@ export const getInviteByToken = query({
   },
 });
 
+/**
+ * Redeem a staff invitation: grant the invited role to the signed-in caller.
+ *
+ * This is the *only* way a non-organizer can gain a privileged role, so the
+ * checks matter more than the happy path:
+ *
+ *  - the token must be valid, unused, unrevoked and unexpired;
+ *  - the caller must be signed in — the role is attached to a real identity, so
+ *    it is called *after* sign-up, not before;
+ *  - when the invite names an email, only that address may claim it (a leaked
+ *    token is useless to anyone else);
+ *  - the invited role must be one of the known roles, never free text from the
+ *    invite row;
+ *  - marking the invite used and granting the role happen in one transaction, so
+ *    an invite can never be burnt without granting the role it carried.
+ *
+ * The role is applied server-side; the client cannot choose it.
+ */
 export const acceptInvite = mutation({
   args: { token: v.string() },
   handler: async (ctx, args) => {
@@ -232,11 +284,35 @@ export const acceptInvite = mutation({
     if (!inv || inv.usedAt || inv.revokedAt || Date.now() > inv.expiresAt) {
       throw new Error("Invalid or expired invite token");
     }
+
+    const user = await getCurrentUser(ctx);
+    if (!user) {
+      throw new Error("Create your account or sign in before accepting this invite");
+    }
+    if (inv.email && inv.email.trim().toLowerCase() !== user.email.trim().toLowerCase()) {
+      throw new Error("This invite was issued to a different email address");
+    }
+    const role = inv.role as Role;
+    if (!ROLES.includes(role)) {
+      throw new Error("This invite carries an unknown role");
+    }
+
+    await ctx.db.patch(user._id, { role });
     await ctx.db.patch(inv._id, { usedAt: Date.now() });
-    return {
-      email: inv.email,
-      role: inv.role,
+    await appendAudit(ctx, {
       eventId: inv.eventId,
+      actorId: user._id,
+      action: "invite.accept",
+      targetType: "user",
+      targetId: String(user._id),
+      afterState: JSON.stringify({ role, inviteId: String(inv._id) }),
+    });
+
+    return {
+      ok: true,
+      email: inv.email ?? user.email,
+      role,
+      eventId: inv.eventId ?? null,
     };
   },
 });

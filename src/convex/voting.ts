@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import {
   getCurrentUser,
   requireUser,
@@ -9,6 +9,7 @@ import {
 import { assertWithinWindow } from "./lib/timeWindows";
 import { appendAudit } from "./lib/audit";
 import { sha256Hex } from "./crypto";
+import { evaluateRateLimit, parseRateLimitState } from "../lib/rateLimit";
 
 /**
  * Community voting (T3).
@@ -22,28 +23,97 @@ import { sha256Hex } from "./crypto";
 const QUADRATIC_BUDGET = 25;
 const MAX_ACTIONS_PER_MINUTE = 20;
 
-async function checkRateLimit(ctx: any, bucketKey: string): Promise<boolean> {
+/**
+ * Fixed-window limiter backed by a `platform` row per actor+event.
+ * The decision itself lives in `lib/rateLimit.ts` so voting and comments
+ * enforce exactly the same policy (and it is unit-tested there).
+ */
+export async function checkRateLimit(
+  ctx: any,
+  bucketKey: string,
+  limit: number = MAX_ACTIONS_PER_MINUTE,
+  windowMs: number = 60_000,
+): Promise<boolean> {
   const now = Date.now();
-  const windowMs = 60_000;
-  const row = await (ctx.db as any)
+  const key = `ratelimit:${bucketKey}`;
+  const row = await ctx.db
     .query("platform")
-    .withIndex("by_key", (q: any) => q.eq("key", `ratelimit:${bucketKey}`))
+    .withIndex("by_key", (q: any) => q.eq("key", key))
     .unique();
+  const decision = evaluateRateLimit(
+    parseRateLimitState(row?.value),
+    now,
+    limit,
+    windowMs,
+  );
   if (!row) {
-    await ctx.db.insert("platform", {
-      key: `ratelimit:${bucketKey}`,
-      value: JSON.stringify({ count: 1, windowStart: now }),
-    });
-    return true;
+    if (!decision.allowed) return false;
+    await ctx.db.insert("platform", { key, value: JSON.stringify(decision.next) });
+  } else if (decision.allowed) {
+    await ctx.db.patch(row._id, { value: JSON.stringify(decision.next) });
   }
-  const state = JSON.parse(row.value) as { count: number; windowStart: number };
-  if (now - state.windowStart > windowMs) {
-    await ctx.db.patch(row._id, { value: JSON.stringify({ count: 1, windowStart: now }) });
-    return true;
-  }
-  if (state.count >= MAX_ACTIONS_PER_MINUTE) return false;
-  await ctx.db.patch(row._id, { value: JSON.stringify({ count: state.count + 1, windowStart: state.windowStart }) });
-  return true;
+  return decision.allowed;
+}
+
+/** Credential-attempt ceiling (T3.5: rate limit on sign-in and sign-up). */
+export const AUTH_ATTEMPT_LIMIT = 20;
+/** Window for {@link AUTH_ATTEMPT_LIMIT}: five minutes per email. */
+export const AUTH_ATTEMPT_WINDOW_MS = 5 * 60_000;
+
+/**
+ * Consume one credential attempt for a hashed email.
+ *
+ * Worth being explicit about why this exists on top of the library: the
+ * password provider already locks an account after repeated *failures*, but a
+ * successful sign-in resets that counter and nothing throttles sign-up at all.
+ * Counting every attempt per email gives brute-force and bulk-registration both
+ * a hard ceiling, and because the bucket is keyed by a hash of the address an
+ * unknown email is throttled identically — the response still cannot be used to
+ * probe whether an account exists.
+ *
+ * Internal so only the auth provider can call it from an action context.
+ */
+export const consumeAuthAttempt = internalMutation({
+  args: { bucket: v.string() },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const key = `ratelimit:auth:${args.bucket}`;
+    const row = await ctx.db
+      .query("platform")
+      .withIndex("by_key", (q) => q.eq("key", key))
+      .unique();
+    const decision = evaluateRateLimit(
+      parseRateLimitState(row?.value),
+      now,
+      AUTH_ATTEMPT_LIMIT,
+      AUTH_ATTEMPT_WINDOW_MS,
+    );
+    if (!decision.allowed) return { allowed: false, remaining: 0 };
+    if (!row) {
+      await ctx.db.insert("platform", { key, value: JSON.stringify(decision.next) });
+    } else {
+      await ctx.db.patch(row._id, { value: JSON.stringify(decision.next) });
+    }
+    return { allowed: true, remaining: decision.remaining };
+  },
+});
+
+/**
+ * Hid-results projection (T3.3).
+ *
+ * Extracted so the rule is a pure function that both the query and the
+ * acceptance suite exercise: while an event is voting the project list is
+ * visible but every tally reads 0, and before/after voting the tally is empty
+ * entirely. Only a `published` event reveals real counts.
+ */
+export function maskVoteTally(
+  tally: { submissionId: string; points: number }[],
+  votingOpen: boolean,
+  resultsVisible: boolean,
+): { submissionId: string; points: number }[] {
+  if (resultsVisible) return tally.map((t) => ({ ...t }));
+  if (votingOpen) return tally.map((t) => ({ submissionId: t.submissionId, points: 0 }));
+  return [];
 }
 
 /** Public vote status: counts only revealed after publish (hidden results). */
@@ -92,11 +162,7 @@ export const voteStatus = query({
       budget: QUADRATIC_BUDGET,
       creditsSpent,
       myVotes,
-      tally: resultsVisible
-        ? tally
-        : votingOpen
-          ? tally.map((t) => ({ submissionId: t.submissionId, points: 0 }))
-          : [],
+      tally: maskVoteTally(tally, votingOpen, resultsVisible),
       totalVotes: resultsVisible ? votes.length : 0,
     };
   },

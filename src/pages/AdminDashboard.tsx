@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { StatCard } from "@/components/ui/StatCard";
 import { SkeletonCard, SkeletonStat } from "@/components/ui/SkeletonCard";
+import { usePrimaryEvent } from "@/lib/featuredEvent";
 
 export default function AdminDashboard() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -13,7 +14,8 @@ export default function AdminDashboard() {
   const me = useQuery(api.users.me, skip ? "skip" : {});
   const events = useQuery(api.events.listAll, skip ? "skip" : {});
   const users = useQuery(api.users.list, skip ? "skip" : {});
-  const event = useQuery(api.events.getBySlug, skip ? "skip" : { slug: "dogfood-2026" });
+  const { event: primaryEvent } = usePrimaryEvent();
+  const event = skip ? primaryEvent : (events?.[0] ?? primaryEvent);
   const submissions = useQuery(api.submissions.byEvent, skip || !event ? "skip" : { eventId: event._id });
   const audit = useQuery(api.audit.list, skip ? "skip" : { limit: 10 });
 

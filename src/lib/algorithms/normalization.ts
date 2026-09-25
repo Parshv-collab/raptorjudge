@@ -18,6 +18,13 @@ export interface NormalizedSubmission {
   rawMean: number;
   /** z-score normalized (target N(75, 12^2) by default). */
   zNormalized: number;
+  /**
+   * Ten-point z-score: `clamp(5 + 2z, 0, 10)`. A judge with zero variance
+   * (stddev === 0) contributes its own min-max value instead, so a flat grader
+   * never collapses the field. This is the scale the judge queue and the
+   * normalization proof use.
+   */
+  tenPointNormalized: number;
   /** per-judge min-max scaled to [0, 100], averaged. */
   minMaxNormalized: number;
   /** Bayesian shrinkage toward the global mean. */
@@ -38,7 +45,23 @@ export interface NormalizationResult {
     rawVsNormalizedRho: number;
     /** Spearman rho between any two normalized methods. */
     methodAgreementRho: number;
+    /**
+     * How much of the harsh/lenient spread survives normalization:
+     * the standard deviation *between judge means* before and after. A generous
+     * judge and a harsh judge sit far apart on the raw scale and on top of each
+     * other after normalization.
+     */
+    judgeMeanSpreadRaw: number;
+    judgeMeanSpreadNormalized: number;
+    /** Spread between submissions before vs after normalization. */
+    submissionSpreadRaw: number;
+    submissionSpreadNormalized: number;
   };
+}
+
+/** Map a z-score onto the ten-point judging scale: `clamp(5 + 2z, 0, 10)`. */
+export function zToTenPoint(z: number): number {
+  return Math.min(10, Math.max(0, 5 + z * 2));
 }
 
 function mean(xs: number[]): number {
@@ -129,6 +152,22 @@ export function normalizeScores(
   const globalMean = mean(allScores);
   const priorMean = opts.priorMean ?? globalMean;
 
+  /**
+   * Per-judge ten-point mapping with the documented degenerate-case fallback.
+   *   sigma > 0            → 5 + 2z                       (z-score)
+   *   sigma === 0, range>0 → (raw - lo) / (hi - lo) * 10 (min-max)
+   *   fully flat judge     → 5                            (no signal)
+   */
+  const tenPoint = (judgeId: string, raw: number): number => {
+    const st = judgeStats.find((js) => js.judgeId === judgeId)!;
+    if (st.sigma > 0) return zToTenPoint((raw - st.mu) / st.sigma);
+    const vals = Object.values(st.set.scores);
+    const lo = Math.min(...vals);
+    const hi = Math.max(...vals);
+    if (hi > lo) return ((raw - lo) / (hi - lo)) * 10;
+    return 5;
+  };
+
   // submission ids seen by any judge
   const submissionIds = [...new Set(judgeSets.flatMap((s) => Object.keys(s.scores)))];
 
@@ -163,8 +202,18 @@ export function normalizeScores(
       }, 0) / parts.length;
 
     const rawMean = mean(parts.map((p) => p.raw));
+    // Ten-point view: average the per-judge mapping (z-score or min-max
+    // fallback), so no single judge's calibration can move a submission.
+    const tenPointNormalized = mean(parts.map(({ judge, raw }) => tenPoint(judge.judgeId, raw)));
 
-    return { submissionId: sid, rawMean, zNormalized, minMaxNormalized, bayesianAdjusted };
+    return {
+      submissionId: sid,
+      rawMean,
+      zNormalized,
+      tenPointNormalized,
+      minMaxNormalized,
+      bayesianAdjusted,
+    };
   });
 
   // --- rank deltas (raw vs z-normalized) --------------------------------
@@ -197,6 +246,17 @@ export function normalizeScores(
   const mmScores = new Map(submissions.map((s) => [s.submissionId, s.minMaxNormalized]));
   const bayesScores = new Map(submissions.map((s) => [s.submissionId, s.bayesianAdjusted]));
 
+  // --- calibration compression -------------------------------------------
+  // Spread between judge means (harsh vs generous) and between submission
+  // scores, before and after standardization. Both should shrink sharply.
+  const judgeMeanRaw = judgeStats.map((js) => js.mu);
+  const judgeMeanNormalized = judgeStats.map((js) => {
+    if (js.sigma === 0) return 0;
+    return mean(Object.values(js.set.scores).map((v) => (v - js.mu) / js.sigma));
+  });
+  const submissionRaw = submissions.map((s) => s.rawMean);
+  const submissionNormalized = submissions.map((s) => s.zNormalized);
+
   return {
     submissions: submissions.sort((a, b) => b.zNormalized - a.zNormalized),
     rankDeltas,
@@ -211,6 +271,10 @@ export function normalizeScores(
       maxJudgeSigmaZ,
       rawVsNormalizedRho: spearmanRho(rawScores, zScores),
       methodAgreementRho: spearmanRho(zScores, mmScores),
+      judgeMeanSpreadRaw: stdev(judgeMeanRaw),
+      judgeMeanSpreadNormalized: stdev(judgeMeanNormalized),
+      submissionSpreadRaw: stdev(submissionRaw),
+      submissionSpreadNormalized: stdev(submissionNormalized),
     },
   };
 }

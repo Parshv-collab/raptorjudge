@@ -129,4 +129,57 @@ describe("planJudgeAssignments", () => {
     });
     expect(plan.assignments["s1"]).toEqual(["j1"]);
   });
+
+  it("defaults the per-judge load cap to 8 (T2.1)", () => {
+    const plan = planJudgeAssignments({
+      submissions,
+      judges,
+      teamMembers: {},
+      judgeTeamMemberships: {},
+      minJudgesPerSubmission: 1,
+      seed: 2,
+    });
+    expect(plan.maxAssignmentsPerJudge).toBe(8);
+    expect(Object.values(plan.workload).every((l) => l <= 8)).toBe(true);
+  });
+
+  it("never lets the cap sit below k, so k judges can always be seated", () => {
+    const plan = planJudgeAssignments({
+      submissions: [submissions[0]],
+      judges,
+      teamMembers: {},
+      judgeTeamMemberships: {},
+      minJudgesPerSubmission: 3,
+      maxAssignmentsPerJudge: 1,
+      seed: 4,
+    });
+    expect(plan.maxAssignmentsPerJudge).toBe(3);
+    expect(plan.assignments["s1"]).toHaveLength(3);
+  });
+
+  it("honours the cap, reports who hit it, and lists unstaffed submissions", () => {
+    const many: SubmissionInfo[] = Array.from({ length: 6 }, (_, i) => ({
+      submissionId: `s${i}`,
+      teamId: `t${i}`,
+      trackName: "AI",
+    }));
+    const plan = planJudgeAssignments({
+      submissions: many,
+      judges: [
+        { judgeId: "j1", affinityTracks: [] },
+        { judgeId: "j2", affinityTracks: [] },
+      ],
+      teamMembers: {},
+      judgeTeamMemberships: {},
+      minJudgesPerSubmission: 1,
+      maxAssignmentsPerJudge: 2,
+      seed: 1,
+    });
+    // 2 judges x cap 2 = 4 seats for 6 submissions.
+    expect(plan.totalAssignments).toBe(4);
+    expect(Object.values(plan.workload).every((l) => l <= 2)).toBe(true);
+    expect(plan.unstaffedSubmissions).toHaveLength(2);
+    expect(plan.minJudgesMet).toBe(false);
+    expect([...plan.capReached].sort()).toEqual(["j1", "j2"]);
+  });
 });

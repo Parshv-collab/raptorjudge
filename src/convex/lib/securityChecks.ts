@@ -14,6 +14,10 @@ import {
 } from "../../lib/validation";
 import { blockedWebhookReason, isSafeWebhookTarget } from "../../lib/webhookTarget";
 import { safeReturnTo } from "../../lib/safeRedirect";
+import { findDuplicateMatches, type SubmissionIdentity } from "../../lib/algorithms/duplicates";
+import { planJudgeAssignments } from "../../lib/algorithms/assignment";
+import { projectPublicSettings } from "../admin";
+import { DEFAULT_JUDGE_LOAD_CAP } from "../judging";
 
 /**
  * Security/hardening self-checks, run server-side by the acceptance suite
@@ -328,6 +332,113 @@ export async function runSecurityChecks(ctx: SecurityCheckContext): Promise<Secu
     "Webhook targets are http(s) only, credential-free, and never cloud metadata",
     unsafeStored.length === 0 && notDenied.length === 0,
     `stored=${hooks.length} unsafeStored=${unsafeStored.length} undetected=${notDenied.length}`,
+  );
+
+  // ---- Phase 3: the platform KV projection never ships a secret ----
+  // `platform` doubles as the secret store (certificate signing key, session
+  // hashes, rate-limit counters), and the settings query used to echo every row
+  // to any client. This proves the live projection drops them.
+  const platformRows = await ctx.db.query("platform").collect();
+  const exposed = projectPublicSettings(platformRows);
+  const leaked = Object.keys(exposed).filter(
+    (key) =>
+      key === "cert_secret" ||
+      ["session:", "ratelimit:", "lookup:", "invite:", "judge_tracks:", "rubric_lock:"].some(
+        (prefix) => key.startsWith(prefix),
+      ),
+  );
+  add(
+    "sec.platform_secrets",
+    "Platform settings never expose secret rows (certificate key, sessions, rate limits)",
+    leaked.length === 0,
+    `rows=${platformRows.length} exposed=${Object.keys(exposed).length} leaked=${leaked.length}`,
+  );
+
+  // ---- T3.6: every duplicate in the database carries a flag ----
+  // Detection is pure (`findDuplicateMatches`); this asserts the stored state
+  // agrees with it for each event, so a duplicated project cannot sit unflagged
+  // because a mutation path forgot to run the detector.
+  const events = await ctx.db.query("events").collect();
+  const flags = await ctx.db.query("flags").collect();
+  let unflaggedDuplicates = 0;
+  let duplicatePairs = 0;
+  for (const event of events) {
+    const identities: SubmissionIdentity[] = submissions
+      .filter((s) => s.eventId === event._id)
+      .map((s) => ({
+        submissionId: String(s._id),
+        title: s.title,
+        repositoryUrl: s.repositoryUrl,
+        teamId: String(s.teamId),
+      }));
+    const matches = findDuplicateMatches(identities);
+    duplicatePairs += matches.length;
+    for (const m of matches) {
+      const flagged = flags.some(
+        (f) => String(f.submissionId) === m.submissionId,
+      );
+      if (!flagged) unflaggedDuplicates++;
+    }
+  }
+  add(
+    "sec.duplicate_flags",
+    "Every detectable duplicate submission is flagged for organizer review (T3.6)",
+    unflaggedDuplicates === 0,
+    `pairs=${duplicatePairs} unflagged=${unflaggedDuplicates}`,
+  );
+
+  // ---- T2.1: the planner honours the per-judge load cap on real event data ----
+  // Runs the real algorithm (dry, in-process) over the live tables: if a future
+  // change let a judge absorb the whole event, this fails instead of quietly
+  // skewing every ranking.
+  const teams = await ctx.db.query("teams").collect();
+  const teamMembers = await ctx.db.query("teamMembers").collect();
+  const memberOfTeam: Record<string, string[]> = {};
+  for (const t of teams) memberOfTeam[String(t._id)] = [];
+  for (const m of teamMembers) {
+    const key = String(m.teamId);
+    if (key in memberOfTeam) memberOfTeam[key].push(String(m.userId));
+  }
+  const judgeUsers = users.filter((u) => u.role === "judge");
+  const trackRows = await ctx.db.query("tracks").collect();
+  const capPlan = planJudgeAssignments({
+    submissions: submissions
+      .filter((s) => s.status === "submitted")
+      .map((s) => ({
+        submissionId: String(s._id),
+        teamId: String(s.teamId),
+        trackName: trackRows.find((t) => t._id === s.trackId)?.name ?? "Open",
+      })),
+    judges: judgeUsers.map((j) => ({ judgeId: String(j._id), affinityTracks: [] })),
+    teamMembers: memberOfTeam,
+    judgeTeamMemberships: {},
+    minJudgesPerSubmission: 3,
+    maxAssignmentsPerJudge: DEFAULT_JUDGE_LOAD_CAP,
+    seed: 42,
+  });
+  const worstLoad = Math.max(0, ...Object.values(capPlan.workload));
+  add(
+    "sec.assignment_load_cap",
+    `The assigner never exceeds the ${DEFAULT_JUDGE_LOAD_CAP}-project per-judge cap`,
+    judgeUsers.length === 0 || worstLoad <= DEFAULT_JUDGE_LOAD_CAP,
+    `judges=${judgeUsers.length} worstLoad=${worstLoad} cap=${DEFAULT_JUDGE_LOAD_CAP}`,
+    judgeUsers.length === 0,
+  );
+
+  // ---- T2.2: published rubrics are weight-valid ----
+  const criteriaRows = await ctx.db.query("rubricCriteria").collect();
+  const weightBroken: string[] = [];
+  for (const event of events) {
+    const own = criteriaRows.filter((c) => c.eventId === event._id);
+    if (own.length === 0) continue; // falls back to the default rubric
+    const sum = own.reduce((acc, c) => acc + c.weight, 0);
+    if (Math.abs(sum - 1) > 0.001) weightBroken.push(`${event.slug}=${sum.toFixed(3)}`);
+  }
+  add(
+    "sec.rubric_weights",
+    "Every stored rubric has criteria weights summing to 1.000",
+    weightBroken.length === 0,
+    `rubrics=${events.length} invalid=${weightBroken.length}${weightBroken.length ? " " + weightBroken.join(",") : ""}`,
   );
 
   return checks;

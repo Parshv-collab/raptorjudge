@@ -116,6 +116,16 @@ export const toggleLookingForTeam = mutation({
       await ctx.db.patch(existing._id, { lookingForTeam: args.lookingForTeam });
     }
 
+    await appendAudit(ctx, {
+      eventId: args.eventId,
+      actorId: user._id,
+      action: "participate.looking_for_team",
+      targetType: "event_participant",
+      targetId: String(user._id),
+      beforeState: JSON.stringify({ lookingForTeam: existing?.lookingForTeam ?? null }),
+      afterState: JSON.stringify({ lookingForTeam: args.lookingForTeam }),
+    });
+
     return { ok: true, lookingForTeam: args.lookingForTeam };
   },
 });

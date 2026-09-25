@@ -52,14 +52,39 @@ export const userRoleById = internalQuery({
   },
 });
 
+/**
+ * Fixture seeder.
+ *
+ * The handler's return type is annotated on purpose. This action calls
+ * `internal.*` functions from other modules, and an *inferred* return type would
+ * make `typeof seed` depend on `fullApi`, which depends on `typeof seed` — a
+ * mutual inference cycle that TypeScript can only degrade to `any` (TS7022/7023),
+ * which then poisons every query type in the app.
+ */
 export const seed = action({
   args: {},
-  handler: async (ctx) => {
+  handler: async (
+    ctx,
+  ): Promise<{
+    ok: boolean;
+    eventSlug: string;
+    tokens: Record<string, string>;
+    votesCreated: number;
+    matchesCreated: number;
+    certificatesIssued: number;
+  }> => {
     // Check seed flags for idempotency
     const alreadySeeded = await ctx.runQuery(internal.seed.getSeedFlag, { key: "fixture-seeded-2026" });
     if (alreadySeeded) {
       console.log("Demo data already exists (fixture-seeded-2026).");
-      return { ok: true, message: "Demo data already exists" };
+      return {
+        ok: true,
+        eventSlug: "sample-hack-2026",
+        tokens: {},
+        votesCreated: 0,
+        matchesCreated: 0,
+        certificatesIssued: 0,
+      };
     }
 
     // Wipe previous fixture data
@@ -239,6 +264,10 @@ export const seed = action({
     const secondJudgeEmail = FIXTURES.judges[1]?.email || "wei.lindqvist@example.org";
 
     const demoAccounts = [
+      // A seeded admin makes the admin surfaces (audit chain, rubric unlock,
+      // role management, invites) reachable on a fresh deployment, and is what
+      // the "all four roles present" self-check expects.
+      { key: "admin", email: "admin@fixture.local", name: "Fixture Admin", role: "admin" },
       { key: "organizer", email: "organizer@fixture.local", name: "Fixture Organizer", role: "organizer" },
       { key: "judge_a", email: firstJudgeEmail, name: FIXTURES.judges[0]?.name || "Tomas Varga (Judge A)", role: "judge" },
       { key: "judge_b", email: secondJudgeEmail, name: FIXTURES.judges[1]?.name || "Wei Lindqvist (Judge B)", role: "judge" },
@@ -268,20 +297,88 @@ export const seed = action({
       });
     }
 
+    // 9. Run the duplicate detector once so the seeded event already shows the
+    //    fixtures' duplicate pair ("Dry Harbour" filed twice) instead of an
+    //    empty Duplicate Flags tab until an organizer clicks the scan button.
+    const duplicateScan = await ctx.runMutation(internal.submissions.detectDuplicatesInternal, {
+      eventId,
+    });
+    console.log(
+      `duplicate scan: ${duplicateScan.matches} match(es), ${duplicateScan.newlyFlagged} flag(s)`,
+    );
+
+    // 10. Community voting demo (T3.1): quadratic votes whose tallies stay
+    //     hidden until the event reaches `published`.
+    const participantIds = [...userMapByEmail.values()];
+    const voteTargets = FIXTURES.projects
+      .slice(0, 12)
+      .map((p) => projectMap.get(p.id))
+      .filter((id): id is Id<"submissions"> => Boolean(id));
+    let votesCreated = 0;
+    for (let i = 0; i < participantIds.length && i < 10 && voteTargets.length > 1; i++) {
+      const a = voteTargets[i % voteTargets.length];
+      const b = voteTargets[(i + 3) % voteTargets.length];
+      await ctx.runMutation(internal.seed.createVote, {
+        eventId,
+        userId: participantIds[i],
+        submissionId: a,
+        points: 3,
+      });
+      votesCreated++;
+      if (a !== b) {
+        await ctx.runMutation(internal.seed.createVote, {
+          eventId,
+          userId: participantIds[i],
+          submissionId: b,
+          points: 2,
+        });
+        votesCreated++;
+      }
+    }
+
+    // 11. Pairwise comparisons (Bonus) so the Bradley-Terry leaderboard has real
+    //     material the moment the organizer opens the Results tab.
+    const judgeIds = [...judgeMap.values()];
+    let matchesCreated = 0;
+    for (let i = 0; i < 18 && voteTargets.length > 1 && judgeIds.length > 0; i++) {
+      const a = voteTargets[i % voteTargets.length];
+      const b = voteTargets[(i + 5) % voteTargets.length];
+      if (a === b) continue;
+      await ctx.runMutation(internal.seed.createMatch, {
+        eventId,
+        judgeId: judgeIds[i % judgeIds.length],
+        submissionAId: a,
+        submissionBId: b,
+        winnerId: String(i % 3 === 0 ? b : a),
+      });
+      matchesCreated++;
+    }
+
+    // 12. Certificates (T4.3) so /verify has real material to check.
+    const certs = await ctx.runMutation(internal.certificates.issueAllInternal, { eventId });
+
     // Set seed flag
     await ctx.runMutation(internal.seed.setSeedFlag, { key: "fixture-seeded-2026" });
 
     // Print test logins
     console.log("seeded. test logins:");
+    console.log(`  admin        Cookie: session=${tokens.admin}`);
     console.log(`  organizer    Cookie: session=${tokens.organizer}`);
     console.log(`  judge_a      Cookie: session=${tokens.judge_a}`);
     console.log(`  judge_b      Cookie: session=${tokens.judge_b}`);
     console.log(`  participant  Cookie: session=${tokens.participant}`);
 
+    console.log(
+      `demo extras: ${votesCreated} votes, ${matchesCreated} pairwise matches, ${certs.issued} certificates`,
+    );
+
     return {
       ok: true,
       eventSlug: "sample-hack-2026",
       tokens,
+      votesCreated,
+      matchesCreated,
+      certificatesIssued: certs.issued,
     };
   },
 });
@@ -444,6 +541,61 @@ export const createAssignment = internalMutation({
 export const createScore = internalMutation({
   args: { eventId: v.id("events"), assignmentId: v.id("judgeAssignments"), submissionId: v.id("submissions"), judgeId: v.id("users"), criterionId: v.id("rubricCriteria"), score: v.number(), privateNotes: v.string() },
   handler: async (ctx, args) => ctx.db.insert("judgeScores", { ...args, submittedAt: Date.now() }),
+});
+
+/** Community vote row (quadratic: casting n points costs n² credits). */
+export const createVote = internalMutation({
+  args: {
+    eventId: v.id("events"),
+    userId: v.id("users"),
+    submissionId: v.id("submissions"),
+    points: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const cost = args.points * args.points;
+    const id = await ctx.db.insert("communityVotes", {
+      eventId: args.eventId,
+      userId: args.userId,
+      submissionId: args.submissionId,
+      points: args.points,
+      creditsSpent: cost,
+      ipHash: await sha256Hex(`ip:${args.eventId}:${args.userId}`),
+      userAgentHash: await sha256Hex(`ua:${args.eventId}:${args.userId}`),
+      createdAt: Date.now(),
+    });
+    await appendAudit(ctx, {
+      eventId: args.eventId,
+      actorId: args.userId,
+      action: "vote.cast",
+      targetType: "submission",
+      targetId: String(args.submissionId),
+      afterState: JSON.stringify({ points: args.points, cost, source: "seed" }),
+    });
+    return id;
+  },
+});
+
+/** Pairwise comparison row for the Bradley-Terry leaderboard. */
+export const createMatch = internalMutation({
+  args: {
+    eventId: v.id("events"),
+    judgeId: v.id("users"),
+    submissionAId: v.id("submissions"),
+    submissionBId: v.id("submissions"),
+    winnerId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const id = await ctx.db.insert("pairwiseMatches", { ...args, createdAt: Date.now() });
+    await appendAudit(ctx, {
+      eventId: args.eventId,
+      actorId: args.judgeId,
+      action: "pairwise.match",
+      targetType: "submission",
+      targetId: args.winnerId || "tie",
+      afterState: JSON.stringify({ a: String(args.submissionAId), b: String(args.submissionBId), source: "seed" }),
+    });
+    return id;
+  },
 });
 
 export const createSession = internalMutation({

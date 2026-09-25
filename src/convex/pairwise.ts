@@ -35,8 +35,11 @@ export const leaderboard = query({
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("Event not found");
     const published = event.status === "published" || event.status === "archived";
-    const isStaff = user.role === "judge" || user.role === "organizer" || user.role === "admin";
-    if (!published && !isStaff) {
+    // Before publish the latent strengths are the answer key, so only the
+    // people running the event may read them — a judge must not be able to
+    // watch the ranking their own comparisons are producing.
+    const isOrganizer = user.role === "organizer" || user.role === "admin";
+    if (!published && !isOrganizer) {
       throw new Error("Rankings are not published yet");
     }
     const subs = await ctx.db
@@ -102,6 +105,27 @@ export const submitMatch = mutation({
     if (args.submissionAId === args.submissionBId) {
       throw new Error("A submission cannot compete with itself");
     }
+
+    // Integrity: both sides must be submitted projects of this event, and the
+    // winner must be one of the two competitors. Without the winner check a
+    // caller could record a win for an unrelated project and skew the ranking.
+    const [a, b] = await Promise.all([
+      ctx.db.get(args.submissionAId),
+      ctx.db.get(args.submissionBId),
+    ]);
+    for (const side of [a, b]) {
+      if (!side) throw new Error("Submission not found");
+      if (String(side.eventId) !== String(args.eventId)) {
+        throw new Error("Both submissions must belong to this event");
+      }
+      if (side.status !== "submitted") {
+        throw new Error("Only submitted projects can be compared");
+      }
+    }
+    if (args.winnerId && args.winnerId !== args.submissionAId && args.winnerId !== args.submissionBId) {
+      throw new Error("The winner must be one of the two compared projects");
+    }
+
     await ctx.db.insert("pairwiseMatches", {
       eventId: args.eventId,
       judgeId: user._id,

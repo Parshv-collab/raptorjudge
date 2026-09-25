@@ -30,6 +30,8 @@ export interface AssignmentPlanInput {
   judgeTeamMemberships: Record<string, string[]>;
   /** minimum judges per submission (default 3) */
   minJudgesPerSubmission?: number;
+  /** hard per-judge load cap, so one judge never gets the whole event (default 8) */
+  maxAssignmentsPerJudge?: number;
   /** for deterministic tie-breaking in tests */
   seed?: number;
 }
@@ -42,6 +44,12 @@ export interface AssignmentPlan {
   minJudgesMet: boolean;
   /** human-readable conflict decisions made during planning */
   conflictsAvoided: string[];
+  /** judges that hit the load cap while there was still work to hand out */
+  capReached: string[];
+  /** submissions that ended up below the requested k */
+  unstaffedSubmissions: string[];
+  /** the cap actually applied */
+  maxAssignmentsPerJudge: number;
 }
 
 /** Simple seeded PRNG (mulberry32). */
@@ -58,10 +66,12 @@ function rng(seed: number): () => number {
 
 export function planJudgeAssignments(input: AssignmentPlanInput): AssignmentPlan {
   const k = input.minJudgesPerSubmission ?? 3;
+  const cap = Math.max(k, input.maxAssignmentsPerJudge ?? 8);
   const rand = rng(input.seed ?? 42);
   const assignments: Record<string, string[]> = {};
   const workload: Record<string, number> = {};
   const conflictsAvoided: string[] = [];
+  const capReached: string[] = [];
   for (const j of input.judges) workload[j.judgeId] = 0;
 
   // precompute conflict sets: judge cannot review these teamIds
@@ -82,6 +92,10 @@ export function planJudgeAssignments(input: AssignmentPlanInput): AssignmentPlan
   const eligible = (judge: JudgeInfo, sub: SubmissionInfo): boolean =>
     !conflictTeams.get(judge.judgeId)?.has(sub.teamId);
 
+  /** Eligible, not already on this submission, and below the per-judge cap. */
+  const assignable = (judge: JudgeInfo, sub: SubmissionInfo): boolean =>
+    eligible(judge, sub) && workload[judge.judgeId] < cap;
+
   // --- round 1: fill to k judges per submission ---------------------------
   // process submissions round-robin, each time picking the eligible judge
   // with the least workload; break ties by affinity, then randomness.
@@ -91,11 +105,25 @@ export function planJudgeAssignments(input: AssignmentPlanInput): AssignmentPlan
     assignments[sub.submissionId] ??= [];
     while (assignments[sub.submissionId].length < k) {
       const candidates = input.judges.filter(
-        (j) => eligible(j, sub) && !assignments[sub.submissionId].includes(j.judgeId),
+        (j) => assignable(j, sub) && !assignments[sub.submissionId].includes(j.judgeId),
       );
       if (candidates.length === 0) {
+        const conflictBlocked = input.judges.filter(
+          (j) => !eligible(j, sub) && !assignments[sub.submissionId].includes(j.judgeId),
+        ).length;
+        const capBlocked = input.judges.filter(
+          (j) =>
+            eligible(j, sub) &&
+            workload[j.judgeId] >= cap &&
+            !assignments[sub.submissionId].includes(j.judgeId),
+        );
+        for (const blocked of capBlocked) {
+          if (!capReached.includes(blocked.judgeId)) capReached.push(blocked.judgeId);
+        }
         conflictsAvoided.push(
-          `could not find enough judges for "${sub.submissionId}" — too many conflicts`,
+          `could not find enough judges for "${sub.submissionId}" — ` +
+            `${conflictBlocked} blocked by conflict of interest, ` +
+            `${capBlocked.length} at the ${cap}-project load cap`,
         );
         break;
       }
@@ -135,6 +163,7 @@ export function planJudgeAssignments(input: AssignmentPlanInput): AssignmentPlan
       if (judgeIds.includes(light.judgeId)) continue;
       const sub = input.submissions.find((s) => s.submissionId === subId);
       if (!sub || !eligible(light, sub)) continue;
+      if (workload[light.judgeId] >= cap) continue;
       judgeIds.splice(judgeIds.indexOf(heavy.judgeId), 1, light.judgeId);
       workload[heavy.judgeId]--;
       workload[light.judgeId]++;
@@ -143,9 +172,19 @@ export function planJudgeAssignments(input: AssignmentPlanInput): AssignmentPlan
     }
   }
 
-  const minJudgesMet = input.submissions.every(
-    (s) => (assignments[s.submissionId]?.length ?? 0) >= k,
-  );
+  const unstaffedSubmissions = input.submissions
+    .filter((s) => (assignments[s.submissionId]?.length ?? 0) < k)
+    .map((s) => s.submissionId);
+  const minJudgesMet = unstaffedSubmissions.length === 0;
 
-  return { assignments, workload, totalAssignments: Object.values(assignments).flat().length, minJudgesMet, conflictsAvoided };
+  return {
+    assignments,
+    workload,
+    totalAssignments: Object.values(assignments).flat().length,
+    minJudgesMet,
+    conflictsAvoided,
+    capReached,
+    unstaffedSubmissions,
+    maxAssignmentsPerJudge: cap,
+  };
 }

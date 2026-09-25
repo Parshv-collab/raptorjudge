@@ -6,6 +6,7 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { Input } from "@/components/ui/Input";
 import { Tabs } from "@/components/ui/Tabs";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { usePrimaryEvent } from "@/lib/featuredEvent";
 
 export default function Search() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -14,7 +15,7 @@ export default function Search() {
   const [activeTab, setActiveTab] = useState("all");
 
   const events = useQuery(api.events.listPublic, {});
-  const event = useQuery(api.events.getBySlug, { slug: "dogfood-2026" });
+  const { event } = usePrimaryEvent();
   const gallery = useQuery(
     api.submissions.publicGallery,
     event ? { eventId: event._id, search: queryParam || undefined } : "skip"

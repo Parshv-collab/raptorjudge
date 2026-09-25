@@ -63,14 +63,25 @@ export default function InviteAccept() {
     setBusy(true);
     try {
       const targetEmail = invite?.email || email;
-      await acceptInvite({ token: token! });
-      await signIn("password", {
-        email: targetEmail,
-        password,
-        name,
-        flow: "signUp",
-      });
-      toast.success("Account created and invite accepted!");
+      // Create the account first: `acceptInvite` attaches the invited role to
+      // the signed-in identity server-side, so it must run after sign-up. If the
+      // address already has an account, fall back to signing in with it.
+      try {
+        await signIn("password", {
+          email: targetEmail,
+          password,
+          name,
+          flow: "signUp",
+        });
+      } catch (signUpError) {
+        await signIn("password", {
+          email: targetEmail,
+          password,
+          flow: "signIn",
+        });
+      }
+      const accepted = await acceptInvite({ token: token! });
+      toast.success(`Invite accepted — you are now ${accepted.role === "organizer" ? "an" : "a"} ${accepted.role}.`);
       navigate("/home", { replace: true });
     } catch (err: any) {
       toast.error(humanizeConvexError(err));

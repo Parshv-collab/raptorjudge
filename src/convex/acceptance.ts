@@ -1,8 +1,9 @@
 import { v } from "convex/values";
-import { query, mutation, internalMutation } from "./_generated/server";
+import { query, mutation } from "./_generated/server";
 import { requireOrganizer } from "./lib/common";
 import { runSecurityChecks } from "./lib/securityChecks";
 import { isSafeWebhookTarget } from "../lib/webhookTarget";
+import { maskVoteTally } from "./voting";
 
 /**
  * Acceptance suite (T4 + Bonus).
@@ -113,8 +114,28 @@ export const runSuite = mutation({
       : [];
     add("T3", "t3.votes", "Community votes recorded with fingerprint hashes", votes.length > 0 && votes.every((v) => v.ipHash.length === 64));
 
-    const resultsHidden = event ? event.status !== "published" : true;
-    add("T3", "t3.hidden_results", "Vote results gated behind published stage (data model enforces)", resultsHidden || true);
+    // Hidden results (T3.3) is exercised, not asserted: the masking function is
+    // called with a synthetic tally and must zero it while voting is open, drop
+    // it outside the voting window, and reveal it only once published. The
+    // seeded event is not published, so real tallies must also be masked.
+    const probe = [{ submissionId: "probe", points: 42 }];
+    const maskedWhileVoting = maskVoteTally(probe, true, false);
+    const maskedWhenClosed = maskVoteTally(probe, false, false);
+    const revealedWhenPublished = maskVoteTally(probe, false, true);
+    const hiddenOk =
+      maskedWhileVoting.length === 1 &&
+      maskedWhileVoting[0].points === 0 &&
+      maskedWhenClosed.length === 0 &&
+      revealedWhenPublished.length === 1 &&
+      revealedWhenPublished[0].points === 42;
+    const seededEventHidden = event ? event.status !== "published" : true;
+    add(
+      "T3",
+      "t3.hidden_results",
+      "Vote tallies are masked until the event publishes (verified, not asserted)",
+      hiddenOk && (seededEventHidden || votes.length === 0),
+      `masking=${hiddenOk} seededEventPublished=${!seededEventHidden} votes=${votes.length}`,
+    );
 
     const auditRows = await ctx.db.query("auditLogs").collect();
     add("T3", "t3.audit", "Audit log populated", auditRows.length > 0);
@@ -156,8 +177,33 @@ export const runSuite = mutation({
     const criteriaCount = criteria.length;
 
     // -------------------------------------------------------- Bonus checks ---
-    add("BONUS", "b.norm_proof", "Normalization engine available with proof metrics", criteriaCount > 0);
-    add("BONUS", "b.pairwise", "Pairwise match history + Bradley-Terry engine available", true);
+    add(
+      "BONUS",
+      "b.norm_proof",
+      "Normalization engine available with proof metrics",
+      criteriaCount > 0 && scores.length > 0,
+      `criteria=${criteriaCount} scores=${scores.length}`,
+    );
+    const pairwiseMatches = await ctx.db.query("pairwiseMatches").collect();
+    if (pairwiseMatches.length === 0) {
+      add(
+        "BONUS",
+        "b.pairwise",
+        "Bradley-Terry pairwise comparisons recorded",
+        true,
+        "no pairwise comparisons recorded yet",
+        true,
+      );
+    } else {
+      const distinctJudges = new Set(pairwiseMatches.map((m) => String(m.judgeId))).size;
+      add(
+        "BONUS",
+        "b.pairwise",
+        "Bradley-Terry pairwise comparisons recorded (match history + BT engine)",
+        pairwiseMatches.length > 0,
+        `matches=${pairwiseMatches.length} judges=${distinctJudges}`,
+      );
+    }
 
     // ---------------------------------------------- T5 · security hardening ---
     // Item 55 (TOTP), 56 (uniform auth errors), 57 (role/score integrity),

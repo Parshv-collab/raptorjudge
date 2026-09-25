@@ -103,8 +103,15 @@ export const setActive = mutation({
   },
 });
 
-/** Fire an event to all matching active webhooks (called by domain mutations via scheduler). */
-export const dispatch = mutation({
+/**
+ * Fire an event to all matching active webhooks.
+ *
+ * Internal only (security): this fans an attacker-chosen payload out to every
+ * registered endpoint of an event. As a public mutation any authenticated caller
+ * could POST to `api.webhooks.dispatch` and make the deployment issue arbitrary
+ * outbound requests, so it is no longer reachable from the client.
+ */
+export const dispatch = internalMutation({
   args: {
     eventId: v.id("events"),
     eventType: v.string(),

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { requireOrganizer, requireUser } from "./lib/common";
 import { appendAudit } from "./lib/audit";
 import { hmacSha256Hex, randomHex, safeEqualHex } from "./crypto";
@@ -136,26 +136,49 @@ export const issue = mutation({
   },
 });
 
+/**
+ * Bulk issuance without an actor check, for the seed action.
+ *
+ * `issueAll` is organizer-gated and a seed action has no identity, so the seed
+ * cannot call it. Internal-only, so clients still go through `issueAll`.
+ */
+export const issueAllInternal = internalMutation({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => issueAllHelper(ctx, args.eventId),
+});
+
 /** Issue certificates for every participant and judge of an event (bulk). */
 export const issueAll = mutation({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
     await requireOrganizer(ctx);
-    const event = await ctx.db.get(args.eventId);
+    return issueAllHelper(ctx, args.eventId);
+  },
+});
+
+// Explicit return type: the seed action calls `issueAllInternal` via
+// `internal.*`, and an inferred return type here would put `certificates` and
+// `seed` in a mutual type-inference cycle (`fullApi` → seed → internal →
+// fullApi), which tsc can only resolve as `any`.
+async function issueAllHelper(
+  ctx: any,
+  eventId: Id<"events">,
+): Promise<{ issued: number; reused: number; certUuids: string[] }> {
+  const event = await ctx.db.get(eventId);
     if (!event) throw new Error("Event not found");
     const memberRows = await ctx.db.query("teamMembers").collect();
     const teamRows = await ctx.db
       .query("teams")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .withIndex("by_event", (q: any) => q.eq("eventId", eventId))
       .collect();
-    const eventTeamIds = new Set(teamRows.map((t) => String(t._id)));
-    const participantIds = [...new Set(memberRows.filter((m) => eventTeamIds.has(String(m.teamId))).map((m) => String(m.userId)))];
-    const judges = (await ctx.db.query("users").collect()).filter((u) => u.role === "judge");
+    const eventTeamIds = new Set(teamRows.map((t: any) => String(t._id)));
+    const participantIds = [...new Set(memberRows.filter((m: any) => eventTeamIds.has(String(m.teamId))).map((m: any) => String(m.userId)))];
+    const judges = (await ctx.db.query("users").collect()).filter((u: any) => u.role === "judge");
 
     const certUuids: string[] = [];
     let reused = 0;
     const mint = async (userId: Id<"users">, certType: string, title: string) => {
-      const res = await issueCertInternal(ctx, args.eventId, userId, certType, title);
+      const res = await issueCertInternal(ctx, eventId, userId, certType, title);
       if (res.reused) reused++;
       certUuids.push(res.certUuid);
     };
@@ -171,16 +194,15 @@ export const issueAll = mutation({
       await mint(j._id, "judge", `${event.title} — Judge`);
     }
     await appendAudit(ctx, {
-      eventId: args.eventId,
+      eventId,
       action: "certificate.bulk_issue",
       targetType: "event",
-      targetId: String(args.eventId),
+      targetId: String(eventId),
       afterState: JSON.stringify({ count: certUuids.length, reused }),
     });
-    // `issued` stays the total for the dashboard; `reused` makes a re-run visible.
-    return { issued: certUuids.length, reused, certUuids };
-  },
-});
+  // `issued` stays the total for the dashboard; `reused` makes a re-run visible.
+  return { issued: certUuids.length, reused, certUuids };
+}
 
 async function issueCertInternal(
   ctx: any,

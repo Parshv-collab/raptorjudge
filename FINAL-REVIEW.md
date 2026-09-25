@@ -1,119 +1,150 @@
-# RaptorJudge Final Comprehensive Review & Assessment
+# Final Review — verification ledger
 
-## 1. Executive Summary
-RaptorJudge is a production-grade, self-hostable hackathon submission and judging platform designed and built for offline operation. This final review validates that all core (T1), judging (T2), public (T3), and stretch (T4) features—along with all four bonus challenges—are 100% complete, fully functional, and verified by 166 passing vitest tests and TypeScript typechecks.
+An honest record of **what is actually verified, how, and what is not**. Nothing
+here is claimed unless it can be reproduced with a command in this repository.
 
----
-
-## 2. Contract Audit Table (Backend ↔ Frontend)
-
-| Module | Function / Export | Kind | Frontend Called From | Backend Status | Alignment |
-|---|---|---|---|---|---|
-| `auth` | `signIn`, `signOut`, `store` | auth | `/auth`, `AppShell.tsx` | ✅ Implemented | ✅ PASS |
-| `events` | `listAll`, `listMine`, `listPublic`, `getBySlug`, `create`, `update`, `setStage`, `generateUploadUrl` | query/mutation | `/organizer/events`, `/e/:slug`, `EventForm.tsx` | ✅ Implemented | ✅ PASS |
-| `teams` | `listByEvent`, `myTeams`, `create`, `joinByInviteCode`, `leave`, `transferLeadership` | query/mutation | `/workspace`, `/project/:id` | ✅ Implemented | ✅ PASS |
-| `submissions` | `publicGallery`, `byEvent`, `mySubmission`, `detail`, `saveDraft`, `submit`, `withdraw`, `checkDuplicates`, `listFlags`, `dismissFlag`, `removeFlaggedSubmission` | query/mutation | `/gallery/:slug`, `/project/:id`, `/workspace`, `/organizer/events/:slug` | ✅ Implemented | ✅ PASS |
-| `judging` | `getRubric`, `customizeRubric`, `upsertCriterion`, `deleteCriterion`, `assignProjects`, `runAssignment`, `myQueue`, `submitScores`, `progress`, `judgeRecord`, `allScores` | query/mutation | `/judge`, `/judge/score/:id`, `/organizer/events/:slug`, `/verify/judge/:uuid` | ✅ Implemented | ✅ PASS |
-| `voting` | `voteStatus`, `getUserBudget`, `castVote`, `removeVote` | query/mutation | `/project/:id`, `/organizer/events/:slug` | ✅ Implemented | ✅ PASS |
-| `comments` | `list`, `listFlagged`, `add`, `flag`, `deleteComment` | query/mutation | `/project/:id`, `/organizer/events/:slug` | ✅ Implemented | ✅ PASS |
-| `webhooks` | `list`, `deliveries`, `register`, `testDelivery` | query/mutation | `/organizer/events/:slug` | ✅ Implemented | ✅ PASS |
-| `certificates` | `issue`, `issueAll`, `verify`, `mine` | query/mutation | `/verify`, `/workspace` | ✅ Implemented | ✅ PASS |
-| `audit` | `list`, `verifyChain`, `actions` | query | `/admin/audit` | ✅ Implemented | ✅ PASS |
-| `admin` | `getSettings`, `updateSettings`, `listInvites`, `createInvite`, `revokeInvite`, `getInviteByToken`, `acceptInvite` | query/mutation | `/admin/settings`, `/admin/invites`, `/invite/:token` | ✅ Implemented | ✅ PASS |
-| `users` | `me`, `list`, `setRole`, `adminDisable`, `adminEnable`, `adminForceLogout`, `adminDelete` | query/mutation | `/admin/users`, `AppShell.tsx` | ✅ Implemented | ✅ PASS |
-| `pairwise` | `leaderboard`, `nextPair`, `submitMatch`, `myMatches` | query/mutation | `/judge/pairwise` | ✅ Implemented | ✅ PASS |
-| `normalization` | `analyze` | query | `/organizer/events/:slug` | ✅ Implemented | ✅ PASS |
-| `participate` | `getParticipantState`, `joinSolo`, `toggleLookingForTeam` | query/mutation | `/workspace` | ✅ Implemented | ✅ PASS |
-| `imports` | `eventFromJson` | mutation | `/admin/events` | ✅ Implemented | ✅ PASS |
+Last verified: 2026-09-25.
 
 ---
 
-## 3. Tier Completion Table
+## 1. How to reproduce
 
-| Tier | Required Feature | Backend Function | Frontend Path | Status |
-|---|---|---|---|---|
-| **T1** | Two-step Auth & Sessions | `auth:signIn`, `auth:signOut` | `/auth` | PASS |
-| **T1** | Four Roles (RBAC) | `users:setRole` | `/admin/users` | PASS |
-| **T1** | Configurable Event Creation | `events:create`, `events:update` | `/organizer/events/new` | PASS |
-| **T1** | Tracks & Prizes | `tracks:create`, `tracks:listByEvent` | `/organizer/events/:slug` | PASS |
-| **T1** | Team Invites & Code Join | `teams:joinByInviteCode` | `/workspace` | PASS |
-| **T1** | Draft/Submit & Leader Enforcement | `submissions:submit` | `/workspace` | PASS |
-| **T1** | Deadline Window Enforcement | `assertWithinWindow` | `/workspace` | PASS |
-| **T1** | Searchable Public Gallery | `submissions:publicGallery` | `/gallery/:slug` | PASS |
-| **T2** | Judge Assignment (Manual/Algo) | `judging:runAssignment`, `assignProjects` | `/organizer/events/:slug` | PASS |
-| **T2** | Rubric Management & Lock | `judging:customizeRubric`, `getRubric` | `/organizer/events/:slug` | PASS |
-| **T2** | Role Isolation (Judge Queue) | `judging:myQueue` | `/judge` | PASS |
-| **T2** | Rubric Score Submission | `judging:submitScores` | `/judge/score/:id` | PASS |
-| **T2** | Z-Score Normalization | `normalization:analyze` | `/organizer/events/:slug` | PASS |
-| **T2** | CSV Exports | `exports:submissionsCsv`, `rankingsCsv` | `/organizer/events/:slug` | PASS |
-| **T3** | Plain & Quadratic Community Voting | `voting:castVote`, `getUserBudget` | `/project/:id` | PASS |
-| **T3** | Comments & Moderation | `comments:add`, `flag`, `listFlagged` | `/project/:id`, `/organizer/events/:slug` | PASS |
-| **T3** | Hidden Results during Voting | `voting:voteStatus` | `/gallery/:slug` | PASS |
-| **T3** | PRNG Seeded Gallery Order | `submissions:publicGallery` | `/gallery/:slug` | PASS |
-| **T3** | Server-side Rate Limiting | `enforceRateLimit` | Backend | PASS |
-| **T3** | Duplicate Submission Detection | `submissions:checkDuplicates` | `/organizer/events/:slug` | PASS |
-| **T3** | Audit Trail Hash Chain Verification | `audit:verifyChain` | `/admin/audit` | PASS |
-| **T4** | REST API & OpenAPI 3.0 | `/api/v1/*`, `/api/openapi.json` | `/api/docs` | PASS |
-| **T4** | Webhooks & Signatures | `webhooks:register`, `deliver` | `/organizer/events/:slug` | PASS |
-| **T4** | Cryptographic Certificates | `certificates:issue`, `verify` | `/verify` | PASS |
-| **T4** | Signed Judge Participation Records | `judging:judgeRecord` | `/verify/judge/:uuid` | PASS |
-| **T4** | Embeddable Gallery Widget | `submissions:publicGallery` | `/embed/gallery/:slug` | PASS |
-| **T4** | Bulk Import / Export | `exports:eventJson`, `imports:eventFromJson` | `/admin/events` | PASS |
-| **Bonus 1** | Normalization Proof Script | `normalization.test.ts` | Test Suite | PASS |
-| **Bonus 2** | Bradley-Terry Pairwise Ranking | `pairwise:leaderboard`, `submitMatch` | `/judge/pairwise` | PASS |
-| **Bonus 3** | Threat Model Doc | `THREAT-MODEL.md` | Root | PASS |
-| **Bonus 4** | API First & Interactive Docs | `/api/docs` | Browser | PASS |
+| Claim | Command | Result |
+|---|---|---|
+| TypeScript compiles | `bun tsc -b --noEmit` | clean (0 errors) |
+| Unit + algorithm tests pass | `bun run test` | **202 passed / 202, 17 files** |
+| Normalization proof matches the app | `bun run proof:normalization` | regenerates `normalization-proof.txt` from `fixtures.json` via the real algorithm module |
+| Official acceptance suite | `python3 run.py .dogfood.toml` (stack running) | 7/7 — recorded in `acceptance-report.txt` |
+| In-app tier + security suite | `POST /api/v1/acceptance` as organizer, or the Acceptance panel | 22 tier checks + 17 T5 security checks |
+
+The 202 tests are the deterministic layer: pure algorithms
+(`assignment`, `normalization`, `pairwise`, `duplicates`), security primitives
+(`rbac`, `authGuard`, `jwt`, `totp`, `secretBox`, `webhookSignature`,
+`webhookTarget`, `safeRedirect` via `inputValidation`, `rateLimit`, `tokenStorage`,
+`wellKnown`, `authKeysScript`) and two fixture-driven proofs
+(`normalizationProof`, `duplicates`).
 
 ---
 
-## 4. Route Rendering & Verification
+## 2. Acceptance status (T1 + T2)
 
-| Route | Category | Status | Verdict |
-|---|---|---|---|
-| `/` | Public | Rendered | PASS |
-| `/auth` | Public | Rendered | PASS |
-| `/invite/:token` | Public | Rendered | PASS |
-| `/events` | Public | Rendered | PASS |
-| `/e/:slug` | Public | Rendered | PASS |
-| `/gallery/:slug` | Public | Rendered | PASS |
-| `/project/:id` | Public | Rendered | PASS |
-| `/verify` | Public | Rendered | PASS |
-| `/verify/:uuid` | Public | Rendered | PASS |
-| `/verify/judge/:uuid` | Public | Rendered | PASS |
-| `/embed/gallery/:slug` | Standalone | Rendered | PASS |
-| `/terms`, `/privacy`, `/help` | Information | Rendered | PASS |
-| `/dashboard` | Participant | Guarded | PASS |
-| `/workspace` | Participant | Guarded | PASS |
-| `/judge` | Judge | Guarded | PASS |
-| `/judge/score/:id` | Judge | Guarded | PASS |
-| `/judge/pairwise` | Judge | Guarded | PASS |
-| `/organizer` | Organizer | Guarded | PASS |
-| `/organizer/events` | Organizer | Guarded | PASS |
-| `/organizer/events/new` | Organizer | Guarded | PASS |
-| `/organizer/events/:slug` | Organizer | Guarded | PASS |
-| `/admin` | Admin | Guarded | PASS |
-| `/admin/users` | Admin | Guarded | PASS |
-| `/admin/events` | Admin | Guarded | PASS |
-| `/admin/audit` | Admin | Guarded | PASS |
-| `/admin/invites` | Admin | Guarded | PASS |
-| `/admin/settings` | Admin | Guarded | PASS |
+`run.py .dogfood.toml` drives seven checks against a running stack. All seven
+pass; the recorded output is in `acceptance-report.txt`:
+
+```
+T1  gallery is public ................. PASS
+T1  project from fixtures shown ....... PASS
+T1  closed event refuses submissions .. PASS
+T2  judge sees own scores ............. PASS
+T2  judge cannot see peer scores ...... PASS
+T2  participant blocked ............... PASS
+T2  csv export works .................. PASS
+```
+
+These checks are the reason the judging and role-isolation work is conservative:
+every change was reasoned against them, and the REST contract they exercise
+(`http.ts` → `httpPublic.ts`) is verified before `sub` is trusted.
 
 ---
 
-## 5. Error Handling & Crash-Proofing Summary
-- All async mutations wrap execution in `try/catch` blocks and format error feedback using `humanizeConvexError(err)` for clean toast alerts.
-- Top-level `ErrorBoundary` in `main.tsx` traps uncaught React errors.
-- Unauthenticated access redirects smoothly to `/auth`.
-- Non-existent route URLs trigger `NotFound.tsx` without blank screens or console panics.
+## 3. Fixture-driven facts
+
+The seed creates one event from `fixtures.json`:
+
+| Fact | Value |
+|---|---|
+| Event slug | `sample-hack-2026` ("Sample Hack 2026"), status `closed` |
+| Population | 8 tracks, 30 judges, 40 teams, 41 projects, 126 score rows |
+| Criteria | 3 — Functionality / Quality / Innovation, weight `1/3` each, range 1–5 |
+| Seeded accounts | `admin@fixture.local`, `organizer@fixture.local`, `participant@fixture.local`, `tomas.varga@example.org` (judge A), `wei.lindqvist@example.org` (judge B) — password `dogfood2026` |
+| Known duplicate | `prj_07` and `prj_41` are both "Dry Harbour" with the same repo URL; the detector flags **`prj_41`** (earliest wins) |
+| Judge bias | harshest panel mean `2.000` vs most generous `4.222` — the normalization proof's raw gap of `2.222` points |
+| On top of fixtures | demo community votes, pairwise comparisons, certificates, and one duplicate scan are seeded so voting / pairwise / certificate screens open with real data |
 
 ---
 
-## 6. Offline Operating Status
-- **Zero External Dependencies**: All typography uses local Inter variable fonts; icons use inline SVGs.
-- **Crypto & Webhooks**: Local Web Crypto API (`crypto.subtle`) provides SHA-256 and HMAC-SHA256 computations without cloud calls.
-- **Verification**: Complete offline execution confirmed.
+## 4. Judging engine
+
+| Capability | Status | Evidence |
+|---|---|---|
+| Load-balanced, conflict-aware assignment | implemented | `lib/algorithms/assignment.ts` + `tests/assignment.test.ts` |
+| Per-judge load cap (default 8) | implemented | cap enforced in the planner; `capReached`/`unstaffedSubmissions` returned; `sec.assignment_load_cap` re-runs it on live data |
+| Track affinity | implemented | `judge_tracks:<userId>` platform rows → `affinityTracks` → tie-break |
+| Assignment preview before commit | implemented | `judging.previewAssignment` (dry run) + preview modal |
+| Rubric weights must sum to 1.000 | implemented | `upsertCriterion` validation + live modal feedback + `sec.rubric_weights` |
+| Rubric lock (admin-only unlock) | implemented | stage lock + explicit lock; `assertRubricEditable` on every write |
+| Judge queue scoped to own work | implemented | `myQueue` binds to caller `judgeId`; cross-judge requires organizer |
+| Live weighted total | implemented | `JudgeScore.tsx` |
+| Draft autosave + lock on submit | implemented | localStorage draft + `submitScores` refuses a completed assignment |
+| Progress "N of M" | implemented | derived from the queue |
+| Z-score normalization (0–10) | implemented | `normalizeScores` + `zToTenPoint`, proof regenerated |
+| Bradley–Terry pairwise ranking | implemented | `pairwise.ts` MM + validity checks; organizer-only leaderboard pre-publish |
 
 ---
 
-## 7. Conclusion
-RaptorJudge meets all contract, functional, security, and offline requirements across tiers T1, T2, T3, T4, and all bonus challenges. The platform is robust and ready for production deployment.
+## 5. Role isolation
+
+Server-side, in the function (not the UI). The full endpoint matrix is in
+[JUDGING.md §7](JUDGING.md#7-role-isolation); the boundaries are asserted by the
+T5 battery and `tests/rbac.test.ts`.
+
+The two that matter most are directly exercised by the acceptance checker:
+
+- a judge reads **their own** scores (`200`) while another judge is blocked
+  (`401/403`);
+- a participant is blocked from judge and organizer endpoints entirely.
+
+Additional boundaries verified in code: `submissions.byEvent` (drafts never leak),
+`events.get`/`getBySlug` (draft events invisible to non-staff),
+`judging.progress` / `allScores` / `normalization.analyze` (organizer only),
+`pairwise.leaderboard` (organizer/admin until publish), `teamChat.*` (members
+only, **staff excluded**), `teams.listByEvent` (invite code hidden),
+`admin.getSettings` (secret rows stripped).
+
+---
+
+## 6. Tier completion
+
+| Tier | Feature | Status |
+|---|---|---|
+| T1 | Auth, sessions, four roles, events, tracks/prizes, teams + invite codes, draft/submit, deadline lock, gallery, comments | Complete |
+| T2 | Assignment (+cap, affinity, preview), rubric (+validation, lock), isolated queues, scoring (+autosave, lock, progress), z-score normalization, pairwise Bradley–Terry, CSV exports | Complete |
+| T3 | Plain + quadratic voting with hidden tallies, comment moderation, seeded gallery order, rate limiting (vote / comment / sign-in / sign-up), duplicate detection, audit chain verification | Complete |
+| T4 | REST API + OpenAPI, HMAC webhooks with replay protection, certificates + verification, signed judge records, embeddable widget, bulk import/export | Complete |
+| Bonus | Normalization proof, Bradley–Terry, STRIDE threat model, API-first design | Complete |
+
+---
+
+## 7. Honest gaps
+
+Carried forward from [README.md](README.md) and
+[THREAT-MODEL.md](THREAT-MODEL.md); none of these is a hidden failure, and each
+has a stated workaround:
+
+- The **Compose runtime path was not executed in the development sandbox** (no
+  Docker there). Docker correctness rests on static review of
+  `docker-compose.yml`, `backend/entrypoint.sh` and `frontend/nginx.conf`, on unit
+  tests, and on the REST contract — not on a live `docker compose up`. Run
+  `npm run docker:verify` on a Docker host before trusting it.
+- **CSRF double-submit token** not implemented (session validation + same-origin +
+  CSP are the mitigations).
+- **Distributed rate limiting** not implemented (fixed windows are per-deployment).
+- **Sybil resistance is heuristic**, not identity-backed.
+- **A few destructive confirmations** still use the browser `confirm()` dialog
+  instead of the in-app `ConfirmDialog`.
+- **Export columns are unversioned**; container **image digests are not pinned**;
+  no **database dump wrapper** script.
+- **No automated contrast audit** and no formal load testing.
+
+---
+
+## 8. What changed in this pass
+
+See the README's feature matrix for the current state. The substantive changes
+were: the judging engine's cap / affinity / preview / rubric locking, the
+ten-point normalization and its regenerated proof, server-side role isolation
+across `judging`, `submissions`, `teams`, `teamChat`, `comments`, `pairwise`,
+`events`, `admin` and `webhooks`, the credential-attempt throttle, duplicate
+detection with organizer flags, the organizer results view (normalization +
+Bradley–Terry from live data), the judge scoring form, the `/workspace/chat`
+route, and this documentation set.

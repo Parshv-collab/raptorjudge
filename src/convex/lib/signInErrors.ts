@@ -38,6 +38,15 @@ export const INVALID_TOTP = "INVALID_TOTP_CODE";
 export const TOTP_LOCKED = "TOTP_LOCKED";
 
 /**
+ * Marker thrown when one address exceeds the credential-attempt ceiling
+ * (T3.5). Shown as its own message rather than folded into the uniform
+ * "invalid email or password" copy: the bucket is keyed by a hash of the
+ * address, so a registered and an unregistered email are throttled at exactly
+ * the same point and the message reveals nothing about existence.
+ */
+export const TOO_MANY_ATTEMPTS = "TOO_MANY_ATTEMPTS";
+
+/**
  * Marker for a second factor whose secret cannot be read (the deployment's
  * data key was lost or rotated without re-enrolment). Distinct from
  * `TOTP_REQUIRED` so the client does not loop forever asking for a code that
@@ -95,6 +104,8 @@ export function isSecondFactorMarker(message: string): boolean {
  */
 export function describeSignInFailureForUser(message: string): string {
   switch (message) {
+    case TOO_MANY_ATTEMPTS:
+      return "Too many attempts for this email. Wait a few minutes and try again.";
     case TOTP_REQUIRED:
       return "Enter the 6-digit code from your authenticator app";
     case INVALID_TOTP:

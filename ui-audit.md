@@ -1,6 +1,14 @@
-# Phase 0 UI Audit
+# Phase 0 UI Audit (historical snapshot)
 
-This audit records the current JSX-rendered structure before the simplification pass. Counts are based on the source and assume an authenticated user in the role associated with each route. Shared shell controls are included in the navigation count; conditional content is noted where it changes the count.
+> **Historical.** This is the pre-simplification snapshot taken at the start of the
+> design pass. Counts and verdicts describe the UI *as it was then*, not as it is
+> now — the organizer console and judge screens have since been restructured, and
+> the `/workspace/chat` route was added. For the current design system, screens
+> and state rules, read [DESIGN.md](DESIGN.md).
+>
+> It is kept because it documents *why* the simplification pass happened.
+
+This audit records the JSX-rendered structure before the simplification pass. Counts are based on the source and assume an authenticated user in the role associated with each route. Shared shell controls are included in the navigation count; conditional content is noted where it changes the count.
 
 | Page | Nav links | Tabs / sections | Buttons above fold | Stats / metrics | Primary action clear? | Verdict |
 |---|---:|---:|---:|---:|---|---|

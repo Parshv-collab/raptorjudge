@@ -35,6 +35,10 @@ export default function JudgePairwise() {
     api.pairwise.nextPair,
     skip || !activeEventId ? "skip" : { eventId: activeEventId as never }
   );
+  const myMatches = useQuery(
+    api.pairwise.myMatches,
+    skip || !activeEventId ? "skip" : { eventId: activeEventId as never }
+  );
   const submitMatch = useMutation(api.pairwise.submitMatch);
 
   const [busy, setBusy] = useState(false);
@@ -153,7 +157,24 @@ export default function JudgePairwise() {
                 </p>
               </div>
 
-              <div className="mt-6 pt-4 border-t border-black/5 flex flex-col gap-2">
+              <div className="mt-6 pt-4 border-t border-black/5 flex flex-col gap-3">
+                <div className="flex flex-wrap gap-2">
+                  {pair.a.repositoryUrl && (
+                    <a href={pair.a.repositoryUrl} target="_blank" rel="noopener noreferrer">
+                      <Button variant="secondary" size="sm">Repository ↗</Button>
+                    </a>
+                  )}
+                  {pair.a.demoUrl && (
+                    <a href={pair.a.demoUrl} target="_blank" rel="noopener noreferrer">
+                      <Button variant="secondary" size="sm">Live Demo ↗</Button>
+                    </a>
+                  )}
+                  {pair.a.videoUrl && (
+                    <a href={pair.a.videoUrl} target="_blank" rel="noopener noreferrer">
+                      <Button variant="secondary" size="sm">Video ↗</Button>
+                    </a>
+                  )}
+                </div>
                 <Button
                   variant="primary"
                   size="md"
@@ -161,7 +182,7 @@ export default function JudgePairwise() {
                   onClick={() => handleSelectWinner(pair.a.id)}
                   className="w-full"
                 >
-                  Select Project A as Winner
+                  Select Project A as winner
                 </Button>
               </div>
             </GlassCard>
@@ -179,7 +200,24 @@ export default function JudgePairwise() {
                 </p>
               </div>
 
-              <div className="mt-6 pt-4 border-t border-black/5 flex flex-col gap-2">
+              <div className="mt-6 pt-4 border-t border-black/5 flex flex-col gap-3">
+                <div className="flex flex-wrap gap-2">
+                  {pair.b.repositoryUrl && (
+                    <a href={pair.b.repositoryUrl} target="_blank" rel="noopener noreferrer">
+                      <Button variant="secondary" size="sm">Repository ↗</Button>
+                    </a>
+                  )}
+                  {pair.b.demoUrl && (
+                    <a href={pair.b.demoUrl} target="_blank" rel="noopener noreferrer">
+                      <Button variant="secondary" size="sm">Live Demo ↗</Button>
+                    </a>
+                  )}
+                  {pair.b.videoUrl && (
+                    <a href={pair.b.videoUrl} target="_blank" rel="noopener noreferrer">
+                      <Button variant="secondary" size="sm">Video ↗</Button>
+                    </a>
+                  )}
+                </div>
                 <Button
                   variant="primary"
                   size="md"
@@ -187,7 +225,7 @@ export default function JudgePairwise() {
                   onClick={() => handleSelectWinner(pair.b.id)}
                   className="w-full"
                 >
-                  Select Project B as Winner
+                  Select Project B as winner
                 </Button>
               </div>
             </GlassCard>
@@ -200,9 +238,35 @@ export default function JudgePairwise() {
               isLoading={busy}
               onClick={() => handleSelectWinner(undefined)}
             >
-              Declare Tie / Equal Performance
+              Declare tie / equal performance
             </Button>
           </div>
+
+          <p className="text-[11px] text-[#6e6e73] text-center">
+            {myMatches?.length ?? 0} comparison{(myMatches?.length ?? 0) === 1 ? "" : "s"} recorded
+            by you in this event. Every vote updates the Bradley-Terry ranking the organizer sees.
+          </p>
+
+          {(myMatches?.length ?? 0) > 0 && (
+            <GlassCard className="p-5">
+              <h3 className="text-sm font-bold text-[#1d1d1f] mb-3">Your recent comparisons</h3>
+              <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto">
+                {(myMatches || []).slice(0, 12).map((m: any) => (
+                  <div
+                    key={m.id}
+                    className="flex flex-wrap items-center gap-2 text-xs p-2 rounded-input bg-white/60 border border-white"
+                  >
+                    <span className="text-[#1d1d1f] truncate">{m.a}</span>
+                    <span className="text-[#6e6e73]">vs</span>
+                    <span className="text-[#1d1d1f] truncate">{m.b}</span>
+                    <span className="ml-auto font-semibold text-[#ff0055] truncate max-w-[45%]">
+                      {m.winner}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </GlassCard>
+          )}
         </div>
       )}
     </div>

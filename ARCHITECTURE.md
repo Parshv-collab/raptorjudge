@@ -1,48 +1,267 @@
 # Architecture
 
-## System overview
+RaptorJudge is a React + TypeScript single-page app on a **self-hosted Convex**
+backend. Convex is the database *and* the function runtime: there is no separate
+Node/Python API server to write or deploy. Docker Compose runs PostgreSQL, the
+Convex backend, the Convex dashboard, a one-shot bootstrap container, and an
+nginx-served Vite build.
 
-RaptorJudge is a React and TypeScript single-page application backed by self-hosted Convex. Docker Compose runs PostgreSQL, the Convex backend and HTTP actions, the Convex dashboard, a one-shot bootstrap container, and an nginx-served Vite build. The browser talks to Convex through `VITE_CONVEX_URL`; nginx proxies ordinary HTTP action paths to the backend.
+---
 
-## Docker services and network
+## 1. System overview
 
-`db` is PostgreSQL 16 and persists `db_data`. `backend` is the upstream `ghcr.io/get-convex/convex-backend:latest` image. It exposes client API port 3210 and HTTP actions port 3211, with port 8000 as an alias for HTTP actions. `dashboard` is the Convex dashboard on port 6791. `bootstrap` builds `backend/Dockerfile`, publishes auth keys, pushes `src/convex` as the schema/function migration, and seeds fixtures. `frontend` builds the Vite app and serves it through nginx on port 3000; it waits for bootstrap success. All services share `dogfood-network`. PostgreSQL is connected to Convex through `POSTGRES_URL`.
+```
+                        ┌──────────────────────────────────────┐
+   browser              │  frontend (nginx :3000)              │
+   ───────────────────▶ │  • serves the Vite build             │
+                        │  • CSP / nosniff / no-referrer       │
+                        │  • proxies /api/* → backend:3211     │
+                        │  • proxies /ws_api → backend:3210    │
+                        └──────────────┬───────────────────────┘
+                                       │
+                    Convex client API  │  HTTP actions (/api/*)
+                    (queries/mutations │  (REST + auth + OIDC)
+                     /actions/sync)    │
+                                       ▼
+                        ┌──────────────────────────────────────┐
+                        │  backend (Convex, :3210 / :3211)     │
+                        │  schema + queries + mutations        │
+                        │  actions + HTTP router               │
+                        └──────────────┬───────────────────────┘
+                                       │ POSTGRES_URL
+                                       ▼
+                        ┌──────────────────────────────────────┐
+                        │  db (PostgreSQL 16, volume db_data)  │
+                        └──────────────────────────────────────┘
 
-## Backend domains
+                        ┌──────────────────────────────────────┐
+                        │  bootstrap (one-shot)                │
+                        │  1. publish Convex Auth RS256 keys   │
+                        │  2. push function bundle (= migration)│
+                        │  3. verify real functions answer      │
+                        │  4. seed fixtures                     │
+                        └──────────────────────────────────────┘
+```
 
-Convex functions are grouped by source file. `auth.ts`, `auth.config.ts`, `mfa.ts`, and `lib/authProvider.ts` implement authentication. `users.ts` and `lib/rbac.ts` implement profiles and roles. `events.ts`, `tracks.ts`, and `teams.ts` implement lifecycle, prize tracks, teams, and invite codes. `submissions.ts`, `comments.ts`, and `voting.ts` implement participant work, comments, and public votes. `judging.ts`, `normalization.ts`, and `pairwise.ts` implement assignment, scoring, calibration, and pairwise ranking. `webhooks.ts`, `certificates.ts`, `audit.ts`, and `exports.ts` implement the stretch and integrity surfaces. `http.ts`, `httpPublic.ts`, `lib/jwt.ts`, and `lib/wellKnown.ts` provide HTTP routes, JWT checks, and OIDC discovery.
+The browser reaches Convex **directly** for reactive data (`VITE_CONVEX_URL`,
+default `http://localhost:3210`) and goes through nginx for the REST surface
+(`/api/*` → `backend:3211`). The SPA calls `/api/*` relatively, so no backend
+origin is hardcoded in frontend code.
 
-## Frontend structure
+---
 
-`src/main.tsx` creates the Convex client and Convex Auth provider, configures session-based token storage, and mounts the browser router. `src/App.tsx` declares public and protected routes. `src/components/layout/AppShell.tsx` provides the global shell and role-aware mobile navigation. `src/pages` contains route-level screens. `src/lib` contains validation, token storage, TOTP, safe redirects, and algorithm implementations used in tests and Convex code. State is local React state plus Convex reactive queries and mutations; there is no Redux store.
+## 2. Docker services and networking
 
-## Auth and role routing
+| Service | Image / build | Ports | Role |
+|---|---|---|---|
+| `db` | `postgres:16` | — | Convex's persistent store (`db_data`) |
+| `backend` | `ghcr.io/get-convex/convex-backend:latest` | `3210` client API, `3211` HTTP actions, `8000` alias | Database + function runtime + HTTP router |
+| `dashboard` | `ghcr.io/get-convex/convex-dashboard:latest` | `6791` | Operator dashboard |
+| `bootstrap` | `build: backend/Dockerfile` | — | One-shot: auth keys → deploy → verify → seed |
+| `frontend` | `build: frontend/Dockerfile` | `3000` | nginx serving the SPA and proxying `/api/*` |
 
-Sign-up and sign-in are handled by `Auth.tsx` through `useAuthActions().signIn` with the Convex password provider. The server's auth provider writes the account/session records and can require TOTP before minting a session. The client stores tokens in `sessionStorage` through `src/lib/tokenStorage.ts`; legacy local-storage Convex tokens are purged. `Protected` in `App.tsx` waits for Convex auth and renders `Auth` if unauthenticated. `/home` renders `RoleHome`, which sends participants to `/dashboard`, judges to `/judge`, organizers to `/organizer`, and admins to `/admin`. Backend functions repeat role checks and do not rely on frontend routing.
+All five share the bridge network `dogfood-network`. Startup order is enforced by
+health/exit gates, not sleeps:
 
-## Key data flows
+```
+db (healthy) ─▶ backend (healthy, /version) ─▶ bootstrap (exits 0) ─▶ frontend
+```
 
-Creating an event starts in `EventForm.tsx`, which converts form values to timestamps and calls `events.create` or `events.update`. The mutation validates organizer access and writes the event plus an audit record. A public event page links a participant to `/workspace?event=slug`; the workspace loads the selected event and calls `teams.create` or `teams.joinByInviteCode`. Team creation writes a team and leader membership and returns the invite code.
+`bootstrap` is the schema migration step. Convex has no migration files: pushing
+the function bundle creates/updates every table and index in
+`src/convex/schema.ts`. After the push it *verifies* the bundle by invoking real
+functions (`users:me`, `events:listPublic`) and fails closed on
+`Could not find public function` — `convex deploy` can silently target the wrong
+deployment, which would otherwise leave the SPA failing every query.
 
-A participant edits a submission in `ParticipantWorkspace.tsx`. Autosave calls `submissions.saveDraft`; final submission calls `submissions.submit`. The mutation validates URLs and fields, checks team membership and the submission deadline, and changes the status. Gallery visibility is controlled by event stage and submission status.
+`POSTGRES_URL` deliberately omits the database name: the backend appends it from
+`INSTANCE_NAME` (`dogfood` → `dogfood`).
 
-An organizer runs `judging.runAssignment`, which gathers submissions, judges, team membership, and track affinity before calling `planJudgeAssignments`. The resulting assignments are written to Convex. A judge loads `judging.myQueue`, opens `/judge/score/:id`, adjusts criterion sliders, and calls `judging.submitScores`. Organizers run normalization through the normalization backend and source algorithm; resulting data is returned for dashboards and exports. Results publication is represented by event lifecycle stages; a separate result-publication workflow is **not implemented**.
+`frontend` waits on `service_completed_successfully` from `bootstrap` for the same
+reason. An SPA pointed at an empty backend *looks* fine and then fails every
+query — so the stack refuses to serve until the functions are live.
 
-## Offline guarantees
+---
 
-The Compose stack is self-hosted and does not require cloud accounts or third-party runtime APIs. PostgreSQL and Convex data persist in Docker volumes. The source documents a Google Fonts dependency as removed, and the frontend uses local/system font fallbacks. A fully tested air-gapped installation procedure is **not implemented** because the repository still depends on container image availability and npm packages during build.
+## 3. Backend domains
 
-## Technical decisions
+| Module | Responsibility |
+|---|---|
+| `auth.ts`, `auth.config.ts`, `convex.config.ts`, `mfa.ts`, `lib/authProvider.ts` | Credentials auth, uniform failure messages, optional TOTP, provider guard |
+| `users.ts`, `lib/rbac.ts`, `lib/common.ts` | Profiles, roles, the shared authorization guards |
+| `events.ts`, `tracks.ts`, `teams.ts`, `teamChat.ts` | Lifecycle + stage machine, prize tracks, teams + invite codes, private team chat |
+| `submissions.ts`, `comments.ts`, `voting.ts`, `participate.ts` | Draft autosave + deadline lock + gallery + duplicate detection; comment moderation; plain/quadratic voting with hidden tallies; enrollment |
+| `judging.ts`, `normalization.ts`, `pairwise.ts` | Rubrics + locking, assignment, scoring, z-score normalization, Bradley–Terry |
+| `certificates.ts`, `webhooks.ts`, `exports.ts`, `imports.ts`, `audit.ts`, `admin.ts` | Certificates, signed webhook delivery, CSV/JSON export, bulk import, hash-chained audit, invites + settings |
+| `http.ts`, `httpPublic.ts`, `lib/jwt.ts`, `lib/wellKnown.ts` | REST router, bearer/session verification, OIDC discovery |
+| `lib/securityChecks.ts`, `acceptance.ts`, `seed.ts` | The self-check batteries, the seeded fixture world |
+| `crypto.ts`, `crates`-free helpers | SHA-256 / HMAC / mulberry32 seeded PRNG shared by mutations and the browser |
 
-Convex was chosen because it combines the typed database, reactive queries, mutations, authorization boundary, and HTTP action runtime needed by the application. Convex Auth avoids a custom password/session protocol. Session storage is used instead of local storage to reduce credential persistence after a browser tab closes. The custom OIDC discovery document exists because the built-in provider document is too small for strict OIDC clients. The audit log is hash-chained so later rows can detect tampering. Z-score normalization is the primary default because the source explicitly maps per-judge calibration to a common target distribution.
+Pure, dependency-free algorithm modules live outside Convex in
+`src/lib/algorithms/` (`assignment.ts`, `normalization.ts`, `pairwise.ts`,
+`duplicates.ts`) so they can be unit-tested directly and reused by the proof
+script. The Convex layer only gathers inputs and persists results.
 
-## References
+---
 
-[1]: docker-compose.yml "Compose services and dependencies"
-[2]: src/main.tsx "Frontend bootstrap"
-[3]: src/App.tsx "Routing and protected wrapper"
-[4]: src/pages/Auth.tsx "Auth form and redirect flow"
-[5]: src/convex/events.ts "Event mutations"
-[6]: src/convex/teams.ts "Team creation and invitation flow"
-[7]: src/convex/submissions.ts "Submission mutations"
-[8]: src/convex/judging.ts "Judge lifecycle"
+## 4. Frontend structure
+
+- `src/main.tsx` — Convex client, `ConvexAuthProvider` with a `sessionStorage`
+  token store, `BrowserRouter`, the Sonner toaster, and the global stylesheet.
+- `src/App.tsx` — the route table. Public routes sit under the `AppShell`
+  layout; `/auth` and `/invite/:token` use a minimal layout; `/embed/gallery/:slug`
+  is outside both so it can be iframed.
+- `src/components/ui/` — the design system (Button, GlassCard, EmptyState,
+  SkeletonCard, ProgressBar, Modal + ConfirmDialog, Dropdown, Input, Alert,
+  Avatar, Checkbox, ChipGroup, PasswordInput, StatCard).
+- `src/pages/` — one file per route-level screen.
+- `src/lib/` — validation, safe redirects, token storage, TOTP, error
+  humanization, and the algorithm modules above.
+
+State is Convex reactive queries plus local React state. There is no Redux store
+and no client-side cache to invalidate: a mutation that writes data re-renders
+every subscribed component automatically.
+
+---
+
+## 5. Auth flow and role routing
+
+```
+sign-in form ─▶ signIn("password", { email, password, flow })
+                        │
+                        ├─ attempt throttle   (platform: ratelimit:auth:<sha256(email)>)
+                        ├─ password verify    (scrypt, @convex-dev/auth)
+                        ├─ account disabled?  → ACCOUNT_DISABLED
+                        ├─ TOTP required?     → TOTP_REQUIRED (no session minted)
+                        │   └─ retry with { totp } → verify → session
+                        ▼
+                   local JWT session (RS256, JWT_PRIVATE_KEY / JWKS)
+                        ▼
+                   browser token in sessionStorage
+```
+
+Two hardening layers sit between the library and the client:
+
+1. **Uniform failures.** `InvalidAccountId`, `InvalidSecret` and
+   `TooManyFailedAttempts` all collapse to one message, so sign-in cannot be used
+   to enumerate accounts. Sign-up is exempt on purpose — registration must be
+   able to say "that address is taken".
+2. **Credential-attempt throttle.** Every sign-in and sign-up attempt charges one
+   slot from a fixed window keyed by `sha256(email)`. The library's own lockout
+   resets on a successful sign-in and does not cover sign-up; this closes both
+   gaps, and an unregistered address is throttled at exactly the same point.
+
+**Route protection.** `Protected` in `App.tsx` waits for Convex auth, then
+redirects signed-out visitors to `/auth?returnTo=<path+query>` rather than
+rendering the login form in place, so the destination survives the round-trip.
+`/home` renders `RoleHome`, which dispatches participants to `/dashboard`, judges
+to `/judge`, organizers to `/organizer` and admins to `/admin`. The
+authenticated routes are wrapped in `Protected`; `/search` and every
+`/workspace`, `/judge`, `/organizer`, `/admin`, `/profile`, `/settings`,
+`/security` route are gated.
+
+**Role routing is a convenience, not a control.** Every backend function repeats
+the check. See [JUDGING.md §7](JUDGING.md#7-role-isolation) for the endpoint
+matrix.
+
+---
+
+## 6. Judging engine architecture
+
+```
+organizer                     judge                        organizer
+─────────                     ─────                        ─────────
+previewAssignment (query)
+   └ planJudgeAssignments ────┐
+runAssignment (mutation)      │  pure, seeded, unit-tested
+   └ persists assignments ────┘
+                              │
+                     myQueue (own only)
+                              ▼
+                    submitScores ──▶ judgeScores (+ status=completed)
+                              │
+                              ▼
+        normalization.analyze ──▶ normalizeScores (z, min-max, Bayesian)
+                              │        │
+                              │        └─ ten-point 5 + 2z ranking
+                              ▼
+        pairwise.leaderboard ──▶ bradleyTerry MM (organizer-only pre-publish)
+                              ▼
+                    stage = published  ──▶  tallies, records, certificates
+```
+
+Design decisions worth calling out:
+
+- **Assignment is a pure function.** `planJudgeAssignments(input) → plan` takes a
+  plain object and returns a plain object. It is deterministic for a given seed,
+  so it is unit-tested (`tests/assignment.test.ts`) and re-run against live data
+  by the `sec.assignment_load_cap` self-check.
+- **Normalization is one module, three methods.** z-score is the primary method;
+  min-max and Bayesian run alongside so the results screen can show whether the
+  ranking is method-dependent. The published proof calls the same module, so it
+  cannot drift.
+- **Locks are server state.** A rubric lock is a `platform` row plus the event
+  stage — not a UI flag. Every criterion write passes through
+  `assertRubricEditable`.
+- **Visibility follows the stage.** Hidden vote tallies, gated normalization,
+  gated pairwise leaderboard and judge records all key off the event's `status`
+  in one place per domain.
+
+---
+
+## 7. Offline guarantees
+
+The stack is self-hosted and needs no cloud account or third-party runtime API:
+
+- **No external service is called at runtime** — auth is local password auth,
+  certificates and webhooks are signed locally with `crypto.subtle`, and
+  normalization is arithmetic over local data.
+- **Fonts are local/system** (Inter with system fallbacks) so the UI does not
+  depend on a font CDN.
+- **Data persists** in the `db_data` and `convex_data` Docker volumes.
+- **Webhook targets may be private addresses** (self-hosting means a receiver on
+  the same network is the normal case); the validator blocks cloud-metadata
+  addresses specifically rather than all RFC-1918 space.
+
+Honest limits: the **build** needs the container images and npm packages (use a
+registry mirror for an air-gapped install), the images are not digest-pinned, and
+a fully scripted air-gap installation procedure is not included. Everything after
+`docker compose up` runs with no network access.
+
+---
+
+## 8. Technical decisions
+
+**Why Convex.** The app needs a typed database, reactive queries, an
+authorization boundary and an HTTP action runtime in one deployable. Convex
+provides all four and its schema is TypeScript, so a bad field reference is a
+compile error rather than a runtime 500. It also self-hosts, which keeps the
+"runs on your own hardware" promise real.
+
+**Why PostgreSQL inside Convex.** The upstream Convex backend can persist to
+PostgreSQL instead of its embedded SQLite; using it means the Compose stack has a
+genuine, inspectable, dumpable source of truth that a host already knows how to
+back up.
+
+**Why nginx.** The SPA is static after build, and the browser-side security policy
+(CSP, `nosniff`, `Referrer-Policy`, `frame-ancestors`, `X-Frame-Options`) belongs
+in one place. nginx terminates that policy and proxies `/api/*` so the frontend
+never hardcodes a backend origin.
+
+**Why `sessionStorage` for tokens.** A token that survives a browser restart is a
+standing credential; a per-tab token that dies with the tab is a smaller blast
+radius. Legacy `localStorage` tokens are purged at startup.
+
+**Why z-score normalization.** Raw averages measure judge severity as much as
+project quality. Standardizing per judge removes the panel's personal scale
+before averaging, which is the difference the fixture data demonstrates.
+
+**Why hash-chain the audit log.** An append-only log that anyone can rewrite
+proves nothing. Chaining each entry to its predecessor's hash makes tampering
+detectable by recomputation, and `audit.verifyChain` is exposed so an operator can
+prove it rather than trust it.
+
+**Why a `platform` key/value table for locks and specialisations.** Adding a
+column would be a schema change; the deployed schema is frozen in some
+environments, and lock/specialisation state is naturally sparse. These rows are
+stripped by the settings projection so they never reach a client.

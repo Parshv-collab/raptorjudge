@@ -6,13 +6,16 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { StatCard } from "@/components/ui/StatCard";
 import { Button } from "@/components/ui/Button";
 import { SkeletonCard, SkeletonStat } from "@/components/ui/SkeletonCard";
+import { usePrimaryEvent } from "@/lib/featuredEvent";
 
 export default function OrganizerDashboard() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const skip = authLoading || !isAuthenticated;
 
   const events = useQuery(api.events.listAll, skip ? "skip" : {});
-  const event = useQuery(api.events.getBySlug, skip ? "skip" : { slug: "dogfood-2026" });
+  const { event: primaryEvent } = usePrimaryEvent();
+  // The organizer's own first event, falling back to the public featured event.
+  const event = skip ? primaryEvent : (events?.[0] ?? primaryEvent);
   const submissions = useQuery(api.submissions.byEvent, skip || !event ? "skip" : { eventId: event._id });
   const teams = useQuery(api.teams.listByEvent, skip || !event ? "skip" : { eventId: event._id });
   const progress = useQuery(api.judging.progress, skip || !event ? "skip" : { eventId: event._id });
