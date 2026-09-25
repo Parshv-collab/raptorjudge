@@ -223,12 +223,13 @@ for pair in tracks rubric; do
   fi
 done
 
-# The gallery is deliberately hidden until judging starts (it would otherwise
-# publish every team's work during the hacking stage). The seeded event sits in
-# `hacking`, so an empty gallery here is the *correct* answer — and if the event
-# ever is past that point, the seeded submissions must show up.
+# The gallery is deliberately hidden until submissions close (it would otherwise
+# publish every team's work during hacking). The seeded event is `closed`, which
+# is past that gate — matching the API rule in httpPublic.galleryPublic and the
+# UI rule in Gallery.tsx: hidden for draft/registration/hacking, visible for
+# closed/judging/voting/published/archived.
 case "${event_status}" in
-  judging | voting | published | archived)
+  closed | judging | voting | published | archived)
     cards="$(curl -sS --max-time 10 "${API}/api/v1/gallery/${SLUG}" |
       node -e 'let s="";process.stdin.on("data",(d)=>(s+=d)).on("end",()=>{try{process.stdout.write(String((JSON.parse(s).cards??[]).length))}catch{process.stdout.write("0")}})')"
     if [ "${cards}" -gt 0 ]; then
