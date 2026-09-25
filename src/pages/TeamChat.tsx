@@ -2,9 +2,9 @@ import { useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { GlassCard } from "@/components/ui/GlassCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { TeamChatSection } from "@/pages/ParticipantWorkspace";
 import { usePrimaryEventSlug } from "@/lib/featuredEvent";
 
@@ -25,7 +25,7 @@ export default function TeamChat() {
 
   if (authLoading) {
     return (
-      <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
+      <div className="flex flex-col gap-6">
         <SkeletonCard lines={2} />
         <SkeletonCard lines={4} />
       </div>
@@ -38,23 +38,19 @@ export default function TeamChat() {
   const activeTeamId = selected ?? list[0]?.teamId ?? null;
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-            Workspace
-          </span>
-          <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-0.5">Team chat</h1>
-          <p className="text-xs text-[#6e6e73] mt-1">
-            Private to your team&apos;s members — organizers and judges cannot read it.
-          </p>
-        </div>
-        <Link to="/workspace">
-          <span className="text-xs font-semibold text-[#ff0055] hover:underline focus-ring-accent rounded px-1">
+    <div className="flex flex-col gap-8">
+      <PageHeader
+        title="Team chat"
+        description="Private to your team's members — organizers and judges cannot read it."
+        actions={
+          <Link
+            to="/workspace"
+            className="text-sm text-accent hover:text-accent-hover transition-colors duration-fast"
+          >
             ← Back to workspace
-          </span>
-        </Link>
-      </div>
+          </Link>
+        }
+      />
 
       {teams === undefined ? (
         <SkeletonCard lines={4} />
@@ -68,24 +64,24 @@ export default function TeamChat() {
       ) : (
         <>
           {list.length > 1 && (
-            <GlassCard className="p-3 flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2">
               {list.map((t) => (
                 <button
                   key={t.teamId}
                   type="button"
                   onClick={() => setSelected(t.teamId)}
                   aria-pressed={activeTeamId === t.teamId}
-                  className={`px-3 py-1.5 rounded-button text-xs font-semibold border transition-colors focus-ring-accent ${
+                  className={`h-8 px-3.5 rounded-pill text-[13px] font-medium border transition-colors duration-fast ${
                     activeTeamId === t.teamId
-                      ? "bg-[#ff0055] text-white border-[#ff0055]"
-                      : "bg-white/60 text-[#1d1d1f] border-white/80 hover:bg-white/90"
+                      ? "bg-accent/10 text-accent border-accent/40"
+                      : "bg-surface-1 text-secondary border-line hover:text-primary hover:border-line-strong"
                   }`}
                 >
                   {t.teamName}
-                  <span className="ml-1.5 opacity-70">({t.messageCount})</span>
+                  <span className="ml-1.5 opacity-70 tnum">({t.messageCount})</span>
                 </button>
               ))}
-            </GlassCard>
+            </div>
           )}
 
           {activeTeamId && <TeamChatSection teamId={activeTeamId} />}

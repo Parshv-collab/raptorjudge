@@ -38,37 +38,35 @@ import AdminJudging from "@/pages/AdminJudging";
 import InviteAccept from "@/pages/InviteAccept";
 import ParticipantDashboard from "@/pages/ParticipantDashboard";
 import { Link, Navigate, Outlet, useLocation } from "react-router-dom";
-import { ThemeProvider } from "@/components/theme/ThemeProvider";
 
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 
 function MinimalLayout() {
   return (
-    <div className="min-h-screen flex flex-col relative text-[#1d1d1f]">
-      <div className="pastel-bg-container" aria-hidden="true">
-        <div className="pastel-blob pastel-blob-1" />
-        <div className="pastel-blob pastel-blob-2" />
-      </div>
-
-      <header className="sticky top-0 z-40 w-full glass-panel border-b border-white/60 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+    <div className="min-h-screen flex flex-col bg-canvas text-primary">
+      <header className="sticky top-0 z-40 w-full bg-canvas/90 backdrop-blur border-b border-line">
+        <div className="max-w-content mx-auto px-5 lg:px-8 h-16 flex items-center justify-between">
           <Link
             to="/"
-            className="flex items-center gap-2.5 font-extrabold text-lg text-[#1d1d1f] hover:opacity-90 transition-opacity focus-ring-accent rounded-button p-1"
+            className="flex items-center gap-2.5"
           >
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#ff0055] to-[#ff5588] text-white flex items-center justify-center font-black text-sm shadow-sm shadow-[#ff0055]/30">
+            <span className="w-7 h-7 rounded-btn bg-accent text-white flex items-center justify-center text-[13px] font-bold">
               R
-            </div>
-            <span className="tracking-tight">
-              Raptor<span className="text-[#ff0055]">Judge</span>
+            </span>
+            <span className="wordmark text-[17px]">
+              Raptor<span className="text-accent">Judge</span>
             </span>
           </Link>
         </div>
       </header>
 
-      <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 w-full max-w-content mx-auto px-5 lg:px-8 py-8">
         <Outlet />
       </main>
+
+      <footer className="border-t border-line py-6 text-center text-[13px] text-muted">
+        © 2026 RaptorJudge
+      </footer>
     </div>
   );
 }
@@ -112,7 +110,7 @@ function Protected({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <ThemeProvider>
+    <>
       <Routes>
         <Route element={<MinimalLayout />}>
           <Route path="/auth" element={<Auth />} />
@@ -158,6 +156,6 @@ export default function App() {
         </Route>
         <Route path="/embed/gallery/:slug" element={<EmbedGallery />} />
       </Routes>
-    </ThemeProvider>
+    </>
   );
 }

@@ -6,7 +6,7 @@ export interface SelectOption {
   disabled?: boolean;
 }
 
-export interface DropdownProps extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, "onChange"> {
+export interface SelectProps extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, "onChange"> {
   label?: string;
   options: SelectOption[];
   value?: string;
@@ -15,11 +15,7 @@ export interface DropdownProps extends Omit<React.SelectHTMLAttributes<HTMLSelec
   placeholder?: string;
 }
 
-/**
- * Legacy alias retained for existing call sites — `Dropdown` renders the same
- * native select as `Select` (kept as a thin wrapper so old imports keep working).
- */
-export const Dropdown = forwardRef<HTMLSelectElement, DropdownProps>(
+export const Select = forwardRef<HTMLSelectElement, SelectProps>(
   ({ label, options, value, onChange, error, placeholder = "Select an option", className = "", id, required, ...props }, ref) => {
     const generatedId = useId();
     const selectId = id || generatedId;
@@ -75,4 +71,4 @@ export const Dropdown = forwardRef<HTMLSelectElement, DropdownProps>(
   }
 );
 
-Dropdown.displayName = "Dropdown";
+Select.displayName = "Select";

@@ -2,10 +2,11 @@ import { useMemo } from "react";
 import { useQuery, useConvexAuth } from "convex/react";
 import { Link, Navigate } from "react-router-dom";
 import { api } from "@/convex/_generated/api";
-import { GlassCard } from "@/components/ui/GlassCard";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { DEFAULT_EVENT_SLUG } from "@/lib/featuredEvent";
 
 export default function ParticipantDashboard() {
@@ -31,10 +32,12 @@ export default function ParticipantDashboard() {
 
   if (authLoading) {
     return (
-      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
+      <div className="flex flex-col gap-6">
         <SkeletonCard lines={2} />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          <SkeletonCard lines={3} /><SkeletonCard lines={3} /><SkeletonCard lines={3} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={3} />
         </div>
       </div>
     );
@@ -44,10 +47,12 @@ export default function ParticipantDashboard() {
 
   if (me === undefined || enrolled === undefined || featured === undefined) {
     return (
-      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
+      <div className="flex flex-col gap-6">
         <SkeletonCard lines={2} />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          <SkeletonCard lines={3} /><SkeletonCard lines={3} /><SkeletonCard lines={3} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={3} />
         </div>
       </div>
     );
@@ -71,50 +76,51 @@ export default function ParticipantDashboard() {
   const firstName = (me?.name || me?.email?.split("@")[0] || "there").split(/\s+/)[0];
 
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-10">
-      {/* Greeting Header */}
-      <div>
-        <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight">
-          Welcome back, {firstName}
-        </h1>
-        <p className="text-xs text-[#6e6e73] mt-1">
-          Manage your hackathons and explore open events.
-        </p>
-      </div>
+    <div className="flex flex-col gap-12">
+      <PageHeader
+        title={`Welcome back, ${firstName}`}
+        description="Manage your hackathons and explore open events."
+        bordered={false}
+      />
 
-      {/* Your Events Section */}
-      <section id="events" className="flex flex-col gap-4">
-        <h2 className="text-lg font-bold text-[#1d1d1f]">Your Events</h2>
+      {/* Your events */}
+      <section className="flex flex-col gap-4">
+        <h2 className="text-h3 text-primary">Your events</h2>
 
         {enrolled.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {enrolled.map((event: any) => (
-              <GlassCard key={event._id} hoverEffect className="p-6 flex flex-col justify-between">
+              <div
+                key={event._id}
+                className="bg-surface-1 border border-line rounded-card p-6 flex flex-col justify-between transition-colors duration-fast hover:border-line-strong"
+              >
                 <div>
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-[#ff0055]/10 text-[#ff0055]">
-                      {event.status}
-                    </span>
-                  </div>
-                  <h3 className="text-base font-bold text-[#1d1d1f] mb-1">{event.title}</h3>
-                  <p className="text-xs text-[#6e6e73] line-clamp-2 mb-4">
+                  <Badge
+                    variant={["registration", "hacking"].includes(event.status) ? "success" : "default"}
+                    className="mb-3"
+                  >
+                    {event.status}
+                  </Badge>
+                  <h3 className="text-h3 text-primary">{event.title}</h3>
+                  <p className="text-[13px] text-secondary line-clamp-2 mt-1.5 mb-4">
                     {event.tagline || event.description}
                   </p>
                 </div>
 
-                <div className="pt-3 border-t border-black/5 flex justify-between items-center">
+                <div className="pt-4 border-t border-line flex justify-between items-center">
                   <Link to={`/workspace?event=${event.slug}`}>
-                    <Button variant="primary" size="sm">
-                      Open Workspace →
+                    <Button variant="secondary" size="sm">
+                      Open workspace →
                     </Button>
                   </Link>
-                  <Link to={`/e/${event.slug}`}>
-                    <span className="text-xs font-semibold text-[#6e6e73] hover:text-[#1d1d1f]">
-                      Event Details
-                    </span>
+                  <Link
+                    to={`/e/${event.slug}`}
+                    className="text-[13px] text-muted hover:text-primary transition-colors duration-fast"
+                  >
+                    Details
                   </Link>
                 </div>
-              </GlassCard>
+              </div>
             ))}
           </div>
         ) : (
@@ -123,38 +129,39 @@ export default function ParticipantDashboard() {
             description="Browse upcoming and live hackathons to join a team and start building."
             actionLabel="Browse events"
             onAction={() => {
-              window.location.href = `/e/${DEFAULT_EVENT_SLUG}`;
+              window.location.href = `/events`;
             }}
           />
         )}
       </section>
 
-      {/* Featured Section (Up to 4 open events, hidden if none) */}
+      {/* Featured events */}
       {featured.length > 0 && (
         <section className="flex flex-col gap-4">
-          <h2 className="text-lg font-bold text-[#1d1d1f]">Featured Events</h2>
+          <h2 className="text-h3 text-primary">Featured events</h2>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {featured.map((event: any) => (
-              <GlassCard key={event._id} hoverEffect className="p-5 flex flex-col justify-between">
+              <div
+                key={event._id}
+                className="bg-surface-1 border border-line rounded-card p-5 flex flex-col justify-between transition-colors duration-fast hover:border-line-strong"
+              >
                 <div>
-                  <span className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-full bg-black/5 text-[#6e6e73] mb-2 inline-block">
+                  <Badge variant="default" className="mb-2">
                     {event.status}
-                  </span>
-                  <h3 className="text-sm font-bold text-[#1d1d1f] mb-1 line-clamp-1">
-                    {event.title}
-                  </h3>
-                  <p className="text-xs text-[#6e6e73] line-clamp-2 mb-3">
+                  </Badge>
+                  <h3 className="text-[15px] font-semibold text-primary line-clamp-1">{event.title}</h3>
+                  <p className="text-[13px] text-secondary line-clamp-2 mt-1 mb-3">
                     {event.tagline || event.description}
                   </p>
                 </div>
 
                 <Link to={`/e/${event.slug}`}>
-                  <Button variant="secondary" size="sm" className="w-full text-xs">
-                    View Event
+                  <Button variant="secondary" size="sm" className="w-full">
+                    View event
                   </Button>
                 </Link>
-              </GlassCard>
+              </div>
             ))}
           </div>
         </section>

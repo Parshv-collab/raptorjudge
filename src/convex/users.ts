@@ -91,7 +91,11 @@ export const isUserDisabled = internalQuery({
   handler: async (ctx, args) => {
     const user = await ctx.db.get(args.userId);
     if (!user) return false;
-    return user.role === undefined || user.disabledAt !== undefined || user.disabled_at !== undefined;
+    // Only an explicit admin disable counts. `role === undefined` is the normal
+    // state of a fresh self-registered account (roles are granted by invite,
+    // seed or an admin) — treating it as "disabled" used to reject every
+    // sign-up's first re-login with ACCOUNT_DISABLED.
+    return user.disabledAt !== undefined || user.disabled_at !== undefined;
   },
 });
 

@@ -4,19 +4,31 @@ import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { humanizeConvexError } from "@/lib/errors";
-import { GlassCard } from "@/components/ui/GlassCard";
-import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonTable } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
 import { Dropdown } from "@/components/ui/Dropdown";
+import { Badge } from "@/components/ui/Badge";
+import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
 import { Modal } from "@/components/ui/Modal";
+import { Textarea } from "@/components/ui/Textarea";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { CalendarDays } from "lucide-react";
 
 const STATUS_OPTIONS = [
-  { value: "all", label: "All Statuses" },
+  { value: "all", label: "All statuses" },
   { value: "draft", label: "Draft" },
-  { value: "registration", label: "Registration Open" },
+  { value: "registration", label: "Registration open" },
   { value: "published", label: "Published" },
   { value: "archived", label: "Archived" },
 ];
+
+const STATUS_BADGE: Record<string, "default" | "success" | "warning"> = {
+  draft: "default",
+  registration: "success",
+  published: "success",
+  archived: "warning",
+};
 
 export default function AdminEvents() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -43,9 +55,9 @@ export default function AdminEvents() {
     try {
       const res = await importEventFromJson({ jsonString: importJsonText.trim() });
       if (res.imported) {
-        toast.success("Event imported successfully!");
+        toast.success("Event imported successfully.");
       } else {
-        toast.info(res.message || "Event already exists");
+        toast.info(res.message || "Event already exists.");
       }
       setImportModalOpen(false);
       setImportJsonText("");
@@ -92,7 +104,7 @@ export default function AdminEvents() {
   }
 
   async function handleDelete(e: any) {
-    if (!confirm(`Are you sure you want to delete event "${e.title}"?`)) return;
+    if (!confirm(`Delete event "${e.title}"? This cannot be undone.`)) return;
     try {
       await deleteEvent({ eventId: e._id });
       toast.success(`Deleted ${e.title}`);
@@ -108,7 +120,7 @@ export default function AdminEvents() {
         eventId: transferTargetEvent._id,
         newOrganizerId: selectedOrganizer as any,
       });
-      toast.success("Ownership transferred successfully.");
+      toast.success("Ownership transferred.");
       setTransferTargetEvent(null);
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
@@ -117,8 +129,8 @@ export default function AdminEvents() {
 
   if (authLoading) {
     return (
-      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
-        <SkeletonCard lines={6} />
+      <div className="flex flex-col gap-6">
+        <SkeletonTable rows={6} />
       </div>
     );
   }
@@ -126,68 +138,77 @@ export default function AdminEvents() {
   if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
-      <Link to="/admin">
-        <span className="text-xs font-semibold text-[#ff0055] hover:underline">
-          ← Back to Admin Dashboard
-        </span>
-      </Link>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="All system events"
+        description="Every event on the platform, regardless of owner or lifecycle stage."
+        actions={
+          <Button variant="primary" onClick={() => setImportModalOpen(true)}>
+            Import JSON
+          </Button>
+        }
+      />
 
-      <div className="flex justify-between items-center">
-        <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-            Platform Overview
-          </span>
-          <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-0.5">
-            All System Events
-          </h1>
+      {/* Filter bar */}
+      <div className="bg-surface-1 border border-line rounded-card p-4 flex items-center justify-between gap-4">
+        <div className="w-56">
+          <Dropdown options={STATUS_OPTIONS} value={statusFilter} onChange={(val) => setStatusFilter(val)} />
         </div>
-
-        <Button variant="primary" size="md" onClick={() => setImportModalOpen(true)}>
-          Bulk Import JSON
-        </Button>
+        <span className="text-[13px] text-muted tnum">
+          {filteredEvents.length} event{filteredEvents.length === 1 ? "" : "s"}
+        </span>
       </div>
 
-      {/* Filter Bar */}
-      <GlassCard className="p-4 flex items-center justify-between">
-        <div className="w-56">
-          <Dropdown
-            options={STATUS_OPTIONS}
-            value={statusFilter}
-            onChange={(val) => setStatusFilter(val)}
-          />
-        </div>
-      </GlassCard>
-
-      {/* All Events Table */}
-      <GlassCard className="p-6">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-black/10 font-bold uppercase tracking-wider text-[#6e6e73]">
-                <th className="py-3 px-4">Event Title</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Slug</th>
-                <th className="py-3 px-4">Submission Deadline</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredEvents.map((e: any) => (
-                <tr key={e._id} className="border-b border-black/5 hover:bg-white/40 transition-colors">
-                  <td className="py-3.5 px-4 font-bold text-[#1d1d1f]">{e.title}</td>
-                  <td className="py-3.5 px-4">
-                    <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-[#ff0055]/10 text-[#ff0055]">
-                      {e.status}
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4 font-mono text-[#6e6e73]">/{e.slug}</td>
-                  <td className="py-3.5 px-4 text-[#6e6e73]">
+      {/* Events table */}
+      {events === undefined ? (
+        <SkeletonTable rows={6} />
+      ) : filteredEvents.length === 0 ? (
+        <EmptyState
+          icon={<CalendarDays />}
+          title="No events found"
+          description={
+            events.length === 0
+              ? "No events exist yet. Organizers create them from their console."
+              : "No events match the current status filter."
+          }
+        />
+      ) : (
+        <Table caption="All events">
+          <THead>
+            <tr>
+              <TH>Event</TH>
+              <TH>Status</TH>
+              <TH>Slug</TH>
+              <TH>Deadline</TH>
+              <TH numeric>Actions</TH>
+            </tr>
+          </THead>
+          <tbody>
+            {filteredEvents.map((e: any) => (
+              <TR key={e._id}>
+                <TD>
+                  <Link
+                    to={`/organizer/events/${e.slug}`}
+                    className="font-medium hover:text-accent transition-colors duration-fast"
+                  >
+                    {e.title}
+                  </Link>
+                </TD>
+                <TD>
+                  <Badge variant={STATUS_BADGE[e.status] ?? "default"}>{e.status}</Badge>
+                </TD>
+                <TD mono>/{e.slug}</TD>
+                <TD>
+                  <span className="tnum text-secondary">
                     {new Date(e.submissionDeadline).toLocaleDateString()}
-                  </td>
-                  <td className="py-3.5 px-4 text-right flex gap-1 justify-end">
+                  </span>
+                </TD>
+                <TD numeric>
+                  <div className="flex gap-1.5 justify-end">
                     <Link to={`/organizer/events/${e.slug}/edit`}>
-                      <Button variant="secondary" size="sm">Edit</Button>
+                      <Button variant="secondary" size="sm">
+                        Edit
+                      </Button>
                     </Link>
                     <Button variant="ghost" size="sm" onClick={() => handleTogglePublish(e)}>
                       {e.status === "draft" ? "Publish" : "Unpublish"}
@@ -200,75 +221,68 @@ export default function AdminEvents() {
                         Delete
                       </Button>
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                </TD>
+              </TR>
+            ))}
+          </tbody>
+        </Table>
+      )}
 
-          {filteredEvents.length === 0 && (
-            <p className="text-xs text-[#6e6e73] text-center py-8">
-              No events found matching current filter.
-            </p>
-          )}
-        </div>
-      </GlassCard>
-
-      {/* Bulk Import Modal */}
+      {/* Bulk import modal */}
       <Modal
         isOpen={importModalOpen}
         onClose={() => setImportModalOpen(false)}
-        title="Bulk Import Event JSON"
-        description="Upload or paste full event JSON data to import event, tracks, and rubric criteria."
+        title="Bulk import event JSON"
+        description="Upload or paste full event JSON to import the event, its tracks and rubric criteria."
+        maxWidth="lg"
       >
         <div className="flex flex-col gap-4 mt-2">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-[#1d1d1f]">Upload JSON File</label>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[13px] text-secondary">Upload JSON file</label>
             <input
               type="file"
               accept=".json,application/json"
               onChange={handleFileUpload}
-              className="text-xs p-2 rounded border border-black/10 bg-white"
+              className="text-[13px] text-secondary file:mr-3 file:h-8 file:px-3 file:rounded-btn file:border-0 file:bg-surface-2 file:text-primary file:cursor-pointer"
             />
           </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-[#1d1d1f]">Or Paste Event JSON Content</label>
-            <textarea
-              rows={8}
-              value={importJsonText}
-              onChange={(e) => setImportJsonText(e.target.value)}
-              placeholder='{"event": {"slug": "my-event", "title": "My Event"}, "tracks": []}'
-              className="w-full p-3 font-mono text-xs rounded-input bg-white/50 border border-white/80 focus-ring-accent"
-            />
-          </div>
+          <Textarea
+            label="Or paste event JSON"
+            rows={8}
+            value={importJsonText}
+            onChange={(e) => setImportJsonText(e.target.value)}
+            placeholder='{"event": {"slug": "my-event", "title": "My Event"}, "tracks": []}'
+            className="font-mono text-[13px]"
+          />
 
-          <div className="flex justify-between items-center mt-4">
-            <Button variant="ghost" size="md" onClick={() => setImportModalOpen(false)}>
+          <div className="flex justify-end gap-3 mt-2">
+            <Button variant="ghost" onClick={() => setImportModalOpen(false)}>
               Cancel
             </Button>
             <Button
               variant="primary"
-              size="md"
               isLoading={importBusy}
               disabled={!importJsonText.trim()}
               onClick={handleImportJson}
             >
-              Import Event
+              Import event
             </Button>
           </div>
         </div>
       </Modal>
 
+      {/* Transfer modal */}
       <Modal
         isOpen={!!transferTargetEvent}
         onClose={() => setTransferTargetEvent(null)}
-        title="Transfer Event Ownership"
+        title="Transfer event ownership"
         description={`Select a new organizer for ${transferTargetEvent?.title}`}
       >
         <div className="flex flex-col gap-4 mt-2">
           <Dropdown
-            label="New Organizer"
+            label="New organizer"
             options={organizers.map((u: any) => ({
               value: u._id,
               label: `${u.name || u.email} (${u.role})`,
@@ -277,16 +291,17 @@ export default function AdminEvents() {
             onChange={(v) => setSelectedOrganizer(v)}
           />
 
-          <div className="flex justify-between items-center mt-4">
-            <Button variant="ghost" size="md" onClick={() => setTransferTargetEvent(null)}>
+          <div className="flex justify-end gap-3 mt-2">
+            <Button variant="ghost" onClick={() => setTransferTargetEvent(null)}>
               Cancel
             </Button>
-            <Button variant="primary" size="md" onClick={handleTransferConfirm}>
-              Confirm Transfer
+            <Button variant="primary" disabled={!selectedOrganizer} onClick={handleTransferConfirm}>
+              Confirm transfer
             </Button>
           </div>
         </div>
       </Modal>
+
     </div>
   );
 }

@@ -2,13 +2,13 @@ import React from "react";
 import { Link, Navigate } from "react-router-dom";
 import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
-
+import { Badge } from "@/components/ui/Badge";
 import { Dropdown } from "@/components/ui/Dropdown";
+import { PageHeader } from "@/components/ui/PageHeader";
 
 export default function JudgePortal() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -20,7 +20,7 @@ export default function JudgePortal() {
 
   if (authLoading) {
     return (
-      <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
+      <div className="flex flex-col gap-6">
         <SkeletonCard lines={2} />
         <SkeletonCard lines={4} />
       </div>
@@ -31,7 +31,7 @@ export default function JudgePortal() {
 
   if (queue === undefined) {
     return (
-      <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
+      <div className="flex flex-col gap-6">
         <SkeletonCard lines={2} />
         <SkeletonCard lines={4} />
       </div>
@@ -56,9 +56,7 @@ export default function JudgePortal() {
     })),
   ];
 
-  const items = selectedEventId === "all"
-    ? allItems
-    : allItems.filter((i: any) => i.eventId === selectedEventId);
+  const items = selectedEventId === "all" ? allItems : allItems.filter((i: any) => i.eventId === selectedEventId);
 
   const completed = items.filter((i: any) => i.status === "completed").length;
   const total = items.length;
@@ -67,70 +65,51 @@ export default function JudgePortal() {
   const isMultiEvent = eventOptionsMap.size > 1;
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-8">
-      {/* Header with Progress Bar */}
-      <GlassCard className="p-8 flex flex-col gap-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-              Judging Dashboard
-            </span>
-            <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-0.5">
-              Judge Portal
-            </h1>
-          </div>
-
+    <div className="flex flex-col gap-10">
+      <PageHeader
+        title="Judging queue"
+        description="Assigned projects, sorted by event. Score each one on the event rubric."
+        actions={
           <div className="flex items-center gap-3">
             {eventFilterOptions.length > 2 && (
               <div className="w-44">
-                <Dropdown
-                  options={eventFilterOptions}
-                  value={selectedEventId}
-                  onChange={(v) => setSelectedEventId(v)}
-                />
+                <Dropdown options={eventFilterOptions} value={selectedEventId} onChange={(v) => setSelectedEventId(v)} />
               </div>
             )}
             <Link to="/judge/pairwise">
               <Button variant="secondary" size="sm">
-                Pairwise Comparisons ↗
+                Pairwise →
               </Button>
             </Link>
           </div>
-        </div>
+        }
+      />
 
-        {/* Progress Bar */}
-        <div className="mt-2">
-          <ProgressBar
-            value={completed}
-            max={total || 1}
-            showLabel
-            label={`${completed} of ${total} Scored`}
-          />
-        </div>
-      </GlassCard>
+      {/* Progress */}
+      <div className="bg-surface-1 border border-line rounded-card p-6">
+        <ProgressBar value={completed} max={total || 1} showLabel label={`${completed} of ${total} scored`} />
+      </div>
 
-      {/* Assigned Queue List */}
-      <div className="flex flex-col gap-4">
-        <h2 className="text-lg font-bold text-[#1d1d1f]">Assigned Queue</h2>
+      {/* Assigned queue */}
+      <section className="flex flex-col gap-4">
+        <h2 className="text-h3 text-primary">Assigned projects</h2>
 
         {items.length === 0 ? (
           <EmptyState
-            title="You have no assigned projects yet"
-            description="You have no assigned projects yet. An organizer will assign projects to you."
+            title="No assigned projects yet"
+            description="An organizer will assign projects to you. Check back once assignments are published."
           />
         ) : (
-          <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-8">
             {isMultiEvent && selectedEventId === "all" ? (
               Array.from(eventOptionsMap.entries()).map(([evtId, evtTitle]) => {
                 const eventItems = items.filter((i: any) => i.eventId === evtId);
                 if (eventItems.length === 0) return null;
                 return (
                   <div key={evtId} className="flex flex-col gap-3">
-                    <div className="px-1 pt-2 border-b border-black/5 pb-1">
-                      <h3 className="text-sm font-extrabold uppercase tracking-wider text-[#ff0055]">
-                        {evtTitle}
-                      </h3>
-                    </div>
+                    <h3 className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted pb-2 border-b border-line">
+                      {evtTitle}
+                    </h3>
                     {eventItems.map(renderCard)}
                   </div>
                 );
@@ -140,7 +119,7 @@ export default function JudgePortal() {
             )}
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 
@@ -151,58 +130,48 @@ export default function JudgePortal() {
     const canScore = item.canScore;
 
     return (
-      <GlassCard
+      <div
         key={assignmentId}
-        hoverEffect
-        className="p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+        className="bg-surface-1 border border-line rounded-card p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition-colors duration-fast hover:border-line-strong"
       >
-        <div className="flex items-center gap-3">
-          <div
-            className={`w-3 h-3 rounded-full ${
-              isDone ? "bg-emerald-500" : canScore ? "bg-[#ff0055]" : "bg-gray-400"
-            }`}
+        <div className="flex items-center gap-3.5 min-w-0">
+          <span
+            aria-hidden="true"
+            className={`w-2 h-2 rounded-pill shrink-0 ${isDone ? "bg-success" : canScore ? "bg-accent" : "bg-line-strong"}`}
           />
-          <div>
+          <div className="min-w-0">
             {eventTitle && (
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#6e6e73]">
-                {eventTitle}
-              </span>
+              <span className="text-[11px] uppercase tracking-[0.05em] text-muted">{eventTitle}</span>
             )}
-            <h3 className="text-sm font-bold text-[#1d1d1f]">
-              {item.submission.title}
-            </h3>
-            <p className="text-xs text-[#6e6e73] mt-0.5">
+            <h3 className="text-[15px] font-semibold text-primary truncate">{item.submission.title}</h3>
+            <p className="text-[13px] text-secondary mt-0.5">
               Team: {item.teamName || item.submission.teamName} · Track: {item.submission.trackName || "General"}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-3 shrink-0 w-full sm:w-auto justify-between sm:justify-end">
-          <span
-            className={`px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full ${
-              isDone
-                ? "bg-emerald-500/10 text-emerald-600"
-                : canScore
-                ? "bg-[#ff0055]/10 text-[#ff0055]"
-                : "bg-gray-200 text-gray-600"
-            }`}
-          >
-            {isDone ? "Scored ✓" : canScore ? "Pending" : item.judgingWindowLabel || "Closed"}
-          </span>
+          {isDone ? (
+            <Badge variant="success">Scored</Badge>
+          ) : canScore ? (
+            <Badge variant="accent">Pending</Badge>
+          ) : (
+            <Badge variant="default">{item.judgingWindowLabel || "Closed"}</Badge>
+          )}
 
           {canScore || isDone ? (
             <Link to={`/judge/score/${assignmentId}`}>
               <Button variant={isDone ? "secondary" : "primary"} size="sm">
-                {isDone ? "View score" : "Score Project →"}
+                {isDone ? "View score" : "Score project"}
               </Button>
             </Link>
           ) : (
             <Button variant="secondary" size="sm" disabled title={item.judgingWindowLabel}>
-              Score Project
+              Score project
             </Button>
           )}
         </div>
-      </GlassCard>
+      </div>
     );
   }
 }

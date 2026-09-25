@@ -3,14 +3,16 @@ import { useSearchParams, Link, Navigate } from "react-router-dom";
 import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
-import { GlassCard } from "@/components/ui/GlassCard";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { Textarea } from "@/components/ui/Textarea";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Alert } from "@/components/ui/Alert";
 import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmDialog } from "@/components/ui/Modal";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { humanizeConvexError } from "@/lib/errors";
 import { usePrimaryEventSlug } from "@/lib/featuredEvent";
 
@@ -44,7 +46,7 @@ export default function ParticipantWorkspace() {
   const [inviteCodeInput, setInviteCodeInput] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // ConfirmDialog States
+  // Confirm dialog state
   const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false);
   const [transferTarget, setTransferTarget] = useState<any>(null);
@@ -74,6 +76,7 @@ export default function ParticipantWorkspace() {
         trackId: data.submission.trackId ?? "",
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.submission?._id]);
 
   const me = useQuery(api.users.me, skip ? "skip" : {});
@@ -102,7 +105,7 @@ export default function ParticipantWorkspace() {
         trackId: (draft.trackId || undefined) as never,
       });
       setDirty(false);
-      toast.success("Draft saved successfully!");
+      toast.success("Draft saved");
     } catch (e: any) {
       toast.error(humanizeConvexError(e));
     } finally {
@@ -115,7 +118,7 @@ export default function ParticipantWorkspace() {
     setBusy(true);
     try {
       await joinSolo({ eventId: event._id });
-      toast.success("Registered as solo participant!");
+      toast.success("Registered as solo participant");
     } catch (e: any) {
       toast.error(humanizeConvexError(e));
     } finally {
@@ -129,7 +132,7 @@ export default function ParticipantWorkspace() {
     try {
       await handleSaveDraft();
       await submitProj({ eventId: event._id });
-      toast.success("Submission sent for judging!");
+      toast.success("Submission sent for judging");
     } catch (e: any) {
       toast.error(humanizeConvexError(e));
     } finally {
@@ -142,7 +145,7 @@ export default function ParticipantWorkspace() {
     setBusy(true);
     try {
       await withdrawProj({ eventId: event._id });
-      toast.success("Submission withdrawn to draft status.");
+      toast.success("Submission withdrawn to draft");
     } catch (e: any) {
       toast.error(humanizeConvexError(e));
     } finally {
@@ -155,7 +158,7 @@ export default function ParticipantWorkspace() {
     setBusy(true);
     try {
       const res = await createTeam({ eventId: event._id, name: teamNameInput.trim() });
-      toast.success(`Team created! Invite code: ${res.inviteCode}`);
+      toast.success(`Team created — invite code: ${res.inviteCode}`);
       setTeamNameInput("");
     } catch (e: any) {
       toast.error(humanizeConvexError(e));
@@ -169,7 +172,7 @@ export default function ParticipantWorkspace() {
     setBusy(true);
     try {
       const res = await joinTeam({ inviteCode: inviteCodeInput.trim().toLowerCase() });
-      toast.success(`Joined team ${res.teamName}!`);
+      toast.success(`Joined team ${res.teamName}`);
       setInviteCodeInput("");
     } catch (e: any) {
       toast.error(humanizeConvexError(e));
@@ -180,7 +183,7 @@ export default function ParticipantWorkspace() {
 
   if (authLoading) {
     return (
-      <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
+      <div className="flex flex-col gap-6">
         <SkeletonCard lines={2} />
         <SkeletonCard lines={4} />
       </div>
@@ -191,160 +194,130 @@ export default function ParticipantWorkspace() {
 
   if (myTeam === undefined || event === undefined) {
     return (
-      <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
+      <div className="flex flex-col gap-6">
         <SkeletonCard lines={2} />
         <SkeletonCard lines={4} />
       </div>
     );
   }
 
-  return (
-    <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-8">
-      {/* Workspace Header */}
-      <GlassCard className="p-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-            Participant Workspace
-          </span>
-          <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-1">
-            {event?.title || "Workspace"}
-          </h1>
-        </div>
+  if (event === null) {
+    return (
+      <div className="py-16 text-center flex flex-col items-center gap-3">
+        <h1 className="text-h2 text-primary">Event not found</h1>
+        <Link to="/events" className="text-sm text-accent hover:text-accent-hover">
+          Browse events →
+        </Link>
+      </div>
+    );
+  }
 
-        {event && (
-          <div className="p-3.5 rounded-input bg-white/60 border border-white shadow-sm flex flex-col gap-0.5">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#6e6e73]">
-              Submission Deadline
-            </span>
-            <span className="text-xs font-bold text-[#1d1d1f]">
+  return (
+    <div className="flex flex-col gap-10">
+      <PageHeader
+        title={event.title}
+        description="Team, submission and chat for this event."
+        actions={
+          <div className="bg-surface-1 border border-line rounded-card px-4 py-2.5 flex flex-col">
+            <span className="text-[11px] uppercase tracking-[0.05em] text-muted">Submission deadline</span>
+            <span className="text-[13px] font-medium text-primary tnum">
               {new Date(event.submissionDeadline).toLocaleString()}
             </span>
           </div>
-        )}
-      </GlassCard>
+        }
+      />
 
-      {/* Deadline Passed Banner */}
       {deadlinePassed && (
-        <Alert variant="warning" title="Submission Deadline Passed">
+        <Alert variant="warning" title="Submission deadline passed">
           The submission window for this event has closed. Form fields are read-only.
         </Alert>
       )}
 
-      {/* Team Management Section */}
-      <GlassCard className="p-6">
-        <h2 className="text-lg font-bold text-[#1d1d1f] mb-4">Team</h2>
+      {/* Team */}
+      <section className="flex flex-col gap-4">
+        <h2 className="text-h2 text-primary">Team</h2>
 
         {!team ? (
-          <div className={`grid grid-cols-1 ${event?.soloAllowed !== false ? "md:grid-cols-3" : "md:grid-cols-2"} gap-6`}>
-            {/* Create Team */}
+          <div className={`grid grid-cols-1 ${event?.soloAllowed !== false ? "md:grid-cols-3" : "md:grid-cols-2"} gap-8`}>
             <div className="flex flex-col gap-3">
-              <h3 className="text-sm font-bold text-[#1d1d1f]">Create a New Team</h3>
-              <p className="text-xs text-[#6e6e73]">
-                Start a team as leader and invite members with an invite code.
-              </p>
+              <h3 className="text-[15px] font-semibold text-primary">Create a new team</h3>
+              <p className="text-[13px] text-secondary">Start a team as leader and invite members with a code.</p>
               <div className="flex gap-2">
                 <Input
+                  aria-label="Team name"
                   placeholder="Team name"
                   value={teamNameInput}
                   onChange={(e) => setTeamNameInput(e.target.value)}
                 />
-                <Button
-                  variant="primary"
-                  size="md"
-                  isLoading={busy}
-                  disabled={!teamNameInput.trim()}
-                  onClick={handleCreateTeam}
-                >
+                <Button variant="primary" size="md" isLoading={busy} disabled={!teamNameInput.trim()} onClick={handleCreateTeam}>
                   Create
                 </Button>
               </div>
             </div>
 
-            {/* Join Team */}
-            <div className="flex flex-col gap-3 md:border-l border-black/5 md:pl-6">
-              <h3 className="text-sm font-bold text-[#1d1d1f]">Join with Invite Code</h3>
-              <p className="text-xs text-[#6e6e73]">
-                Enter an existing team invite code from a teammate.
-              </p>
+            <div className="flex flex-col gap-3 md:border-l border-line md:pl-8">
+              <h3 className="text-[15px] font-semibold text-primary">Join with invite code</h3>
+              <p className="text-[13px] text-secondary">Enter an existing team invite code from a teammate.</p>
               <div className="flex gap-2">
                 <Input
+                  aria-label="Invite code"
                   placeholder="Invite code"
                   value={inviteCodeInput}
                   onChange={(e) => setInviteCodeInput(e.target.value)}
                 />
-                <Button
-                  variant="secondary"
-                  size="md"
-                  isLoading={busy}
-                  disabled={!inviteCodeInput.trim()}
-                  onClick={handleJoinTeam}
-                >
+                <Button variant="secondary" size="md" isLoading={busy} disabled={!inviteCodeInput.trim()} onClick={handleJoinTeam}>
                   Join
                 </Button>
               </div>
             </div>
 
-            {/* Go Solo option if soloAllowed !== false */}
             {event?.soloAllowed !== false && (
-              <div className="flex flex-col gap-3 md:border-l border-black/5 md:pl-6">
-                <h3 className="text-sm font-bold text-[#1d1d1f]">Go Solo</h3>
-                <p className="text-xs text-[#6e6e73]">
-                  Participate individually without a team. You can still seek teammates later.
-                </p>
-                <Button
-                  variant="secondary"
-                  size="md"
-                  isLoading={busy}
-                  onClick={handleGoSolo}
-                >
-                  Go Solo
+              <div className="flex flex-col gap-3 md:border-l border-line md:pl-8">
+                <h3 className="text-[15px] font-semibold text-primary">Go solo</h3>
+                <p className="text-[13px] text-secondary">Participate individually without a team.</p>
+                <Button variant="secondary" size="md" isLoading={busy} onClick={handleGoSolo}>
+                  Go solo
                 </Button>
               </div>
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-center justify-between gap-4 p-4 rounded-input bg-white/60 border border-white">
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-wrap items-center justify-between gap-4 bg-surface-1 border border-line rounded-card p-5">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#ff0055]">
-                  Your Team
-                </span>
-                <h3 className="text-xl font-black text-[#1d1d1f]">{team.name}</h3>
+                <span className="text-[11px] uppercase tracking-[0.08em] text-accent font-medium">Your team</span>
+                <h3 className="text-h2 text-primary">{team.name}</h3>
               </div>
 
               <div className="flex items-center gap-2">
-                <div className="px-3 py-1.5 rounded-button bg-white border border-white/80 font-mono text-xs font-bold text-[#1d1d1f] shadow-sm">
-                  Code: {team.inviteCode}
+                <div className="px-3 h-9 inline-flex items-center rounded-btn bg-surface-2 border border-line font-mono text-[13px] text-primary">
+                  {team.inviteCode}
                 </div>
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={() => {
                     navigator.clipboard.writeText(team.inviteCode);
-                    toast.success("Invite code copied!");
+                    toast.success("Invite code copied");
                   }}
                 >
                   Copy
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setConfirmLeaveOpen(true)}
-                >
+                <Button variant="ghost" size="sm" onClick={() => setConfirmLeaveOpen(true)}>
                   Leave
                 </Button>
               </div>
             </div>
 
-            {/* Member List */}
-            <div className="flex flex-col gap-2">
+            {/* Members */}
+            <div className="flex flex-col gap-3">
               <div className="flex justify-between items-center">
-                <span className="text-xs font-bold text-[#1d1d1f]">Team Members</span>
+                <span className="text-[13px] font-medium text-secondary">Team members</span>
                 {team.members.length === 1 && event?.soloAllowed !== false && (
-                  <label className="flex items-center gap-2 text-xs font-medium text-[#1d1d1f] cursor-pointer">
+                  <label className="flex items-center gap-2 text-[13px] text-secondary cursor-pointer">
                     <input
                       type="checkbox"
-                      className="rounded border-gray-300 text-[#ff0055] focus:ring-[#ff0055]"
+                      className="w-4 h-4 rounded-[4px] appearance-none border border-line-strong bg-surface-1 checked:bg-accent checked:border-accent cursor-pointer"
                       checked={!!participantState?.lookingForTeam}
                       onChange={async (e) => {
                         if (!event) return;
@@ -354,9 +327,7 @@ export default function ParticipantWorkspace() {
                             lookingForTeam: e.target.checked,
                           });
                           toast.success(
-                            e.target.checked
-                              ? "Looking for a teammate enabled!"
-                              : "Looking for a teammate disabled."
+                            e.target.checked ? "Looking for a teammate enabled" : "Looking for a teammate disabled"
                           );
                         } catch (err: any) {
                           toast.error(humanizeConvexError(err));
@@ -371,26 +342,19 @@ export default function ParticipantWorkspace() {
                 {team.members.map((member: any) => (
                   <div
                     key={member.userId}
-                    className="p-3 rounded-input bg-white/40 border border-white/70 flex items-center justify-between"
+                    className="bg-surface-1 border border-line rounded-card p-3.5 flex items-center justify-between"
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                       <Avatar name={member.name} size="sm" />
                       <div>
-                        <p className="text-xs font-bold text-[#1d1d1f]">{member.name}</p>
-                        <p className="text-[10px] text-[#6e6e73] capitalize">
-                          {member.memberRole}
-                        </p>
+                        <p className="text-[13px] font-medium text-primary">{member.name}</p>
+                        <p className="text-[11px] text-muted capitalize">{member.memberRole}</p>
                       </div>
                     </div>
 
                     {member.memberRole !== "leader" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-[10px]"
-                        onClick={() => setTransferTarget(member)}
-                      >
-                        Make Leader
+                      <Button variant="ghost" size="sm" onClick={() => setTransferTarget(member)}>
+                        Make leader
                       </Button>
                     )}
                   </div>
@@ -399,29 +363,23 @@ export default function ParticipantWorkspace() {
             </div>
           </div>
         )}
-      </GlassCard>
+      </section>
 
-      {/* Team Chat & File Sharing (Private to Team Members) */}
-      {team && (
-        <TeamChatSection teamId={team._id} />
-      )}
+      {/* Team chat */}
+      {team && <TeamChatSection teamId={team._id} />}
 
-      {/* Submission Draft / Form Section */}
+      {/* Submission */}
       {team && (
-        <GlassCard className="p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold text-[#1d1d1f]">Project Submission</h2>
-            {submission?.status === "submitted" && (
-              <span className="px-3 py-1 text-xs font-bold uppercase tracking-wider rounded-full bg-emerald-500/10 text-emerald-600">
-                Submitted ✓
-              </span>
-            )}
+        <section className="flex flex-col gap-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-h2 text-primary">Project submission</h2>
+            {submission?.status === "submitted" && <Badge variant="success">Submitted</Badge>}
           </div>
 
-          <div className="flex flex-col gap-4">
+          <div className="bg-surface-1 border border-line rounded-card p-6 flex flex-col gap-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
-                label="Project Title"
+                label="Project title"
                 required
                 disabled={isLocked}
                 value={draft.title}
@@ -431,7 +389,6 @@ export default function ParticipantWorkspace() {
                 }}
                 placeholder="Awesome AI Assistant"
               />
-
               <Input
                 label="Tagline"
                 disabled={isLocked}
@@ -458,22 +415,18 @@ export default function ParticipantWorkspace() {
               ]}
             />
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-semibold text-[#1d1d1f]">
-                Description (Markdown Supported) *
-              </label>
-              <textarea
-                disabled={isLocked}
-                rows={6}
-                value={draft.description}
-                onChange={(e) => {
-                  setDraft({ ...draft, description: e.target.value });
-                  setDirty(true);
-                }}
-                className="w-full p-3.5 text-xs rounded-input text-[#1d1d1f] bg-white/50 border border-white/80 backdrop-blur-md shadow-sm focus-ring-accent disabled:opacity-50"
-                placeholder="Describe what you built, how it works, and technologies used..."
-              />
-            </div>
+            <Textarea
+              label="Description (Markdown supported)"
+              required
+              disabled={isLocked}
+              rows={6}
+              value={draft.description}
+              onChange={(e) => {
+                setDraft({ ...draft, description: e.target.value });
+                setDirty(true);
+              }}
+              placeholder="Describe what you built, how it works, and technologies used..."
+            />
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Input
@@ -486,9 +439,8 @@ export default function ParticipantWorkspace() {
                 }}
                 placeholder="https://github.com/..."
               />
-
               <Input
-                label="Video Demo URL"
+                label="Video demo URL"
                 disabled={isLocked}
                 value={draft.videoUrl}
                 onChange={(e) => {
@@ -497,9 +449,8 @@ export default function ParticipantWorkspace() {
                 }}
                 placeholder="https://youtube.com/..."
               />
-
               <Input
-                label="Live Demo URL"
+                label="Live demo URL"
                 disabled={isLocked}
                 value={draft.demoUrl}
                 onChange={(e) => {
@@ -511,7 +462,7 @@ export default function ParticipantWorkspace() {
             </div>
 
             <Input
-              label="Tags (Comma-separated)"
+              label="Tags (comma-separated)"
               disabled={isLocked}
               value={draft.tags}
               onChange={(e) => {
@@ -521,16 +472,9 @@ export default function ParticipantWorkspace() {
               placeholder="ai, web3, devtools"
             />
 
-            {/* Action Buttons */}
-            <div className="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-black/5">
-              <Button
-                variant="secondary"
-                size="md"
-                isLoading={busy}
-                disabled={isLocked || !dirty}
-                onClick={handleSaveDraft}
-              >
-                {dirty ? "Save Draft" : "Saved ✓"}
+            <div className="flex flex-wrap items-center gap-3 mt-2 pt-5 border-t border-line">
+              <Button variant="secondary" size="md" isLoading={busy} disabled={isLocked || !dirty} onClick={handleSaveDraft}>
+                {dirty ? "Save draft" : "Saved"}
               </Button>
 
               {submission?.status !== "submitted" ? (
@@ -542,33 +486,34 @@ export default function ParticipantWorkspace() {
                     disabled={isLocked || !draft.title.trim() || !draft.description.trim()}
                     onClick={() => setConfirmSubmitOpen(true)}
                   >
-                    Submit for Judging
+                    Submit for judging
                   </Button>
                 ) : (
-                  <span className="text-xs font-semibold text-[#6e6e73] bg-black/5 px-3 py-2 rounded-input">
+                  <span className="text-[13px] text-secondary bg-surface-2 px-3 py-2 rounded-btn">
                     Only the team leader can submit this project.
                   </span>
                 )
               ) : (
-                !deadlinePassed && isLeader && (
+                !deadlinePassed &&
+                isLeader && (
                   <Button variant="danger" size="md" isLoading={busy} onClick={handleWithdraw}>
-                    Withdraw to Edit
+                    Withdraw to edit
                   </Button>
                 )
               )}
             </div>
           </div>
-        </GlassCard>
+        </section>
       )}
 
-      {/* Confirm Dialogs */}
+      {/* Confirm dialogs */}
       <ConfirmDialog
         isOpen={confirmSubmitOpen}
         onClose={() => setConfirmSubmitOpen(false)}
         onConfirm={handleSubmitForJudging}
-        title="Confirm Project Submission"
+        title="Confirm project submission"
         description="Submitting locks editing. You can withdraw before the deadline if allowed. Are you ready to submit?"
-        confirmLabel="Submit Project"
+        confirmLabel="Submit project"
         isLoading={busy}
       />
 
@@ -587,9 +532,9 @@ export default function ParticipantWorkspace() {
             setBusy(false);
           }
         }}
-        title="Leave Team"
+        title="Leave team"
         description="Are you sure you want to leave this team? You will need an invite code to rejoin."
-        confirmLabel="Leave Team"
+        confirmLabel="Leave team"
         destructive
         isLoading={busy}
       />
@@ -612,27 +557,22 @@ export default function ParticipantWorkspace() {
             setBusy(false);
           }
         }}
-        title="Transfer Leadership"
+        title="Transfer leadership"
         description={`Are you sure you want to transfer team leadership to ${transferTarget?.name}?`}
-        confirmLabel="Transfer Leadership"
+        confirmLabel="Transfer leadership"
         isLoading={busy}
       />
 
-      {/* Certificates Section */}
+      {/* Certificates */}
       {certs && certs.length > 0 && (
-        <GlassCard className="p-6">
-          <h2 className="text-lg font-bold text-[#1d1d1f] mb-4">Your Certificates</h2>
+        <section className="flex flex-col gap-4">
+          <h2 className="text-h2 text-primary">Your certificates</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {certs.map((c: any) => (
-              <div
-                key={c._id}
-                className="p-4 rounded-input bg-white/60 border border-white flex justify-between items-center"
-              >
-                <div>
-                  <h4 className="text-xs font-bold text-[#1d1d1f]">{c.title}</h4>
-                  <p className="text-[10px] text-[#6e6e73]">
-                    UUID: {c.certUuid.substring(0, 10)}...
-                  </p>
+              <div key={c._id} className="bg-surface-1 border border-line rounded-card p-5 flex justify-between items-center">
+                <div className="min-w-0">
+                  <h4 className="text-[13px] font-medium text-primary">{c.title}</h4>
+                  <p className="font-mono text-[11px] text-muted truncate">{c.certUuid.substring(0, 16)}…</p>
                 </div>
                 <Link to={`/verify/${c.certUuid}?signature=${c.signatureHash}`}>
                   <Button variant="secondary" size="sm">
@@ -642,7 +582,7 @@ export default function ParticipantWorkspace() {
               </div>
             ))}
           </div>
-        </GlassCard>
+        </section>
       )}
     </div>
   );
@@ -698,7 +638,6 @@ export function TeamChatSection({ teamId, className = "" }: { teamId: any; class
     }
     setUploading(true);
     try {
-      // The mutation is membership-gated, so it must be scoped to this team.
       const uploadUrl = await generateUploadUrl({ teamId });
       const res = await fetch(uploadUrl, {
         method: "POST",
@@ -707,7 +646,7 @@ export function TeamChatSection({ teamId, className = "" }: { teamId: any; class
       });
       const { storageId } = await res.json();
       setAttachedFile({ storageId, name: file.name, type: file.type });
-      toast.success("File attached to message!");
+      toast.success("File attached");
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
     } finally {
@@ -716,104 +655,87 @@ export function TeamChatSection({ teamId, className = "" }: { teamId: any; class
   }
 
   return (
-    <GlassCard className={`p-6 ${className}`}>
-      <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
+    <section className={`flex flex-col gap-4 ${className}`}>
+      <div className="flex flex-wrap justify-between items-center gap-2">
         <div>
-          <h2 className="text-lg font-bold text-[#1d1d1f]">Team Member Chat & File Sharing</h2>
-          <p className="text-xs text-[#6e6e73]">
-            Private team workspace discussion and shared attachments (visible only to team members).
-          </p>
+          <h2 className="text-h2 text-primary">Team chat</h2>
+          <p className="text-[13px] text-secondary">Private discussion and shared attachments, visible only to team members.</p>
         </div>
-        <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase rounded-full bg-[#ff0055]/10 text-[#ff0055]">
-          Private Team Room
-        </span>
+        <Badge variant="accent">Private room</Badge>
       </div>
 
-      {/* Message Stream */}
-      <div className="max-h-80 overflow-y-auto flex flex-col gap-3 p-3 rounded-input bg-white/40 border border-white/80 mb-4">
-        {(messages || []).map((msg: any) => (
-          <div
-            key={msg.id}
-            className="p-3 rounded-card bg-white/70 border border-white shadow-sm flex flex-col gap-1 text-xs"
-          >
-            <div className="flex justify-between items-center">
-              <span className="font-bold text-[#1d1d1f]">{msg.authorName}</span>
-              <span className="text-[10px] text-[#6e6e73]">
-                {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            </div>
-
-            {msg.content && (
-              <p className="text-[#1d1d1f] leading-relaxed whitespace-pre-line">{msg.content}</p>
-            )}
-
-            {msg.fileUrl && (
-              <div className="mt-1 pt-2 border-t border-black/5 flex items-center gap-2">
-                <span className="text-sm">📎</span>
-                <a
-                  href={msg.fileUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-semibold text-[#ff0055] hover:underline text-xs truncate max-w-xs"
-                >
-                  {msg.fileName || "Download Attachment"}
-                </a>
+      <div className="bg-surface-1 border border-line rounded-card p-4 flex flex-col gap-4">
+        {/* Message stream */}
+        <div className="max-h-96 overflow-y-auto flex flex-col gap-3">
+          {(messages || []).map((msg: any) => (
+            <div key={msg.id} className="bg-surface-2 border border-line rounded-card p-3.5 flex flex-col gap-1">
+              <div className="flex justify-between items-center">
+                <span className="text-[13px] font-medium text-primary">{msg.authorName}</span>
+                <span className="text-[11px] text-muted tnum">
+                  {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
               </div>
-            )}
-          </div>
-        ))}
 
-        {(!messages || messages.length === 0) && (
-          <p className="text-xs text-[#6e6e73] text-center py-8">
-            No team messages yet. Start the conversation with your team!
-          </p>
-        )}
-      </div>
+              {msg.content && (
+                <p className="text-[13px] text-secondary leading-relaxed whitespace-pre-line">{msg.content}</p>
+              )}
 
-      {/* Composer Input */}
-      <form onSubmit={handleSend} className="flex flex-col gap-2">
-        {attachedFile && (
-          <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-xs flex justify-between items-center">
-            <span className="font-semibold text-amber-900 truncate">📎 Attached: {attachedFile.name}</span>
-            <button
-              type="button"
-              onClick={() => setAttachedFile(null)}
-              className="text-[#ff0055] font-bold text-xs"
-            >
-              Remove
-            </button>
-          </div>
-        )}
+              {msg.fileUrl && (
+                <div className="mt-1 pt-2 border-t border-line flex items-center gap-2">
+                  <svg className="w-3.5 h-3.5 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 10-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20 13" />
+                  </svg>
+                  <a
+                    href={msg.fileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[13px] font-medium text-accent hover:text-accent-hover truncate max-w-xs"
+                  >
+                    {msg.fileName || "Download attachment"}
+                  </a>
+                </div>
+              )}
+            </div>
+          ))}
 
-        <div className="flex gap-2">
-          <Input
-            placeholder="Type a message to your teammates..."
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            className="flex-1"
-          />
-
-          <label className="cursor-pointer px-3 py-2 text-xs font-semibold rounded-button bg-white/60 border border-white/80 hover:bg-white/90 transition-colors shrink-0 flex items-center justify-center">
-            {uploading ? "Uploading..." : "📎 Share File"}
-            <input
-              type="file"
-              className="hidden"
-              onChange={handleFileUpload}
-              disabled={uploading}
-            />
-          </label>
-
-          <Button
-            type="submit"
-            variant="primary"
-            size="md"
-            isLoading={busy}
-            disabled={!text.trim() && !attachedFile}
-          >
-            Send
-          </Button>
+          {(!messages || messages.length === 0) && (
+            <p className="text-[13px] text-muted text-center py-10">
+              No team messages yet. Start the conversation with your team.
+            </p>
+          )}
         </div>
-      </form>
-    </GlassCard>
+
+        {/* Composer */}
+        <form onSubmit={handleSend} className="flex flex-col gap-2 pt-2 border-t border-line">
+          {attachedFile && (
+            <div className="p-2.5 rounded-btn bg-warning/10 border border-warning/30 text-[13px] flex justify-between items-center">
+              <span className="text-warning truncate">Attached: {attachedFile.name}</span>
+              <button type="button" onClick={() => setAttachedFile(null)} className="text-accent font-medium">
+                Remove
+              </button>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <Input
+              aria-label="Message"
+              placeholder="Type a message to your teammates..."
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              className="flex-1"
+            />
+
+            <label className="cursor-pointer h-10 px-3 text-[13px] font-medium rounded-btn bg-surface-2 border border-line hover:border-line-strong text-secondary hover:text-primary transition-colors duration-fast inline-flex items-center justify-center shrink-0">
+              {uploading ? "Uploading…" : "Attach"}
+              <input type="file" className="hidden" onChange={handleFileUpload} disabled={uploading} />
+            </label>
+
+            <Button type="submit" variant="primary" size="md" isLoading={busy} disabled={!text.trim() && !attachedFile}>
+              Send
+            </Button>
+          </div>
+        </form>
+      </div>
+    </section>
   );
 }

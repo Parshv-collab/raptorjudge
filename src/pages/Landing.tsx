@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { GlassCard } from "@/components/ui/GlassCard";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { StatCard } from "@/components/ui/StatCard";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
@@ -72,23 +72,10 @@ const ROLE_MATRIX: { surface: string; participant: string; judge: string; organi
 
 function Check() {
   return (
-    <svg className="w-3.5 h-3.5 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+    <svg className="w-3.5 h-3.5 text-success shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
     </svg>
   );
-}
-
-function tierTone(tier: string) {
-  switch (tier) {
-    case "T1":
-      return "bg-blue-500/10 text-blue-700";
-    case "T2":
-      return "bg-[#ff0055]/10 text-[#ff0055]";
-    case "T3":
-      return "bg-amber-500/10 text-amber-700";
-    default:
-      return "bg-emerald-500/10 text-emerald-700";
-  }
 }
 
 export default function Landing() {
@@ -106,21 +93,21 @@ export default function Landing() {
   const authHref = `/auth?returnTo=${encodeURIComponent("/dashboard")}`;
 
   return (
-    <div className="flex flex-col gap-20 py-8">
+    <div className="flex flex-col gap-24 py-12">
       {/* ------------------------------------------------------------- hero */}
-      <section className="text-center max-w-4xl mx-auto px-4 flex flex-col items-center gap-6">
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full glass-panel text-xs font-semibold text-[#1d1d1f]">
-          <span className="w-2 h-2 rounded-full bg-[#ff0055] animate-pulse" aria-hidden="true" />
+      <section className="max-w-4xl mx-auto px-4 flex flex-col items-center gap-6 text-center">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-pill border border-line bg-surface-1 text-[13px] text-secondary">
+          <span className="w-1.5 h-1.5 rounded-pill bg-accent" aria-hidden="true" />
           RaptorJudge — self-hosted, offline-first, MIT licensed
         </div>
 
-        <h1 className="text-4xl sm:text-6xl font-black tracking-tight text-[#1d1d1f] leading-[1.05]">
+        <h1 className="text-display text-primary">
           Hackathon judging,
           <br />
-          <span className="text-[#ff0055]">engineered for fairness</span>
+          <span className="text-accent">engineered for fairness.</span>
         </h1>
 
-        <p className="text-sm sm:text-base text-[#6e6e73] max-w-2xl leading-relaxed">
+        <p className="text-base text-secondary max-w-2xl leading-relaxed">
           Run the whole event — registration, submissions, weighted rubrics, cross-judge
           normalisation, pairwise ranking, community voting and signed certificates — on your own
           hardware, with no external services.
@@ -128,8 +115,8 @@ export default function Landing() {
 
         <div className="flex flex-col sm:flex-row items-center gap-3 mt-2">
           <Link to={eventHref}>
-            <Button variant="primary" size="lg" className="shadow-lg shadow-[#ff0055]/30">
-              {event ? `Explore ${event.title}` : "Explore the demo event"} →
+            <Button variant="primary" size="lg">
+              {event ? `Explore ${event.title}` : "Explore the demo event"}
             </Button>
           </Link>
           <Link to={authHref}>
@@ -140,17 +127,16 @@ export default function Landing() {
         </div>
 
         {event && (
-          <p className="text-[11px] text-[#6e6e73]">
-            Demo event <span className="font-semibold text-[#1d1d1f]">{event.title}</span> is seeded
-            with {projects.length || 41} projects, {tracks?.length ?? 8} tracks and a live judging
-            rubric.
+          <p className="text-[13px] text-muted">
+            Demo event <span className="text-primary">{event.title}</span> is seeded with{" "}
+            {projects.length || 41} projects, {tracks?.length ?? 8} tracks and a live judging rubric.
           </p>
         )}
       </section>
 
       {/* ------------------------------------------------------------ metrics */}
-      <section className="max-w-6xl mx-auto px-4 w-full">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6">
+      <section className="max-w-content mx-auto px-5 lg:px-8 w-full">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="Seeded projects" value={projects.length || "41"} subtext="from fixtures.json" />
           <StatCard label="Tracks" value={tracks?.length ?? 8} subtext="with prize pools" />
           <StatCard label="Rubric criteria" value={rubric?.length ?? 3} subtext="weights sum to 1.0" />
@@ -159,119 +145,105 @@ export default function Landing() {
       </section>
 
       {/* ----------------------------------------------------------- pipeline */}
-      <section className="max-w-6xl mx-auto px-4 w-full">
-        <div className="text-center mb-10">
-          <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
+      <section className="max-w-content mx-auto px-5 lg:px-8 w-full">
+        <div className="mb-10">
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-accent">
             The judging engine
           </span>
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-[#1d1d1f] mt-2">
+          <h2 className="text-h1 text-primary mt-2">
             Four steps from raw score to defensible ranking
           </h2>
-          <p className="text-xs text-[#6e6e73] mt-2 max-w-2xl mx-auto">
+          <p className="text-sm text-secondary mt-2 max-w-2xl">
             Every step is deterministic, auditable and reproducible from the event&apos;s fixture data.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {PIPELINE.map((step) => (
-            <GlassCard key={step.step} hoverEffect className="flex flex-col items-start p-6">
-              <span className="text-2xl font-black text-[#ff0055]/25 tracking-tight">
-                {step.step}
-              </span>
-              <h3 className="text-base font-bold text-[#1d1d1f] mt-3 mb-2">{step.title}</h3>
-              <p className="text-xs text-[#6e6e73] leading-relaxed">{step.body}</p>
-            </GlassCard>
+            <div
+              key={step.step}
+              className="bg-surface-1 border border-line rounded-card p-6 transition-colors duration-fast hover:border-line-strong"
+            >
+              <span className="font-mono text-sm text-accent tnum">{step.step}</span>
+              <h3 className="text-h3 text-primary mt-4 mb-2">{step.title}</h3>
+              <p className="text-[13px] text-secondary leading-relaxed">{step.body}</p>
+            </div>
           ))}
         </div>
       </section>
 
       {/* ----------------------------------------------------------- features */}
-      <section className="max-w-6xl mx-auto px-4 w-full">
-        <div className="text-center mb-10">
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-[#1d1d1f]">
-            Everything a real hackathon needs
-          </h2>
-          <p className="text-xs text-[#6e6e73] mt-2">
-            Organised by the tiers of the DOGFOOD 2026 brief.
-          </p>
+      <section className="max-w-content mx-auto px-5 lg:px-8 w-full">
+        <div className="mb-10">
+          <h2 className="text-h1 text-primary">Everything a real hackathon needs</h2>
+          <p className="text-sm text-secondary mt-2">Organised by the tiers of the DOGFOOD 2026 brief.</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {FEATURES.map((f) => (
-            <GlassCard key={f.title} className="flex items-start gap-4 p-6">
-              <div className="w-11 h-11 shrink-0 rounded-2xl bg-[#ff0055]/10 text-[#ff0055] flex items-center justify-center">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <div
+              key={f.title}
+              className="bg-surface-1 border border-line rounded-card p-6 flex items-start gap-4 transition-colors duration-fast hover:border-line-strong"
+            >
+              <div className="w-10 h-10 shrink-0 rounded-btn border border-line bg-surface-2 text-accent flex items-center justify-center [&>svg]:w-5 [&>svg]:h-5">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" d={f.icon} />
                 </svg>
               </div>
               <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-base font-bold text-[#1d1d1f]">{f.title}</h3>
-                  <span className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded-full ${tierTone(f.tier)}`}>
-                    {f.tier}
-                  </span>
+                <div className="flex items-center gap-2.5">
+                  <h3 className="text-h3 text-primary">{f.title}</h3>
+                  <Badge variant="default">{f.tier}</Badge>
                 </div>
-                <p className="text-xs text-[#6e6e73] leading-relaxed mt-1.5">{f.body}</p>
+                <p className="text-[13px] text-secondary leading-relaxed mt-1.5">{f.body}</p>
               </div>
-            </GlassCard>
+            </div>
           ))}
         </div>
       </section>
 
-      {/* ---------------------------------------------------------- gallery */}
-      <section className="max-w-6xl mx-auto px-4 w-full">
+      {/* ----------------------------------------------------------- gallery */}
+      <section className="max-w-content mx-auto px-5 lg:px-8 w-full">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-3 mb-6">
           <div>
-            <h2 className="text-2xl font-extrabold text-[#1d1d1f]">Live project gallery</h2>
-            <p className="text-xs text-[#6e6e73] mt-1">
-              Straight from the public, unauthenticated gallery API.
-            </p>
+            <h2 className="text-h1 text-primary">Live project gallery</h2>
+            <p className="text-sm text-secondary mt-1">Straight from the public, unauthenticated gallery API.</p>
           </div>
-          <Link to={`/gallery/${slug}`}>
-            <span className="text-xs font-semibold text-[#ff0055] hover:underline">
-              Browse all {projects.length || ""} projects →
-            </span>
+          <Link to={`/gallery/${slug}`} className="text-sm text-accent hover:text-accent-hover transition-colors duration-fast">
+            Browse all {projects.length || ""} projects →
           </Link>
         </div>
 
         {gallery === undefined ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <SkeletonCard lines={3} />
             <SkeletonCard lines={3} />
             <SkeletonCard lines={3} />
           </div>
         ) : featuredProjects.length === 0 ? (
-          <GlassCard className="p-8 text-center">
-            <p className="text-xs text-[#6e6e73]">
-              No published projects yet. Seed the demo event to populate the gallery.
-            </p>
-          </GlassCard>
+          <div className="bg-surface-1 border border-line rounded-card p-8 text-center text-[13px] text-secondary">
+            No published projects yet. Seed the demo event to populate the gallery.
+          </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {featuredProjects.map((p) => (
-              <Link key={p.id} to={`/project/${p.id}`}>
-                <GlassCard hoverEffect className="h-full flex flex-col justify-between p-5">
-                  <div>
-                    <div className="w-full h-28 rounded-input bg-gradient-to-br from-[#ff0055]/10 via-purple-500/10 to-blue-500/10 border border-white/80 flex items-center justify-center text-[#ff0055] mb-4 font-black text-xl">
-                      {String(p.title ?? "?").slice(0, 2).toUpperCase()}
-                    </div>
+              <Link key={p.id} to={`/project/${p.id}`} className="group">
+                <div className="h-full bg-surface-1 border border-line rounded-card overflow-hidden transition-colors duration-fast group-hover:border-line-strong flex flex-col">
+                  <div className="h-28 bg-surface-2 border-b border-line flex items-center justify-center font-mono text-xl text-accent">
+                    {String(p.title ?? "?").slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="p-5 flex flex-col flex-1">
                     <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-[#ff0055]/10 text-[#ff0055]">
-                        {p.trackName || "Open"}
-                      </span>
-                      <span className="text-[11px] font-semibold text-[#6e6e73] truncate">
-                        {p.teamName}
-                      </span>
+                      <Badge variant="accent">{p.trackName || "Open"}</Badge>
+                      <span className="text-[13px] text-muted truncate">{p.teamName}</span>
                     </div>
-                    <h3 className="text-sm font-bold text-[#1d1d1f] line-clamp-1">{p.title}</h3>
-                    <p className="text-xs text-[#6e6e73] line-clamp-2 leading-relaxed mt-1">
+                    <h3 className="text-[15px] font-semibold text-primary">{p.title}</h3>
+                    <p className="text-[13px] text-secondary mt-1 line-clamp-2 leading-relaxed">
                       {p.tagline || p.description}
                     </p>
+                    <span className="mt-auto pt-4 text-[13px] font-medium text-accent">View project →</span>
                   </div>
-                  <span className="mt-4 pt-3 border-t border-black/5 text-[11px] font-semibold text-[#ff0055]">
-                    View project →
-                  </span>
-                </GlassCard>
+                </div>
               </Link>
             ))}
           </div>
@@ -279,63 +251,59 @@ export default function Landing() {
       </section>
 
       {/* -------------------------------------------------- role isolation */}
-      <section className="max-w-5xl mx-auto px-4 w-full">
-        <div className="text-center mb-8">
-          <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
+      <section className="max-w-content mx-auto px-5 lg:px-8 w-full">
+        <div className="mb-8">
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-accent">
             Role isolation
           </span>
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-[#1d1d1f] mt-2">
-            Enforced on the server, not hidden in the UI
-          </h2>
-          <p className="text-xs text-[#6e6e73] mt-2 max-w-2xl mx-auto">
-            The same URLs the acceptance checker probes with <code className="font-mono">curl</code> are
+          <h2 className="text-h1 text-primary mt-2">Enforced on the server, not hidden in the UI</h2>
+          <p className="text-sm text-secondary mt-2 max-w-2xl">
+            The same URLs the acceptance checker probes with <code className="font-mono text-[13px]">curl</code> are
             the ones the UI calls. A judge requesting a peer&apos;s scores gets 403 from the backend.
           </p>
         </div>
 
-        <GlassCard className="p-0 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs min-w-[560px]">
-              <thead>
-                <tr className="border-b border-black/10 font-bold uppercase tracking-wider text-[#6e6e73]">
-                  <th className="py-3 px-5">Surface</th>
-                  <th className="py-3 px-5">Participant</th>
-                  <th className="py-3 px-5">Judge</th>
-                  <th className="py-3 px-5">Organizer</th>
+        <div className="overflow-x-auto border border-line rounded-card bg-surface-1">
+          <table className="w-full text-left text-sm min-w-[560px]">
+            <thead>
+              <tr className="border-b border-line">
+                <th className="px-5 h-11 text-[12px] font-medium uppercase tracking-[0.05em] text-muted">Surface</th>
+                <th className="px-5 h-11 text-[12px] font-medium uppercase tracking-[0.05em] text-muted">Participant</th>
+                <th className="px-5 h-11 text-[12px] font-medium uppercase tracking-[0.05em] text-muted">Judge</th>
+                <th className="px-5 h-11 text-[12px] font-medium uppercase tracking-[0.05em] text-muted">Organizer</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ROLE_MATRIX.map((row) => (
+                <tr key={row.surface} className="transition-colors duration-fast hover:bg-surface-2">
+                  <td className="px-5 h-12 text-primary">{row.surface}</td>
+                  <td className="px-5 h-12 text-secondary">{row.participant}</td>
+                  <td className="px-5 h-12 text-secondary">{row.judge}</td>
+                  <td className="px-5 h-12 text-secondary">{row.organizer}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {ROLE_MATRIX.map((row) => (
-                  <tr key={row.surface} className="border-b border-black/5 last:border-0 hover:bg-white/40">
-                    <td className="py-3 px-5 font-semibold text-[#1d1d1f]">{row.surface}</td>
-                    <td className="py-3 px-5 text-[#6e6e73]">{row.participant}</td>
-                    <td className="py-3 px-5 text-[#6e6e73]">{row.judge}</td>
-                    <td className="py-3 px-5 text-[#6e6e73]">{row.organizer}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </GlassCard>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       {/* ------------------------------------------------------------- CTA */}
-      <section className="max-w-5xl mx-auto px-4 w-full">
-        <GlassCard className="p-10 text-center flex flex-col items-center gap-5">
-          <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
+      <section className="max-w-content mx-auto px-5 lg:px-8 w-full">
+        <div className="bg-surface-1 border border-line rounded-card p-10 lg:p-14 text-center flex flex-col items-center gap-5">
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-accent">
             Run it yourself
           </span>
-          <h2 className="text-2xl sm:text-3xl font-extrabold text-[#1d1d1f] max-w-2xl">
-            One <code className="font-mono text-[#ff0055]">docker compose up</code> and you have a
-            working hackathon
+          <h2 className="text-h1 text-primary max-w-2xl">
+            One <code className="font-mono text-accent">docker compose up</code> and you have a working
+            hackathon
           </h2>
-          <p className="text-xs text-[#6e6e73] max-w-xl leading-relaxed">
+          <p className="text-sm text-secondary max-w-xl leading-relaxed">
             Postgres, the Convex backend, an nginx-served SPA and a deterministic fixture seed — all
             offline, all on localhost:3000.
           </p>
           <div className="flex flex-col sm:flex-row gap-3">
             <Link to={eventHref}>
-              <Button variant="primary" size="lg" className="shadow-lg shadow-[#ff0055]/30">
+              <Button variant="primary" size="lg">
                 Open the demo event
               </Button>
             </Link>
@@ -345,7 +313,7 @@ export default function Landing() {
               </Button>
             </Link>
           </div>
-          <ul className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-[11px] text-[#6e6e73] mt-2">
+          <ul className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-[13px] text-secondary mt-2">
             {["Offline & no external APIs", "Hash-chained audit log", "Acceptance suite included", "MIT licensed"].map(
               (item) => (
                 <li key={item} className="flex items-center gap-1.5">
@@ -355,11 +323,11 @@ export default function Landing() {
               ),
             )}
           </ul>
-        </GlassCard>
+        </div>
       </section>
 
       {isLoading && !event && (
-        <div className="max-w-6xl mx-auto px-4 w-full">
+        <div className="max-w-content mx-auto px-5 lg:px-8 w-full">
           <SkeletonCard lines={2} />
         </div>
       )}

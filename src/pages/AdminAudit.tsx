@@ -1,14 +1,18 @@
 import { useState, useMemo } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { downloadCsv } from "@/lib/csv";
-import { GlassCard } from "@/components/ui/GlassCard";
-import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonCard, SkeletonTable } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
+import { Badge } from "@/components/ui/Badge";
+import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { ScrollText, ShieldCheck, ShieldAlert } from "lucide-react";
 
 export default function AdminAudit() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -54,8 +58,8 @@ export default function AdminAudit() {
 
   if (authLoading) {
     return (
-      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
-        <SkeletonCard lines={6} />
+      <div className="flex flex-col gap-6">
+        <SkeletonTable rows={8} />
       </div>
     );
   }
@@ -63,104 +67,115 @@ export default function AdminAudit() {
   if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
-      <Link to="/admin">
-        <span className="text-xs font-semibold text-[#ff0055] hover:underline">
-          ← Back to Admin Dashboard
-        </span>
-      </Link>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="System audit log"
+        description="Append-only, hash-chained record of every privileged write."
+        actions={<Button variant="primary" onClick={handleExportCSV}>Export CSV</Button>}
+      />
 
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-              Audit Trail
+      {/* Chain integrity banner */}
+      {verifyChain && (
+        <div
+          className={`flex items-center gap-3 px-4 py-3 rounded-card border ${
+            verifyChain.valid
+              ? "border-success/30 bg-success/5"
+              : "border-danger/40 bg-danger/5"
+          }`}
+          role="status"
+        >
+          {verifyChain.valid ? (
+            <ShieldCheck size={18} className="text-success shrink-0" />
+          ) : (
+            <ShieldAlert size={18} className="text-danger shrink-0" />
+          )}
+          <div className="text-[13px]">
+            <span className={verifyChain.valid ? "text-success font-medium" : "text-danger font-medium"}>
+              Hash chain {verifyChain.valid ? "intact" : "broken"}
+              {verifyChain.brokenAt !== undefined && !verifyChain.valid
+                ? ` at entry ${verifyChain.brokenAt}`
+                : ""}
             </span>
-            {verifyChain && (
-              <span
-                className={`px-2.5 py-0.5 text-[10px] font-bold uppercase rounded-full ${
-                  verifyChain.valid
-                    ? "bg-emerald-500/10 text-emerald-600"
-                    : "bg-[#e63946]/10 text-[#e63946]"
-                }`}
-              >
-                Hash Chain {verifyChain.valid ? "Intact ✓" : "Broken ✗"}
-              </span>
+            {verifyChain.entries !== undefined && (
+              <span className="text-muted"> · {verifyChain.entries} entries verified</span>
             )}
           </div>
-          <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight">
-            System Audit Log
-          </h1>
         </div>
+      )}
 
-        <Button variant="primary" size="md" onClick={handleExportCSV}>
-          Export to CSV
-        </Button>
-      </div>
-
-      {/* Filters Bar */}
-      <GlassCard className="p-4 flex flex-col sm:flex-row gap-4 items-center">
+      {/* Filters */}
+      <div className="bg-surface-1 border border-line rounded-card p-4 flex flex-col sm:flex-row gap-4 items-center">
         <div className="w-full sm:flex-1">
           <Input
-            placeholder="Filter by actor email..."
+            aria-label="Filter by actor"
+            placeholder="Filter by actor email or ID…"
             value={searchActor}
             onChange={(e) => setSearchActor(e.target.value)}
           />
         </div>
-
         <div className="w-full sm:w-56">
           <Dropdown
             options={[
-              { value: "all", label: "All Actions" },
+              { value: "all", label: "All actions" },
               ...(actionsList || []).map((a: string) => ({ value: a, label: a })),
             ]}
             value={selectedAction}
             onChange={(v) => setSelectedAction(v)}
           />
         </div>
-      </GlassCard>
+        <span className="text-[13px] text-muted tnum shrink-0">
+          {filteredLogs.length} entr{filteredLogs.length === 1 ? "y" : "ies"}
+        </span>
+      </div>
 
-      {/* Audit Table */}
-      <GlassCard className="p-6">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-black/10 font-bold uppercase tracking-wider text-[#6e6e73]">
-                <th className="py-3 px-4">Timestamp</th>
-                <th className="py-3 px-4">Actor</th>
-                <th className="py-3 px-4">Action</th>
-                <th className="py-3 px-4">Target</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredLogs.map((log: any) => (
-                <tr key={log.id} className="border-b border-black/5 hover:bg-white/40 transition-colors">
-                  <td className="py-3.5 px-4 font-mono text-[#6e6e73]">
+      {/* Audit table */}
+      {auditLogs === undefined ? (
+        <SkeletonTable rows={8} />
+      ) : filteredLogs.length === 0 ? (
+        <EmptyState
+          icon={<ScrollText />}
+          title="No audit records"
+          description={
+            auditLogs.length === 0
+              ? "Privileged writes will be recorded here with a tamper-evident hash chain."
+              : "No audit records match the current filter."
+          }
+        />
+      ) : (
+        <Table caption="Audit log">
+          <THead>
+            <tr>
+              <TH>Timestamp</TH>
+              <TH>Actor</TH>
+              <TH>Action</TH>
+              <TH>Target</TH>
+            </tr>
+          </THead>
+          <tbody>
+            {filteredLogs.map((log: any) => (
+              <TR key={log.id}>
+                <TD>
+                  <span className="font-mono text-[12px] text-secondary tnum">
                     {new Date(log.timestamp).toLocaleString()}
-                  </td>
-                  <td className="py-3.5 px-4 font-bold text-[#1d1d1f]">
-                    {log.actorEmail || log.actorId || "System"}
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-[#ff0055]/10 text-[#ff0055]">
-                      {log.action}
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4 font-mono text-[#6e6e73]">
-                    {log.targetType}:{log.targetId?.substring(0, 12)}...
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </span>
+                </TD>
+                <TD>
+                  <span className="font-medium">{log.actorEmail || log.actorId || "System"}</span>
+                </TD>
+                <TD>
+                  <Badge variant="accent">{log.action}</Badge>
+                </TD>
+                <TD mono>
+                  {log.targetType}:{log.targetId?.substring(0, 12)}
+                </TD>
+              </TR>
+            ))}
+          </tbody>
+        </Table>
+      )}
 
-          {filteredLogs.length === 0 && (
-            <p className="text-xs text-[#6e6e73] text-center py-8">
-              No audit records match the current filter.
-            </p>
-          )}
-        </div>
-      </GlassCard>
+      {/* Loading-state parity for the actions list */}
+      {actionsList === undefined && <SkeletonCard lines={2} />}
     </div>
   );
 }

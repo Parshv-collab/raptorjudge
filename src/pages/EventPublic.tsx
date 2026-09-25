@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { GlassCard } from "@/components/ui/GlassCard";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { deriveEventStatus } from "@/lib/eventStatus";
@@ -37,9 +37,9 @@ export default function EventPublic() {
 
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
-  if (!event) {
+  if (event === undefined) {
     return (
-      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
+      <div className="flex flex-col gap-6">
         <SkeletonCard lines={2} />
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
@@ -54,16 +54,28 @@ export default function EventPublic() {
     );
   }
 
+  if (event === null) {
+    return (
+      <div className="py-16 text-center flex flex-col items-center gap-3">
+        <h1 className="text-h2 text-primary">Event not found</h1>
+        <p className="text-sm text-secondary">This event does not exist or is not public.</p>
+        <Link to="/events" className="text-sm text-accent hover:text-accent-hover mt-2">
+          Browse events →
+        </Link>
+      </div>
+    );
+  }
+
   const now = Date.now();
   const statusInfo = deriveEventStatus(event, now);
   const isJoined = myTeams?.some((t) => t.eventId === event._id);
 
-  // Determine Stateful CTA
+  // Stateful CTA
   let ctaButton;
   if (!isAuthenticated && !isLoading) {
     ctaButton = (
       <Link to={`/auth?returnTo=${encodeURIComponent(`/e/${event.slug}`)}`} className="w-full">
-        <Button variant="primary" size="lg" className="w-full shadow-lg shadow-[#ff0055]/30">
+        <Button variant="primary" size="lg" className="w-full">
           Sign in to register
         </Button>
       </Link>
@@ -71,7 +83,7 @@ export default function EventPublic() {
   } else if (isJoined) {
     ctaButton = (
       <Link to={`/workspace?event=${event.slug}`} className="w-full">
-        <Button variant="primary" size="lg" className="w-full shadow-lg shadow-[#ff0055]/30">
+        <Button variant="primary" size="lg" className="w-full">
           Go to workspace →
         </Button>
       </Link>
@@ -79,7 +91,7 @@ export default function EventPublic() {
   } else if (statusInfo.canRegister) {
     ctaButton = (
       <Link to={`/workspace?event=${event.slug}`} className="w-full">
-        <Button variant="primary" size="lg" className="w-full shadow-lg shadow-[#ff0055]/30">
+        <Button variant="primary" size="lg" className="w-full">
           Register for event
         </Button>
       </Link>
@@ -93,113 +105,96 @@ export default function EventPublic() {
   }
 
   const timelineSteps = [
-    { label: "Registration Opens", date: event.registrationStart || event.registrationOpens },
-    { label: "Submissions Open", date: event.submissionOpens || event.registrationEnd },
-    { label: "Submission Deadline", date: event.submissionDeadline },
-    { label: "Judging Period", date: event.judgingStart || event.judgingStarts },
-    { label: "Results Announced", date: event.judgingEnd || event.resultsAnnounced },
+    { label: "Registration opens", date: event.registrationStart || event.registrationOpens },
+    { label: "Submissions open", date: event.submissionOpens || event.registrationEnd },
+    { label: "Submission deadline", date: event.submissionDeadline },
+    { label: "Judging period", date: event.judgingStart || event.judgingStarts },
+    { label: "Results announced", date: event.judgingEnd || event.resultsAnnounced },
   ];
 
   return (
-    <div className="max-w-7xl mx-auto py-6 px-4 flex flex-col gap-10">
-      {/* Banner / Cover Image */}
+    <div className="flex flex-col gap-10">
+      {/* Cover */}
       {event.bannerUrl ? (
         <img
           src={event.bannerUrl}
           alt={event.title}
-          className="w-full h-48 sm:h-64 object-cover rounded-card shadow-sm border border-white/80"
+          className="w-full h-48 sm:h-64 object-cover rounded-card border border-line"
         />
       ) : (
-        <div className="w-full h-48 sm:h-64 rounded-card bg-gradient-to-r from-[#ff0055]/20 via-purple-500/20 to-blue-500/20 border border-white/80 flex items-center justify-center text-[#1d1d1f]/30 font-black text-2xl tracking-widest uppercase">
+        <div className="w-full h-48 sm:h-64 rounded-card bg-surface-1 border border-line flex items-center justify-center font-mono text-2xl uppercase tracking-[0.2em] text-muted">
           {event.title}
         </div>
       )}
 
-      {/* Hero Header */}
-      <GlassCard className="p-8 relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+      {/* Hero */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
         <div className="flex flex-col gap-3 max-w-2xl">
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full bg-[#ff0055]/10 text-[#ff0055]">
+          <div className="flex items-center gap-3">
+            <Badge variant={["registration", "hacking"].includes(event.status) ? "success" : "default"}>
               {statusInfo.label}
-            </span>
-            <span className="text-xs text-[#6e6e73]">
-              Hosted by {event.hostName || "RaptorJudge"}
-            </span>
+            </Badge>
+            <span className="text-[13px] text-muted">Hosted by {event.hostName || "RaptorJudge"}</span>
           </div>
-
-          <h1 className="text-3xl sm:text-5xl font-black text-[#1d1d1f] tracking-tight">
-            {event.title}
-          </h1>
-
-          <p className="text-sm font-medium text-[#6e6e73] leading-relaxed">
+          <h1 className="text-h1 text-primary">{event.title}</h1>
+          <p className="text-sm text-secondary leading-relaxed">
             {event.tagline || event.shortDescription || event.description}
           </p>
         </div>
+        <Link to={`/gallery/${event.slug}`} className="shrink-0">
+          <Button variant="secondary" size="md">
+            View gallery
+          </Button>
+        </Link>
+      </div>
 
-        <div className="flex items-center gap-3 shrink-0">
-          <Link to={`/gallery/${event.slug}`}>
-            <Button variant="secondary" size="md">
-              View Gallery
-            </Button>
-          </Link>
-        </div>
-      </GlassCard>
-
-      {/* Main Grid with Sidebar */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left 2 Columns: Main Details */}
-        <div className="lg:col-span-2 flex flex-col gap-8">
-          {/* About Section */}
-          <GlassCard className="p-6">
-            <h2 className="text-lg font-bold text-[#1d1d1f] mb-3">About the Event</h2>
-            <div className="text-xs sm:text-sm text-[#1d1d1f] leading-relaxed whitespace-pre-line">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+        {/* Main column */}
+        <div className="lg:col-span-2 flex flex-col gap-12">
+          <section>
+            <h2 className="text-h2 text-primary mb-4">About the event</h2>
+            <div className="text-sm text-secondary leading-relaxed whitespace-pre-line">
               {event.fullDescription || event.description}
             </div>
-          </GlassCard>
+          </section>
 
-          {/* Timeline Section */}
-          <GlassCard className="p-6">
-            <h2 className="text-lg font-bold text-[#1d1d1f] mb-4">Event Timeline</h2>
-            <div className="flex flex-col gap-4 relative pl-4 border-l-2 border-[#ff0055]/30">
+          <section>
+            <h2 className="text-h2 text-primary mb-5">Event timeline</h2>
+            <div className="flex flex-col gap-5 relative pl-5 border-l border-line">
               {timelineSteps.map((step, idx) => {
                 const isPast = step.date ? now > step.date : false;
                 return (
                   <div key={idx} className="relative flex flex-col gap-0.5">
                     <span
-                      className={`absolute -left-[21px] top-1 w-3 h-3 rounded-full border-2 border-white ${
-                        isPast ? "bg-[#ff0055]" : "bg-black/20"
+                      aria-hidden="true"
+                      className={`absolute -left-[23px] top-1 w-[9px] h-[9px] rounded-full border border-line ${
+                        isPast ? "bg-accent" : "bg-surface-2"
                       }`}
                     />
-                    <span className="text-xs font-bold text-[#1d1d1f]">{step.label}</span>
-                    <span className="text-[11px] text-[#6e6e73]">
+                    <span className="text-sm font-medium text-primary">{step.label}</span>
+                    <span className="text-[13px] text-muted tnum">
                       {step.date ? new Date(step.date).toLocaleString() : "TBD"}
                     </span>
                   </div>
                 );
               })}
             </div>
-          </GlassCard>
+          </section>
 
-          {/* Tracks & Prizes */}
           {tracks && tracks.length > 0 && (
-            <GlassCard className="p-6">
-              <h2 className="text-lg font-bold text-[#1d1d1f] mb-4">Tracks & Prizes</h2>
+            <section>
+              <h2 className="text-h2 text-primary mb-5">Tracks & prizes</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {tracks.map((track) => (
-                  <div
-                    key={track._id}
-                    className="p-4 rounded-input bg-white/60 border border-white shadow-sm flex flex-col justify-between gap-2"
-                  >
+                  <div key={track._id} className="bg-surface-1 border border-line rounded-card p-5 flex flex-col justify-between gap-2">
                     <div>
-                      <h3 className="text-sm font-bold text-[#1d1d1f]">{track.name}</h3>
-                      <p className="text-xs text-[#6e6e73] mt-1 leading-relaxed">
-                        {track.description}
-                      </p>
+                      <h3 className="text-[15px] font-semibold text-primary">{track.name}</h3>
+                      <p className="text-[13px] text-secondary mt-1 leading-relaxed">{track.description}</p>
                     </div>
                     {track.prizeAmount && track.prizeAmount > 0 ? (
-                      <div className="text-base font-extrabold text-[#ff0055] mt-2">
+                      <div className="text-lg font-semibold text-accent tnum mt-2">
                         ${track.prizeAmount.toLocaleString()}{" "}
-                        <span className="text-xs font-normal text-[#6e6e73]">
+                        <span className="text-[13px] font-normal text-muted">
                           ({track.prizeDescription || "Prize"})
                         </span>
                       </div>
@@ -207,61 +202,54 @@ export default function EventPublic() {
                   </div>
                 ))}
               </div>
-            </GlassCard>
+            </section>
           )}
 
-          {/* Rubric Criteria */}
           {rubric && rubric.length > 0 && (
-            <GlassCard className="p-6">
-              <h2 className="text-lg font-bold text-[#1d1d1f] mb-4">Judging Rubric</h2>
+            <section>
+              <h2 className="text-h2 text-primary mb-5">Judging rubric</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {rubric.map((criterion) => (
-                  <div
-                    key={criterion._id}
-                    className="p-4 rounded-input bg-white/60 border border-white shadow-sm flex flex-col justify-between gap-2"
-                  >
+                  <div key={criterion._id} className="bg-surface-1 border border-line rounded-card p-5 flex flex-col gap-2">
                     <div className="flex justify-between items-start gap-2">
-                      <h3 className="text-sm font-bold text-[#1d1d1f]">{criterion.name}</h3>
-                      <span className="text-xs font-bold text-[#ff0055] px-2 py-0.5 rounded-full bg-[#ff0055]/10">
-                        {Math.round(criterion.weight * 100)}%
-                      </span>
+                      <h3 className="text-[15px] font-semibold text-primary">{criterion.name}</h3>
+                      <Badge variant="accent">{Math.round(criterion.weight * 100)}%</Badge>
                     </div>
-                    <p className="text-xs text-[#6e6e73] leading-relaxed">
-                      {criterion.description}
-                    </p>
+                    <p className="text-[13px] text-secondary leading-relaxed">{criterion.description}</p>
                   </div>
                 ))}
               </div>
-            </GlassCard>
+            </section>
           )}
 
-          {/* Rules Section */}
-          <GlassCard className="p-6">
-            <h2 className="text-lg font-bold text-[#1d1d1f] mb-3">Rules & Guidelines</h2>
-            <div className="text-xs sm:text-sm text-[#1d1d1f] leading-relaxed whitespace-pre-line">
+          <section>
+            <h2 className="text-h2 text-primary mb-4">Rules & guidelines</h2>
+            <div className="text-sm text-secondary leading-relaxed whitespace-pre-line bg-surface-1 border border-line rounded-card p-6">
               {event.rules ||
                 "1. All projects must be submitted before the deadline.\n2. Team sizes up to 4 members are allowed.\n3. All code written must be original or open source.\n4. Decisions by judges are final after normalization."}
             </div>
-          </GlassCard>
+          </section>
 
-          {/* FAQ Accordion */}
-          <GlassCard className="p-6">
-            <h2 className="text-lg font-bold text-[#1d1d1f] mb-4">Frequently Asked Questions</h2>
+          <section>
+            <h2 className="text-h2 text-primary mb-5">Frequently asked questions</h2>
             <div className="flex flex-col gap-2">
               {FAQ_ITEMS.map((item, idx) => {
                 const isOpen = openFaq === idx;
                 return (
-                  <div
-                    key={idx}
-                    className="p-3.5 rounded-input bg-white/60 border border-white shadow-sm cursor-pointer transition-all"
-                    onClick={() => setOpenFaq(isOpen ? null : idx)}
-                  >
-                    <div className="flex justify-between items-center font-bold text-xs text-[#1d1d1f]">
+                  <div key={idx} className="bg-surface-1 border border-line rounded-card">
+                    <button
+                      type="button"
+                      aria-expanded={isOpen}
+                      onClick={() => setOpenFaq(isOpen ? null : idx)}
+                      className="w-full flex justify-between items-center px-5 h-14 text-left text-sm font-medium text-primary"
+                    >
                       <span>{item.q}</span>
-                      <span className="text-[#ff0055] text-base">{isOpen ? "−" : "+"}</span>
-                    </div>
+                      <span className="text-accent text-lg leading-none" aria-hidden="true">
+                        {isOpen ? "−" : "+"}
+                      </span>
+                    </button>
                     {isOpen && (
-                      <p className="text-xs text-[#6e6e73] mt-2 pt-2 border-t border-black/5 leading-relaxed">
+                      <p className="px-5 pb-5 text-[13px] text-secondary leading-relaxed border-t border-line pt-4">
                         {item.a}
                       </p>
                     )}
@@ -269,42 +257,37 @@ export default function EventPublic() {
                 );
               })}
             </div>
-          </GlassCard>
+          </section>
         </div>
 
-        {/* Right Sticky Sidebar */}
+        {/* Sticky overview */}
         <div className="lg:col-span-1">
-          <GlassCard className="p-6 sticky top-20 flex flex-col gap-6 shadow-xl">
-            <h3 className="text-base font-bold text-[#1d1d1f]">Event Overview</h3>
+          <div className="bg-surface-1 border border-line rounded-card p-6 lg:sticky lg:top-8 flex flex-col gap-6">
+            <h3 className="text-h3 text-primary">Event overview</h3>
 
-            <div className="flex flex-col gap-3 text-xs border-b border-black/5 pb-4">
+            <div className="flex flex-col gap-3 text-[13px] border-b border-line pb-5">
               <div className="flex justify-between">
-                <span className="text-[#6e6e73]">Status:</span>
-                <span className="font-bold text-[#1d1d1f] capitalize">{event.status}</span>
+                <span className="text-muted">Status</span>
+                <span className="text-primary capitalize">{event.status}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#6e6e73]">Deadline:</span>
-                <span className="font-bold text-[#1d1d1f]">
-                  {new Date(event.submissionDeadline).toLocaleDateString()}
+                <span className="text-muted">Deadline</span>
+                <span className="text-primary tnum">{new Date(event.submissionDeadline).toLocaleDateString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted">Team size</span>
+                <span className="text-primary tnum">
+                  {event.minTeamSize || 1}–{event.maxTeamSize || 4}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#6e6e73]">Team Size:</span>
-                <span className="font-bold text-[#1d1d1f]">
-                  {event.minTeamSize || 1} - {event.maxTeamSize || 4} Members
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#6e6e73]">Solo Allowed:</span>
-                <span className="font-bold text-[#1d1d1f]">
-                  {event.soloAllowed !== false ? "Yes" : "No"}
-                </span>
+                <span className="text-muted">Solo allowed</span>
+                <span className="text-primary">{event.soloAllowed !== false ? "Yes" : "No"}</span>
               </div>
             </div>
 
-            {/* Stateful CTA Button */}
             {ctaButton}
-          </GlassCard>
+          </div>
         </div>
       </div>
     </div>

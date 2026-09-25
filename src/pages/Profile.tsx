@@ -3,41 +3,15 @@ import { Navigate } from "react-router-dom";
 import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
-import { GlassCard } from "@/components/ui/GlassCard";
-import { Button } from "@/components/ui/Button";
-import { SkeletonCard } from "@/components/ui/SkeletonCard";
-import { Input } from "@/components/ui/Input";
-import { Dropdown } from "@/components/ui/Dropdown";
-import { ChipGroup } from "@/components/ui/ChipGroup";
-import { Modal } from "@/components/ui/Modal";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { humanizeConvexError } from "@/lib/errors";
-
-const PROFESSIONS = [
-  { value: "developer", label: "Software Developer / Engineer" },
-  { value: "designer", label: "UI/UX Designer" },
-  { value: "student", label: "Student / Researcher" },
-  { value: "product_manager", label: "Product Manager" },
-  { value: "data_scientist", label: "Data Scientist / AI Engineer" },
-  { value: "other", label: "Other" },
-];
-
-const INTERESTS = [
-  { id: "ai", label: "AI & ML" },
-  { id: "web3", label: "Web3 & Crypto" },
-  { id: "mobile", label: "Mobile Apps" },
-  { id: "cloud", label: "DevOps & Cloud" },
-  { id: "game", label: "Game Dev" },
-  { id: "hardware", label: "Hardware & IoT" },
-  { id: "cybersecurity", label: "Cybersecurity" },
-  { id: "design", label: "UX & Product Design" },
-];
-
-const EXPERIENCE_LEVELS = [
-  { value: "beginner", label: "Beginner (0-1 years)" },
-  { value: "intermediate", label: "Intermediate (2-4 years)" },
-  { value: "advanced", label: "Advanced (5+ years)" },
-];
+import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { Textarea } from "@/components/ui/Textarea";
+import { Avatar } from "@/components/ui/Avatar";
+import { ConfirmDialog } from "@/components/ui/Modal";
 
 export default function Profile() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -53,8 +27,10 @@ export default function Profile() {
   const [bio, setBio] = useState("");
   const [avatarStorageId, setAvatarStorageId] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
-  // Resolve storage URL if avatarStorageId is a Convex storage ID
+  // Resolve the display URL when avatarUrl is a Convex storage ID (not an http URL).
   const avatarUrlQuery = useQuery(
     api.events.getStorageUrl,
     avatarStorageId && !avatarStorageId.startsWith("http")
@@ -65,6 +41,14 @@ export default function Profile() {
   const displayAvatarUrl = avatarStorageId.startsWith("http")
     ? avatarStorageId
     : avatarUrlQuery || "";
+
+  useEffect(() => {
+    if (me) {
+      setName(me.name || "");
+      setBio(me.bio || "");
+      setAvatarStorageId(me.avatarUrl || "");
+    }
+  }, [me]);
 
   async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -88,39 +72,20 @@ export default function Profile() {
       const { storageId } = await res.json();
       setAvatarStorageId(storageId);
       await updateProfile({ avatarUrl: storageId });
-      toast.success("Avatar profile picture updated!");
+      toast.success("Profile picture updated.");
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
     } finally {
       setUploading(false);
     }
   }
-  const [profession, setProfession] = useState("developer");
-  const [selectedInterests, setSelectedInterests] = useState<string[]>(["ai", "mobile"]);
-  const [experience, setExperience] = useState("intermediate");
-  const [busy, setBusy] = useState(false);
-
-  // Delete Account Modal State (Issue 5)
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState("");
-
-  useEffect(() => {
-    if (me) {
-      setName(me.name || "");
-      setBio(me.bio || "");
-      setAvatarStorageId(me.avatarUrl || "");
-    }
-  }, [me]);
 
   async function handleSaveProfile(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
-      await updateProfile({
-        bio,
-        avatarUrl: avatarStorageId,
-      });
-      toast.success("Profile updated successfully!");
+      await updateProfile({ bio, avatarUrl: avatarStorageId });
+      toast.success("Profile updated.");
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
     } finally {
@@ -129,7 +94,6 @@ export default function Profile() {
   }
 
   async function handleDeleteAccount() {
-    if (deleteConfirmText.trim() !== "DELETE") return;
     setBusy(true);
     try {
       await deleteAccount({});
@@ -138,14 +102,12 @@ export default function Profile() {
       window.location.href = "/";
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
-    } finally {
       setBusy(false);
     }
   }
-
-  if (authLoading) {
+  if (authLoading || me === undefined) {
     return (
-      <div className="max-w-3xl mx-auto py-8 px-4 flex flex-col gap-6">
+      <div className="flex flex-col gap-6">
         <SkeletonCard lines={4} />
       </div>
     );
@@ -153,156 +115,95 @@ export default function Profile() {
 
   if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
-  if (me === undefined) {
-    return (
-      <div className="max-w-3xl mx-auto py-8 px-4 flex flex-col gap-6">
-        <SkeletonCard lines={4} />
-      </div>
-    );
-  }
-
   return (
-    <div className="max-w-3xl mx-auto py-8 px-4 flex flex-col gap-8">
-      <div>
-        <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-          User Profile
-        </span>
-        <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-0.5">
-          Profile Details
-        </h1>
-      </div>
+    <div className="flex flex-col gap-8 max-w-3xl">
+      <PageHeader
+        title="Profile"
+        description="How you appear across events, teams and galleries."
+      />
 
-      <GlassCard className="p-8">
-        <form onSubmit={handleSaveProfile} className="flex flex-col gap-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input label="Full Name" value={name} disabled />
-            <Input label="Email Address" value={me?.email || ""} disabled />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-[#1d1d1f]">Profile Picture</label>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-              {displayAvatarUrl ? (
-                <img
-                  src={displayAvatarUrl}
-                  alt="Avatar Preview"
-                  className="w-16 h-16 rounded-full object-cover border-2 border-white shadow-sm"
+      <form onSubmit={handleSaveProfile} className="flex flex-col gap-6">
+        <div className="bg-surface-1 border border-line rounded-card p-6 flex flex-col gap-6">
+          {/* Identity + avatar */}
+          <div className="flex items-center gap-5">
+            {displayAvatarUrl ? (
+              <img
+                src={displayAvatarUrl}
+                alt="Current avatar"
+                className="w-14 h-14 rounded-full object-cover border border-line shrink-0"
+              />
+            ) : (
+              <Avatar name={name || me?.email || "User"} size="lg" />
+            )}
+            <div className="flex flex-col gap-1.5">
+              <label
+                className={`cursor-pointer px-4 h-10 inline-flex items-center rounded-btn border border-line bg-surface-2 text-sm font-medium text-primary hover:border-line-strong transition-colors duration-fast w-max ${
+                  uploading ? "opacity-50 pointer-events-none" : ""
+                }`}
+              >
+                {uploading ? "Uploading…" : "Upload picture"}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  className="hidden"
+                  onChange={handleAvatarUpload}
+                  disabled={uploading}
                 />
-              ) : (
-                <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-[#ff0055]/20 to-[#ff5588]/20 text-[#ff0055] font-black text-xl flex items-center justify-center border border-white/80 shadow-sm">
-                  {(name || "U").charAt(0).toUpperCase()}
-                </div>
-              )}
-
-              <div className="flex flex-col gap-1 w-full sm:w-auto">
-                <label className="cursor-pointer px-4 py-2 text-xs font-semibold rounded-button bg-white/60 border border-white/80 hover:bg-white/90 transition-colors shrink-0 text-center shadow-sm">
-                  {uploading ? "Uploading Image..." : "Select Profile Picture from Device"}
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
-                    className="hidden"
-                    onChange={handleAvatarUpload}
-                    disabled={uploading}
-                  />
-                </label>
-                <span className="text-[10px] text-[#6e6e73]">
-                  JPG, PNG, WEBP or GIF up to 5MB.
-                </span>
-              </div>
+              </label>
+              <span className="text-[13px] text-muted">JPG, PNG, WEBP or GIF up to 5MB.</span>
             </div>
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-[#1d1d1f]">Bio</label>
-            <textarea
-              rows={3}
-              value={bio}
-              onChange={(e) => setBio(e.target.value)}
-              placeholder="Tell other hackathon participants about yourself..."
-              className="w-full p-3 text-xs rounded-input text-[#1d1d1f] bg-white/50 border border-white/80 focus-ring-accent"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input label="Full name" value={name} disabled helperText="Names are managed by organizers." />
+            <Input label="Email address" value={me?.email || ""} disabled />
           </div>
 
-          <Dropdown
-            label="Profession / Primary Role"
-            options={PROFESSIONS}
-            value={profession}
-            onChange={(v) => setProfession(v)}
+          <Textarea
+            label="Bio"
+            rows={3}
+            value={bio}
+            onChange={(e) => setBio(e.target.value)}
+            placeholder="Tell other participants what you build…"
+            maxLength={500}
           />
+        </div>
 
-          <ChipGroup
-            label="Areas of Interest"
-            options={INTERESTS}
-            selectedIds={selectedInterests}
-            onChange={(ids) => setSelectedInterests(ids)}
-            maxSelectable={5}
-          />
+        <div className="flex justify-end">
+          <Button type="submit" variant="primary" isLoading={busy}>
+            Save profile
+          </Button>
+        </div>
+      </form>
 
-          <Dropdown
-            label="Experience Level"
-            options={EXPERIENCE_LEVELS}
-            value={experience}
-            onChange={(v) => setExperience(v)}
-          />
-
-          <div className="flex justify-end mt-2 pt-4 border-t border-black/5">
-            <Button type="submit" variant="primary" size="md" isLoading={busy}>
-              Save Profile Changes
-            </Button>
+      {/* Danger zone */}
+      <section className="flex flex-col gap-4">
+        <h2 className="text-h3 text-danger">Danger zone</h2>
+        <div className="bg-danger/5 border border-danger/40 rounded-card p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h3 className="text-[15px] font-medium text-primary">Delete account</h3>
+            <p className="text-[13px] text-secondary mt-0.5">
+              Requests deletion and consent withdrawal under GDPR/DPDP. The account is disabled and
+              signed out; data is permanently removed after 30 days.
+            </p>
           </div>
-        </form>
-      </GlassCard>
+          <Button variant="danger" onClick={() => setDeleteModalOpen(true)} className="shrink-0">
+            Delete account
+          </Button>
+        </div>
+      </section>
 
-      {/* Danger Zone (Issue 5) */}
-      <GlassCard className="p-8 border-red-200">
-        <h3 className="text-sm font-bold text-[#e63946] mb-1">Danger Zone</h3>
-        <p className="text-xs text-[#6e6e73] mb-4 leading-relaxed">
-          Request account deletion and consent withdrawal under GDPR/DPDP guidelines.
-        </p>
-
-        <Button
-          variant="danger"
-          size="md"
-          onClick={() => {
-            setDeleteConfirmText("");
-            setDeleteModalOpen(true);
-          }}
-        >
-          Delete Account
-        </Button>
-      </GlassCard>
-
-      {/* Delete Account Modal (Issue 5 & 6) */}
-      <Modal
+      <ConfirmDialog
         isOpen={deleteModalOpen}
         onClose={() => setDeleteModalOpen(false)}
-        title="Confirm Account Deletion"
-        description="This will disable your account and sign you out. Your data will be permanently deleted after 30 days."
-      >
-        <div className="flex flex-col gap-4 mt-2">
-          <Input
-            label="To confirm, type DELETE below"
-            value={deleteConfirmText}
-            onChange={(e) => setDeleteConfirmText(e.target.value)}
-            placeholder="DELETE"
-          />
-
-          <div className="flex justify-between items-center mt-2">
-            <Button variant="ghost" size="md" onClick={() => setDeleteModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              size="md"
-              isLoading={busy}
-              disabled={deleteConfirmText.trim() !== "DELETE"}
-              onClick={handleDeleteAccount}
-            >
-              Permanently Delete Account
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        onConfirm={handleDeleteAccount}
+        title="Delete account"
+        description="This disables your account and signs you out everywhere. Your data is permanently deleted after 30 days."
+        confirmLabel="Permanently delete"
+        destructive
+        requireTyping="DELETE"
+        isLoading={busy}
+      />
     </div>
   );
 }

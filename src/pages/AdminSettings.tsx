@@ -1,16 +1,21 @@
 import React, { useState, useEffect } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { useQuery, useMutation, useAction, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { humanizeConvexError } from "@/lib/errors";
-import { GlassCard } from "@/components/ui/GlassCard";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { Dropdown } from "@/components/ui/Dropdown";
-import { Modal } from "@/components/ui/Modal";
+import { Badge } from "@/components/ui/Badge";
+import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
+import { Modal, ConfirmDialog } from "@/components/ui/Modal";
+import { EmptyState } from "@/components/ui/EmptyState";
+
+const LOOKUP_TYPES = ["professions", "interests", "experience_levels", "education_levels"];
 
 export default function AdminSettings() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -20,24 +25,23 @@ export default function AdminSettings() {
   const updateSettings = useMutation(api.admin.updateSettings);
   const reseed = useAction(api.seed.seed);
 
-  // Lookups queries/mutations
   const professions = useQuery(api.admin.listLookups, skip ? "skip" : { type: "professions" });
   const createLookup = useMutation(api.admin.createLookup);
   const deactivateLookup = useMutation(api.admin.deactivateLookup);
 
-  // Branding Fields
+  // Branding
   const [siteName, setSiteName] = useState("RaptorJudge");
   const [siteTagline, setSiteTagline] = useState("Hackathon judging engineered for fairness");
   const [logoUrl, setLogoUrl] = useState("/logo.svg");
   const [footerCopyright, setFooterCopyright] = useState("© 2026 RaptorJudge");
   const [supportEmail, setSupportEmail] = useState("support@raptorjudge.local");
 
-  // Platform Fields
+  // Platform
   const [timezone, setTimezone] = useState("UTC");
   const [dateFormat, setDateFormat] = useState("locale");
   const [certBaseUrl, setCertBaseUrl] = useState("http://localhost:3000/verify");
 
-  // Feature Flags
+  // Feature flags
   const [maint, setMaint] = useState(false);
   const [regOpen, setRegOpen] = useState(true);
   const [mfaReq, setMfaReq] = useState(false);
@@ -45,29 +49,26 @@ export default function AdminSettings() {
   const [showScores, setShowScores] = useState(false);
   const [votingMode, setVotingMode] = useState("quadratic");
 
-  // Lookup Modal State
+  // Lookup table state
   const [lookupModalOpen, setLookupModalOpen] = useState(false);
   const [lookupType, setLookupType] = useState("professions");
   const [lookupCode, setLookupCode] = useState("");
   const [lookupLabel, setLookupLabel] = useState("");
 
-  // Danger Zone Confirmation
-  const [resetConfirm, setResetConfirm] = useState("");
+  // Danger zone
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (settings) {
+    if (settings && !(settings instanceof Error)) {
       if (settings["site_name"]) setSiteName(settings["site_name"]);
       if (settings["site_tagline"]) setSiteTagline(settings["site_tagline"]);
       if (settings["logo_url"]) setLogoUrl(settings["logo_url"]);
       if (settings["footer_copyright"]) setFooterCopyright(settings["footer_copyright"]);
       if (settings["support_email"]) setSupportEmail(settings["support_email"]);
-
       if (settings["timezone"]) setTimezone(settings["timezone"]);
       if (settings["date_format"]) setDateFormat(settings["date_format"]);
       if (settings["cert_base_url"]) setCertBaseUrl(settings["cert_base_url"]);
-
       setMaint(settings["maintenance_mode"] === "true");
       setRegOpen(settings["registration_open"] !== "false");
       setMfaReq(settings["mfa_required"] === "true");
@@ -115,16 +116,10 @@ export default function AdminSettings() {
   }
 
   async function handleResetSeed() {
-    if (resetConfirm !== "RESET") {
-      toast.error('Type "RESET" to confirm.');
-      return;
-    }
     setBusy(true);
     try {
       await reseed({});
-      toast.success("Seed data reset successfully!");
-      setResetModalOpen(false);
-      setResetConfirm("");
+      toast.success("Seed data reset successfully.");
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
     } finally {
@@ -134,7 +129,7 @@ export default function AdminSettings() {
 
   if (authLoading) {
     return (
-      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-8">
+      <div className="flex flex-col gap-6">
         <SkeletonCard lines={6} />
       </div>
     );
@@ -144,46 +139,32 @@ export default function AdminSettings() {
 
   if (settings instanceof Error) {
     return (
-      <div className="max-w-7xl mx-auto py-12 px-4">
-        <GlassCard className="p-8 flex flex-col items-center text-center gap-4">
-          <h2 className="text-xl font-bold text-[#1d1d1f]">Could not load settings</h2>
-          <p className="text-xs text-[#6e6e73]">You may not have permission. Please sign in as an admin.</p>
-        </GlassCard>
-      </div>
+      <EmptyState
+        title="Could not load settings"
+        description="You may not have permission to view platform settings. Sign in as an admin and try again."
+      />
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-8">
-      <Link to="/admin">
-        <span className="text-xs font-semibold text-[#ff0055] hover:underline">
-          ← Back to Admin Dashboard
-        </span>
-      </Link>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Platform settings"
+        description="Branding, defaults, feature flags and the seed reset — saved per-field on change."
+      />
 
-      <div>
-        <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-          System Controls
-        </span>
-        <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-0.5">
-          Platform Settings
-        </h1>
-      </div>
-
-      {/* 1. BRANDING */}
-      <GlassCard className="p-6 flex flex-col gap-4">
-        <h2 className="text-sm font-bold text-[#1d1d1f] uppercase tracking-wider text-[#ff0055]">
-          1. Branding
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Branding */}
+      <section className="flex flex-col gap-4">
+        <h2 className="text-h3 text-primary">Branding</h2>
+        <div className="bg-surface-1 border border-line rounded-card p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Input
-            label="Site Name"
+            label="Site name"
             value={siteName}
             onChange={(e) => setSiteName(e.target.value)}
             onBlur={() => handleSaveSetting("site_name", siteName)}
           />
           <Input
-            label="Site Tagline"
+            label="Site tagline"
             value={siteTagline}
             onChange={(e) => setSiteTagline(e.target.value)}
             onBlur={() => handleSaveSetting("site_tagline", siteTagline)}
@@ -195,29 +176,27 @@ export default function AdminSettings() {
             onBlur={() => handleSaveSetting("logo_url", logoUrl)}
           />
           <Input
-            label="Footer Copyright"
+            label="Footer copyright"
             value={footerCopyright}
             onChange={(e) => setFooterCopyright(e.target.value)}
             onBlur={() => handleSaveSetting("footer_copyright", footerCopyright)}
           />
           <Input
-            label="Support Email"
+            label="Support email"
             type="email"
             value={supportEmail}
             onChange={(e) => setSupportEmail(e.target.value)}
             onBlur={() => handleSaveSetting("support_email", supportEmail)}
           />
         </div>
-      </GlassCard>
+      </section>
 
-      {/* 2. PLATFORM */}
-      <GlassCard className="p-6 flex flex-col gap-4">
-        <h2 className="text-sm font-bold text-[#1d1d1f] uppercase tracking-wider text-[#ff0055]">
-          2. Platform Defaults
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* Platform defaults */}
+      <section className="flex flex-col gap-4">
+        <h2 className="text-h3 text-primary">Platform defaults</h2>
+        <div className="bg-surface-1 border border-line rounded-card p-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Dropdown
-            label="Default Timezone"
+            label="Default timezone"
             options={[
               { value: "UTC", label: "UTC" },
               { value: "America/New_York", label: "Eastern (America/New_York)" },
@@ -231,9 +210,9 @@ export default function AdminSettings() {
             }}
           />
           <Dropdown
-            label="Date Format"
+            label="Date format"
             options={[
-              { value: "locale", label: "Locale Default" },
+              { value: "locale", label: "Locale default" },
               { value: "ISO", label: "ISO 8601 (YYYY-MM-DD)" },
             ]}
             value={dateFormat}
@@ -243,54 +222,52 @@ export default function AdminSettings() {
             }}
           />
           <Input
-            label="Certificate Verify Base URL"
+            label="Certificate verify base URL"
             value={certBaseUrl}
             onChange={(e) => setCertBaseUrl(e.target.value)}
             onBlur={() => handleSaveSetting("cert_base_url", certBaseUrl)}
           />
         </div>
-      </GlassCard>
+      </section>
 
-      {/* 3. FEATURE FLAGS */}
-      <GlassCard className="p-6 flex flex-col gap-4">
-        <h2 className="text-sm font-bold text-[#1d1d1f] uppercase tracking-wider text-[#ff0055]">
-          3. Feature Flags
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Feature flags */}
+      <section className="flex flex-col gap-4">
+        <h2 className="text-h3 text-primary">Feature flags</h2>
+        <div className="bg-surface-1 border border-line rounded-card p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Checkbox
-            label="Maintenance Mode (read-only for participants)"
+            label="Maintenance mode (read-only for participants)"
             checked={maint}
             onChange={(e) => handleToggle("maintenance_mode", e.target.checked, setMaint)}
           />
           <Checkbox
-            label="Allow Global Registrations"
+            label="Allow global registrations"
             checked={regOpen}
             onChange={(e) => handleToggle("registration_open", e.target.checked, setRegOpen)}
           />
           <Checkbox
-            label="Require 2FA / TOTP for Staff"
+            label="Require 2FA / TOTP for staff"
             checked={mfaReq}
             onChange={(e) => handleToggle("mfa_required", e.target.checked, setMfaReq)}
           />
           <Checkbox
-            label="Gallery Visible During Submissions"
+            label="Gallery visible during submissions"
             checked={galleryVisible}
             onChange={(e) =>
               handleToggle("gallery_visible_during_submission", e.target.checked, setGalleryVisible)
             }
           />
           <Checkbox
-            label="Show Scores During Judging Stage"
+            label="Show scores during judging stage"
             checked={showScores}
             onChange={(e) =>
               handleToggle("show_scores_during_judging", e.target.checked, setShowScores)
             }
           />
           <Dropdown
-            label="Default Voting Mode"
+            label="Default voting mode"
             options={[
-              { value: "quadratic", label: "Quadratic Voting" },
-              { value: "upvote", label: "Plain Upvote" },
+              { value: "quadratic", label: "Quadratic voting" },
+              { value: "upvote", label: "Plain upvote" },
             ]}
             value={votingMode}
             onChange={(v) => {
@@ -299,65 +276,62 @@ export default function AdminSettings() {
             }}
           />
         </div>
-      </GlassCard>
+      </section>
 
-      {/* 4. LOOKUP TABLES */}
-      <GlassCard className="p-6 flex flex-col gap-4">
-        <div className="flex justify-between items-center">
-          <h2 className="text-sm font-bold text-[#1d1d1f] uppercase tracking-wider text-[#ff0055]">
-            4. Lookup Tables ({lookupType})
-          </h2>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setLookupModalOpen(true)}
-          >
-            + Add Entry
+      {/* Lookup tables */}
+      <section className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-h3 text-primary">Lookup tables</h2>
+          <Button variant="secondary" size="sm" onClick={() => setLookupModalOpen(true)}>
+            Add entry
           </Button>
         </div>
 
-        <div className="flex gap-2 mb-2">
-          {["professions", "interests", "experience_levels", "education_levels"].map((t) => (
+        <div className="flex flex-wrap gap-2">
+          {LOOKUP_TYPES.map((t) => (
             <button
               key={t}
               type="button"
               onClick={() => setLookupType(t)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-full capitalize transition-colors ${
+              className={`h-8 px-3.5 rounded-pill text-[13px] font-medium border transition-colors duration-fast ${
                 lookupType === t
-                  ? "bg-[#ff0055] text-white"
-                  : "bg-white/50 border border-white/80 text-[#6e6e73]"
+                  ? "bg-accent/10 text-accent border-accent/40"
+                  : "bg-surface-1 text-secondary border-line hover:text-primary hover:border-line-strong"
               }`}
             >
-              {t.replace("_", " ")}
+              {t.replace(/_/g, " ")}
             </button>
           ))}
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-black/10 font-bold uppercase text-[#6e6e73]">
-                <th className="py-2 px-3">Code</th>
-                <th className="py-2 px-3">Label</th>
-                <th className="py-2 px-3">Active</th>
-                <th className="py-2 px-3 text-right">Actions</th>
+        {professions === undefined ? (
+          <SkeletonCard lines={3} />
+        ) : (professions as any[]).length === 0 ? (
+          <EmptyState
+            title="No lookup entries"
+            description={`No entries exist for ${lookupType.replace(/_/g, " ")} yet. Add one to make it selectable during registration.`}
+          />
+        ) : (
+          <Table caption={`${lookupType} lookup table`}>
+            <THead>
+              <tr>
+                <TH>Code</TH>
+                <TH>Label</TH>
+                <TH>Status</TH>
+                <TH numeric>Actions</TH>
               </tr>
-            </thead>
+            </THead>
             <tbody>
-              {(professions || []).map((item: any) => (
-                <tr key={item.id} className="border-b border-black/5 hover:bg-white/40">
-                  <td className="py-2 px-3 font-mono">{item.code}</td>
-                  <td className="py-2 px-3 font-bold">{item.label}</td>
-                  <td className="py-2 px-3">
-                    <span
-                      className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${
-                        item.active ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-500"
-                      }`}
-                    >
+              {(professions as any[]).map((item: any) => (
+                <TR key={item.id}>
+                  <TD mono>{item.code}</TD>
+                  <TD>{item.label}</TD>
+                  <TD>
+                    <Badge variant={item.active ? "success" : "default"}>
                       {item.active ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                  <td className="py-2 px-3 text-right">
+                    </Badge>
+                  </TD>
+                  <TD numeric>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -365,97 +339,74 @@ export default function AdminSettings() {
                     >
                       {item.active ? "Deactivate" : "Activate"}
                     </Button>
-                  </td>
-                </tr>
+                  </TD>
+                </TR>
               ))}
             </tbody>
-          </table>
-          {(!professions || professions.length === 0) && (
-            <p className="text-xs text-[#6e6e73] text-center py-4">No lookup entries found.</p>
-          )}
-        </div>
-      </GlassCard>
+          </Table>
+        )}
+      </section>
 
-      {/* 5. DANGER ZONE */}
-      <GlassCard className="p-6 border-red-500/30 bg-red-500/5 flex flex-col gap-4">
-        <h2 className="text-sm font-bold text-red-600 uppercase tracking-wider">
-          5. Danger Zone
-        </h2>
-
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      {/* Danger zone */}
+      <section className="flex flex-col gap-4">
+        <h2 className="text-h3 text-danger">Danger zone</h2>
+        <div className="bg-danger/5 border border-danger/40 rounded-card p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h3 className="text-xs font-bold text-[#1d1d1f]">Reset All Seed Fixtures</h3>
-            <p className="text-xs text-[#6e6e73]">
-              Reseed platform fixtures back to default Dogfood 2026 state.
+            <h3 className="text-[15px] font-medium text-primary">Reset all seed fixtures</h3>
+            <p className="text-[13px] text-secondary mt-0.5">
+              Wipes and rebuilds the Dogfood 2026 fixture population from the seed script.
             </p>
           </div>
-          <Button variant="danger" size="sm" onClick={() => setResetModalOpen(true)}>
-            Reset Seed Data
+          <Button variant="danger" size="sm" onClick={() => setResetModalOpen(true)} className="shrink-0">
+            Reset seed data
           </Button>
         </div>
-      </GlassCard>
+      </section>
 
-      {/* Add Lookup Modal */}
+      {/* Add lookup modal */}
       <Modal
         isOpen={lookupModalOpen}
         onClose={() => setLookupModalOpen(false)}
-        title={`Add Entry to ${lookupType}`}
+        title={`Add entry to ${lookupType.replace(/_/g, " ")}`}
       >
         <form onSubmit={handleAddLookup} className="flex flex-col gap-4 mt-2">
           <Input
-            label="Entry Code *"
+            label="Entry code"
             required
             placeholder="e.g. dev"
             value={lookupCode}
             onChange={(e) => setLookupCode(e.target.value)}
           />
           <Input
-            label="Display Label *"
+            label="Display label"
             required
             placeholder="e.g. Software Developer"
             value={lookupLabel}
             onChange={(e) => setLookupLabel(e.target.value)}
           />
-          <div className="flex justify-between items-center mt-2">
-            <Button variant="ghost" size="md" onClick={() => setLookupModalOpen(false)}>
+          <div className="flex justify-end gap-3 mt-2">
+            <Button variant="ghost" onClick={() => setLookupModalOpen(false)}>
               Cancel
             </Button>
-            <Button variant="primary" size="md" type="submit">
-              Save Entry
+            <Button variant="primary" type="submit">
+              Save entry
             </Button>
           </div>
         </form>
       </Modal>
 
-      {/* Reset Seed Modal */}
-      <Modal
+      {/* Reset confirm */}
+      <ConfirmDialog
         isOpen={resetModalOpen}
         onClose={() => setResetModalOpen(false)}
-        title="Confirm Reset Seed Data"
-        description='Type "RESET" to confirm resetting seed data.'
-      >
-        <div className="flex flex-col gap-4 mt-2">
-          <Input
-            placeholder="RESET"
-            value={resetConfirm}
-            onChange={(e) => setResetConfirm(e.target.value)}
-          />
-          <div className="flex justify-between items-center mt-2">
-            <Button variant="ghost" size="md" onClick={() => setResetModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              size="md"
-              isLoading={busy}
-              disabled={resetConfirm !== "RESET"}
-              onClick={handleResetSeed}
-            >
-              Confirm Reset
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        onConfirm={handleResetSeed}
+        title="Reset seed data"
+        description="This wipes all fixture data and rebuilds it from the seed script. Events and accounts created outside the seed will be removed."
+        confirmLabel="Reset seed"
+        destructive
+        requireTyping="RESET"
+        isLoading={busy}
+      />
     </div>
   );
 }

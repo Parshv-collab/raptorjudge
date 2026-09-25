@@ -1,105 +1,132 @@
 # Design
 
-RaptorJudge uses a **light liquid-glass** language: a near-white canvas
-(`#f5f5f7`), drifting pastel blobs behind translucent panels, generous radii, soft
-shadows, `Inter` typography and a single hot accent (`#ff0055`) reserved for
-interactive elements. It is calm and legible first — the accent marks what you can
-*do*, never what you should *read*.
+RaptorJudge uses a **dark editorial** language: a near-black canvas (`#0a0a0b`),
+flat elevated surfaces separated by 1px hairlines, one hot accent (`#ff2d55`)
+reserved for interactive elements, sharp radii (6/8px), and tight typographic
+hierarchy in Inter Tight with JetBrains Mono for every number, ID and token.
+It is confident and dense — the accent marks what you can *do*, never what you
+should *read*. There are no gradients, no glass, no pastel washes, no 16px+
+radii, and shadows only on modal overlays.
 
 ---
 
 ## 1. Tokens
 
-Defined once in `src/index.css` as CSS custom properties under `:root` and
-mirrored in `tailwind.config.js` so both raw CSS and Tailwind utilities resolve to
-the same values.
+Defined once in `src/styles/design-tokens.css` as CSS custom properties under
+`:root` and mirrored in `tailwind.config.js`, so raw CSS and Tailwind utilities
+resolve to the same values. **No component may hardcode a color** — everything
+goes through a token or its Tailwind mirror (`bg-canvas`, `bg-surface-1`,
+`bg-surface-2`, `border-line`, `border-line-strong`, `text-primary`,
+`text-secondary`, `text-muted`, `accent`, `accent-hover`, `success`, `warning`,
+`danger`, `backdrop`).
 
 | Token | Value | Use |
 |---|---|---|
-| `--bg-base` | `#f5f5f7` | page canvas |
-| `--text-primary` | `#1d1d1f` | headings, body, values |
-| `--text-secondary` | `#6e6e73` | labels, helper text, metadata |
-| `--accent` | `#ff0055` | interactive only: primary buttons, active tab, links, slider fill |
-| `--accent-hover` | `#e0004b` | hover state of the accent |
-| `--error` | `#e63946` | destructive / validation |
-| `--radius-card` | `20px` | cards and panels |
-| `--radius-input` | `12px` | inputs, textareas, selects |
-| `--radius-button` | `12px` | buttons |
-| `--glass-bg` | `rgba(255,255,255,0.55)` | translucent panel fill |
-| `--glass-border` | `rgba(255,255,255,0.7)` | hairline highlight edge |
-| `--glass-shadow` | `0 8px 32px rgba(0,0,0,.08), inset 0 1px 0 rgba(255,255,255,.9)` | panel elevation |
-| `--glass-blur` | `blur(30px) saturate(180%)` | backdrop filter |
+| `--color-bg` | `#0a0a0b` | page canvas |
+| `--color-surface-1` | `#111113` | cards, tables, panels |
+| `--color-surface-2` | `#17171a` | nested rows, inputs, hovers |
+| `--color-border` | `#232328` | default 1px hairline |
+| `--color-border-strong` | `#2e2e34` | hovered/selected edges |
+| `--color-text-primary` | `#f4f4f5` | headings, values, body |
+| `--color-text-secondary` | `#a1a1aa` | labels, descriptions |
+| `--color-text-muted` | `#52525b` | micro-labels, timestamps |
+| `--color-accent` | `#ff2d55` | interactive only: primary buttons, active tab, links, progress fill |
+| `--color-accent-hover` | `#ff4568` | hover state of the accent |
+| `--color-success` | `#22c55e` | live/valid/published states |
+| `--color-warning` | `#f59e0b` | advisory banners, pending states |
+| `--color-danger` | `#ef4444` | destructive / validation |
+| `--color-backdrop` | `rgba(0,0,0,0.6)` | modal + mobile-drawer scrim |
+| `--focus-ring` | accent at 40% | 2px outline, 2px offset, on `:focus-visible` |
 
-Tailwind mirrors: `bg-bg-base`, `text-primary`, `text-secondary`, `accent`
-(+ `accent-hover`), `error`, `glass-surface`, `glass-border`, `rounded-card`,
-`rounded-input`, `rounded-button`, `shadow-glass`, `shadow-glass-hover`.
+Radii: `--radius-button`/`--radius-input` 6px, `--radius-card` 8px,
+`--radius-pill` 999px — no 16px+ radii anywhere. Shadow: `--shadow-modal`
+(`0 8px 32px rgba(0,0,0,0.5)`) exists only for modals and dropdowns; flat
+surfaces rely on borders. Motion: `--duration-fast` 150ms (hover),
+`--duration-state` 200ms (state change), `--ease-out` cubic-bezier(0,0,0.2,1).
+
+Layout tokens: `--sidebar-width` 240px, `--topbar-height` 64px,
+`--content-max` 1200px.
 
 **Rule of thumb:** accent for interactive things only. A non-interactive heading
-or value is `text-primary`; a label or caption is `text-secondary`. Pink on static
-text is a bug.
+or value is `text-primary`; a label is `text-secondary`; a timestamp or overline
+is `text-muted`. Pink on static text is a bug. Semantic colors appear as tinted
+banners/badges (`success/5` fill + `success/30` border) or as plain colored text
+for status — never as large fills.
 
-**Accent scale.** The accent has a small fixed ladder, used consistently rather
-than ad-hoc: `#ff0055` base, `#e0004b` hover, `#c40041` pressed/active, and
-`#ff5588` / `#ff6699` as the gradient partner for the logo mark, primary
-progress fill and avatar fallback. Error follows the same shape: `#e63946` base,
-`#cc2b37` hover. Nothing else is hardcoded — anything new should reuse a token or
-one of these steps.
-
-Semantic status colors are used sparingly and only inside a tinted banner:
-`emerald` for success/locked, `amber` for warnings (default rubric, oversized
-load, unconverged ranking), `red`/`error` for destructive or blocking states.
-
-Utility classes: `.glass-panel` (translucent surface + blur + highlight edge +
-shadow) and `.focus-ring-accent` (2–3px accent focus ring).
+Utility classes in `src/index.css`: `.tnum` (tabular numerals for every numeric
+column), `.wordmark` (logo lockup), `.skip-link`, modal choreography
+(`modal-fade-in` / `modal-rise-in`), `.skeleton` shimmer, and the Sonner
+`toast-slide-in` mapping.
 
 ---
 
 ## 2. Typography and spacing
 
-- **Family:** `Inter` with system fallbacks. No webfont fetch, so the UI renders
-  identically offline.
-- **Scale in use:** page title `text-2xl`/`text-3xl font-black tracking-tight`;
-  section heading `text-lg`/`text-base font-bold`; card heading `text-sm
-  font-bold`; body `text-sm`; helper/label `text-xs`; micro-label `text-[10px]
-  font-bold uppercase tracking-wider`.
-- **Numbers:** `font-mono` for scores, means, weights and ratings so columns align.
-- **Rhythm:** cards `p-6` (24px) with `p-8` on hero cards; gaps `gap-6` (24px)
-  between cards and `gap-2`/`gap-3` (8/12px) inside them. Container is centered
-  with `1.5rem` padding and a `1400px` 2xl breakpoint.
-- **Radii:** cards 20px, inputs and buttons 12px — never mix a square input into a
-  rounded card.
+- **Families:** Inter Tight Variable for everything, JetBrains Mono Variable for
+  IDs, scores, weights, ratings, timestamps and code. Both are loaded locally via
+  `@fontsource-variable/*` imports in `src/index.css` — no CDN fetch, so the UI
+  renders identically offline.
+- **Scale:** display 56/1.1/−0.03em (landing hero), h1 36/−0.02em, h2 24/−0.01em,
+  h3 18, body 15/1.5, small 13, mono 13/500. Exposed as Tailwind `text-display`,
+  `text-h1`, `text-h2`, `text-h3`; weights and tracking are baked into the
+  utilities.
+- **Numbers:** `font-mono` + `.tnum` for anything that would ever sit in a column
+  with another number.
+- **Rhythm:** page padding 32px desktop / 20px mobile, card padding 24px
+  (`p-6`), section gap 48px (`gap-8` in the flow of a page), inline gap 12px.
+  Content is capped at `max-w-content` (1200px) inside the main column.
+- **Overlines:** 11px uppercase `tracking-[0.08em] text-muted` — the signature
+  label style for stats and section intros.
 
 ---
 
-## 3. Component inventory
+## 3. Layout system
 
-`src/components/ui/` **is** the design system:
+Every authenticated page renders inside `src/components/layout/AppShell.tsx`:
+a **persistent 240px left sidebar** (wordmark, role-specific nav, account links,
+user footer with sign-out) plus the main content column. The sidebar is fixed on
+`lg+` and collapses into a hamburger drawer below it; the active item carries a
+2px accent left-border. Public routes (landing, events, event page, gallery,
+verify, legal, auth) use the same shell's public variant: slim top bar, no
+sidebar.
+
+`src/components/ui/PageHeader.tsx` is the in-content top bar for every page:
+h1 title, one-line muted description, actions right, bottom hairline.
+
+---
+
+## 4. Component inventory
+
+`src/components/ui/` **is** the design system (see `index.ts` for the public
+surface):
 
 | Component | Notes |
 |---|---|
-| `Button` | variants `primary` (accent) / `secondary` (glass) / `ghost` / `danger`; sizes `sm`/`md`/`lg`; `isLoading` swaps in a spinner and disables |
-| `GlassCard` | the panel primitive: glass fill, blur, hairline edge, soft shadow |
-| `Tabs` | underline-style tab strip used by the organizer console and admin |
-| `Modal` | focus-trapped dialog; `ConfirmDialog` is the destructive variant |
-| `Input`, `PasswordInput` | label + hint + error slots, `focus-ring-accent` |
-| `Dropdown` | native-select-backed for reliability, styled to match inputs |
-| `Checkbox`, `ChipGroup` | multi-select for tags and judge specialisations |
+| `Button` | variants `primary` (accent) / `secondary` (surface-2 + border) / `ghost` / `danger`; sizes `sm`/`md`/`lg`; `isLoading` swaps in a spinner and disables |
+| `Card` | the flat panel primitive: surface-1, 1px border, 8px radius; `interactive` brightens the border on hover; `SectionHeader` pairs an overline with an h2 |
+| `PageHeader` | h1 + description + actions for the top of every page |
+| `Table` | `Table`/`THead`/`TH`/`TR`/`TD` — bordered container, uppercase 12px headers, `numeric` and `mono` cell modes, horizontal scroll |
+| `StatCard` | overline label + 2rem `tnum` figure + subtext, optional icon/href |
+| `Badge` | pill with tinted variants `default`/`success`/`warning`/`danger`/`accent` |
+| `Tabs` | underline-style tab strip with optional count badges (organizer console) |
+| `Modal` | scrim + rise-in dialog, Escape/backdrop close; `ConfirmDialog` is the destructive variant with `requireTyping` |
+| `Input`, `PasswordInput`, `Textarea`, `Select`/`Dropdown` | label + hint + error slots; native select backing for reliability |
+| `Checkbox`, `ChipGroup` | multi-select for tags, judge specialisations, filters |
 | `Alert` | inline tinted message (info / success / warning / error) |
-| `ProgressBar` | used for judge progress and per-judge load; supports `max` |
-| `SkeletonCard` | the loading primitive — `lines` controls height |
-| `EmptyState` | default icon + title + description + optional action button |
-| `StatCard` | metric tile for dashboards |
-| `Avatar` | initials fallback when no image is set |
+| `ProgressBar` | accent fill on a bordered track; used for judge progress and per-judge load |
+| `Skeleton`, `SkeletonCard`, `SkeletonTable`, `SkeletonStat` | shimmer loading primitives |
+| `EmptyState` | icon + title + explanation + optional action button |
+| `Avatar` | deterministic-tint initials fallback when no image is set |
+| `Toast` | `AppToaster` plus `showSuccess/showWarning/showDanger/showInfo` helpers over Sonner |
 
-Layout and theming live in `src/components/layout/AppShell.tsx` (navigation,
-profile menu, responsive mobile nav, footer, theme toggle),
-`src/components/theme/ThemeProvider.tsx` (applies the theme class) and
-`src/components/ErrorBoundary.tsx` (catches render errors and offers a reload
-instead of a blank page).
+Layout and theming live in `src/components/layout/AppShell.tsx` (sidebar, role
+nav, mobile drawer, footer) and `src/components/ErrorBoundary.tsx` (catches
+render errors and offers a reload in the token system instead of a blank page).
+`src/components/theme/ThemeProvider.tsx` remains as the app-level provider.
 
 ---
 
-## 4. Screens
+## 5. Screens
 
 | Route | Screen | Access |
 |---|---|---|
@@ -124,74 +151,81 @@ instead of a blank page).
 | `/organizer` | Organizer summary: stats, events, activity | Organizer |
 | `/organizer/events` | Event list | Organizer |
 | `/organizer/events/new`, `.../edit` | Event create/edit | Organizer |
-| `/organizer/events/:slug` | Console: Overview, Tracks, Rubric, Judges, Submissions, Duplicates, Results, Webhooks, Audit | Organizer |
+| `/organizer/events/:slug` | Console: Overview, Tracks, Rubric, Judges, Voting, Webhooks, Flagged Comments, Duplicates, Submissions, Results, Audit | Organizer |
 | `/admin`, `/admin/users`, `/admin/events`, `/admin/audit`, `/admin/invites`, `/admin/settings`, `/admin/judging` | Administration | Admin |
-| `/profile`, `/settings`, `/security` | Own profile, preferences, sessions/password/MFA | Authenticated |
+| `/profile`, `/settings`, `/security` | Own profile, preferences, MFA enrollment | Authenticated |
 | `*` | Not found | Public |
 
 ---
 
-## 5. States
+## 6. States
 
 Every list or table has four states, and no screen ships with only the happy one:
 
-- **Loading** — `SkeletonCard`, never a bare "Loading…" string. Query-based
-  screens distinguish `undefined` (loading) from `null`/empty (no data).
+- **Loading** — skeleton primitives (`SkeletonCard`, `SkeletonTable`,
+  `SkeletonStat`), never a bare "Loading…" string. Query-based screens
+  distinguish `undefined` (loading) from `null`/empty (no data).
 - **Empty** — `EmptyState` with an icon, a sentence explaining *why* it is empty
-  and, where an action exists, a CTA (e.g. "Run duplicate scan", "Create event").
+  and, where an action exists, a CTA (e.g. "Run duplicate scan", "Distribute
+  fairly").
 - **Error** — humanized via `humanizeConvexError`; raw Convex/stack text never
   reaches the user. Role-restricted queries surface a permission message rather
   than an empty screen.
 - **Populated** — dense tables scroll horizontally on small screens
-  (`overflow-x-auto` + `min-w-[…]`) instead of breaking the layout.
+  (`overflow-x-auto`) instead of breaking the layout; rows sit on surface-2 and
+  brighten to surface-1 borders on hover.
 
 Mutations report through Sonner toasts (`richColors`, top-right): success for
-completed work, error for refusals, and inline warnings for advisory conditions
-(rubric weights not summing to 1, unconverged Bradley–Terry, judges at the load
-cap).
+completed work, error for refusals, and inline warning banners for advisory
+conditions (rubric weights not summing to 1, unconverged Bradley–Terry, judges at
+the load cap, webhook secrets shown once).
 
 ---
 
-## 6. Motion
+## 7. Motion
 
-Framer Motion and CSS keyframes are used for entrance and emphasis only:
+Transitions only — nothing auto-plays and nothing bounces:
 
-- two/three pastel blobs drift on 25–30s loops behind the content;
-- cards and lists fade/slide in once, and do not re-animate on data refresh;
-- hover lifts a card slightly (`shadow-glass-hover`) and buttons darken the
-  accent.
+- 150ms ease-out on hover (border brighten, background lift, color shift);
+- 200ms on state change (modal rise, toast slide, progress width);
+- skeletons shimmer at 1.5s until data replaces them.
 
-All of it is inside `@media (prefers-reduced-motion: reduce)`, which disables
-blob animation, forces `scroll-behavior: auto` and collapses transition and
-animation durations to `0.01ms`.
+All of it is inside `@media (prefers-reduced-motion: reduce)`, which forces
+`scroll-behavior: auto` and collapses transition and animation durations to
+`0.01ms`.
 
 ---
 
-## 7. Accessibility rules in force
+## 8. Accessibility rules in force
 
-- **Focus** — every interactive element has a visible `focus-ring-accent` ring;
-  focus is never removed without a replacement.
+- **Focus** — every interactive element gets the 2px accent/40% `:focus-visible`
+  ring with 2px offset; focus is never removed without a replacement.
 - **Labels** — icon-only buttons carry `aria-label`; form controls are bound to a
-  `<label htmlFor>`; sliders expose `aria-valuemin/max/now/valuetext`.
-- **Semantics** — decorative visuals are `aria-hidden`; images carry `alt`
-  (project covers fall back to a titled placeholder).
-- **Contrast** — `#1d1d1f` on `#f5f5f7` and white on `#ff0055` both clear WCAG AA
-  for their sizes. There is no automated contrast audit in the repo.
-- **Reduced transparency** — `@media (prefers-reduced-transparency: reduce)`
-  drops backdrop blur and makes glass panels opaque.
-- **Target size** — primary controls are at least 44px tall on touch layouts.
+  `<label htmlFor>`; sliders expose `aria-valuemin/max/now/valuetext`; tabular
+  data lives in real `<table>` markup with `<th scope="col">`.
+- **Semantics** — decorative visuals are `aria-hidden`; images carry `alt`;
+  modals are `role="dialog" aria-modal="true"` with Escape-to-close; status
+  banners are `role="status"`.
+- **Contrast** — `#f4f4f5` on `#0a0a0b`, `#a1a1aa` on surface-1 and white on
+  `#ff2d55` all clear WCAG AA for their sizes. There is no automated contrast
+  audit in the repo.
+- **Target size** — primary controls are at least 40px tall (44px on touch
+  layouts); the mobile drawer is backdrop-dismissable and closes on navigation.
+- **Keyboard** — every flow (menus, tabs, modals, scoring sliders) is reachable
+  and operable without a pointer.
 
 ---
 
-## 8. Adding a page
+## 9. Adding a page
 
-1. Add the file under `src/pages/`.
+1. Add the file under `src/pages/` (shared organizer tab panels live in
+   `src/pages/organizer/`).
 2. Register it in `src/App.tsx`. Authenticated routes must be wrapped in
    `Protected`; put public embeddable routes outside the `AppShell` layout.
-3. Reuse `AppShell` for normal routes so navigation, theme, profile menu, mobile
-   nav and footer stay consistent.
+3. Reuse `AppShell` for normal routes so the sidebar, mobile drawer and footer
+   stay consistent, and open with `PageHeader`.
 4. Build the UI from `src/components/ui/` primitives and the tokens above — no
-   bespoke colors, radii or spacing scales.
+   bespoke colors, radii, shadows or spacing scales.
 5. Implement all four states (loading, empty, error, populated) and check 375px
    width before calling it done.
 6. Backend work goes in `src/convex/`; after a deployment change, regenerate the

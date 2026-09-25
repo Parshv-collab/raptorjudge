@@ -154,7 +154,7 @@ src/convex/          Convex backend: schema, queries, mutations, actions, HTTP A
   lib/               shared guards (rbac, audit chain, rate limit), security checks
 src/lib/algorithms/  pure, unit-tested assignment, normalization, pairwise, duplicates
 src/pages/           route-level screens
-src/components/ui/   design-system components (Button, GlassCard, EmptyState, …)
+src/components/ui/   design-system components (Button, Card, Table, EmptyState, …)
 tests/               Vitest suites, including fixture-driven proofs
 scripts/             seed / acceptance / proof / key-generation tooling
 frontend/, backend/  Docker images and entrypoints

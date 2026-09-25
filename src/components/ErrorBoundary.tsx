@@ -1,5 +1,4 @@
 import { Component, ErrorInfo, ReactNode } from "react";
-import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";
 
 interface Props {
@@ -31,19 +30,19 @@ export class ErrorBoundary extends Component<Props, State> {
         return this.props.fallback;
       }
       return (
-        <div className="max-w-xl mx-auto py-12 px-4">
-          <GlassCard className="p-8 flex flex-col items-center text-center gap-4 border-red-500/20">
-            <div className="w-12 h-12 rounded-full bg-red-500/10 text-[#ff0055] flex items-center justify-center font-black text-xl">
+        <div className="min-h-screen bg-canvas text-primary flex items-center justify-center px-5 py-12">
+          <div className="max-w-md w-full bg-surface-1 border border-line rounded-card p-8 flex flex-col items-center text-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-danger/10 text-danger flex items-center justify-center font-semibold text-xl border border-danger/30">
               !
             </div>
-            <h2 className="text-xl font-bold text-[#1d1d1f]">Could not load page</h2>
-            <p className="text-xs text-[#6e6e73] max-w-sm">
-              Please refresh the page or try again later.
+            <h2 className="text-h3 text-primary">Could not load page</h2>
+            <p className="text-[13px] text-secondary max-w-sm leading-relaxed">
+              An unexpected error occurred while rendering this page. Please refresh and try again.
             </p>
-            <Button variant="primary" size="md" onClick={() => window.location.reload()}>
-              Refresh Page
+            <Button variant="primary" onClick={() => window.location.reload()}>
+              Refresh page
             </Button>
-          </GlassCard>
+          </div>
         </div>
       );
     }

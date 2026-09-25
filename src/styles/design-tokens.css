@@ -1,0 +1,44 @@
+/* ============================================================================
+   RaptorJudge design tokens — single source of truth.
+   Dark editorial system: near-black canvas, one hot accent, sharp corners.
+   Every page consumes these via Tailwind semantic utilities (bg-surface-1,
+   text-secondary, border-line, …). No component may hardcode a color.
+   ========================================================================== */
+
+:root {
+  /* Color */
+  --color-bg: #0a0a0b;
+  --color-surface-1: #111113;
+  --color-surface-2: #17171a;
+  --color-border: #232328;
+  --color-border-strong: #2e2e34;
+  --color-text-primary: #f4f4f5;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #52525b;
+  --color-accent: #ff2d55;
+  --color-accent-hover: #ff4568;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-backdrop: rgba(0, 0, 0, 0.6);
+  --focus-ring: 0 0 0 2px rgba(255, 45, 85, 0.4);
+
+  /* Radius — one scale, never deviate */
+  --radius-button: 6px;
+  --radius-input: 6px;
+  --radius-card: 8px;
+  --radius-pill: 999px;
+
+  /* Shadow — borders do the work; only overlays get depth */
+  --shadow-modal: 0 8px 32px rgba(0, 0, 0, 0.5);
+
+  /* Motion */
+  --duration-fast: 150ms;
+  --duration-state: 200ms;
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+
+  /* Layout */
+  --sidebar-width: 240px;
+  --topbar-height: 64px;
+  --content-max: 1200px;
+}
