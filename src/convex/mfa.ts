@@ -17,12 +17,7 @@ import {
   verifyTotp,
   TOTP_DIGITS,
 } from "../lib/totp";
-import {
-  INVALID_TOTP,
-  TOTP_LOCKED,
-  TOTP_REQUIRED,
-  TOTP_UNAVAILABLE,
-} from "./lib/signInErrors";
+import { INVALID_TOTP, TOTP_LOCKED, TOTP_UNAVAILABLE } from "./lib/signInErrors";
 
 /**
  * Optional TOTP two-factor authentication (security item 55), for **admin and

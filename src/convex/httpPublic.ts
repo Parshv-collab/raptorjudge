@@ -1,7 +1,7 @@
 import { internalQuery, internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
-import { sha256Hex, hmacSha256Hex, safeEqualHex, seededShuffle, seedFromString } from "./crypto";
+import { hmacSha256Hex, safeEqualHex, seededShuffle, seedFromString } from "./crypto";
 import { normalizeScores, type JudgeScoreSet } from "../lib/algorithms/normalization";
 import { bradleyTerry, type PairwiseMatchRecord } from "../lib/algorithms/pairwise";
 import { appendAudit } from "./lib/audit";

@@ -21,7 +21,6 @@ export default function AdminSettings() {
   const reseed = useAction(api.seed.seed);
 
   // Lookups queries/mutations
-  const activeLookupType = "professions";
   const professions = useQuery(api.admin.listLookups, skip ? "skip" : { type: "professions" });
   const createLookup = useMutation(api.admin.createLookup);
   const deactivateLookup = useMutation(api.admin.deactivateLookup);

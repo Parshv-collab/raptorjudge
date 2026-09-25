@@ -39,7 +39,6 @@ import InviteAccept from "@/pages/InviteAccept";
 import ParticipantDashboard from "@/pages/ParticipantDashboard";
 import { Link, Navigate, Outlet, useLocation } from "react-router-dom";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 

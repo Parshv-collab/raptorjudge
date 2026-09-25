@@ -1,4 +1,4 @@
-import React, { useState, FormEvent } from "react";
+import { useState, FormEvent } from "react";
 import { useNavigate, useLocation, useSearchParams, Link } from "react-router-dom";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { useAction } from "convex/react";

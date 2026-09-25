@@ -14,7 +14,6 @@ import {
   MAX_DESCRIPTION_LENGTH,
   MAX_TAGLINE_LENGTH,
   MAX_TITLE_LENGTH,
-  MAX_URL_LENGTH,
   normalizeTags,
   requireText,
   validateUrl,

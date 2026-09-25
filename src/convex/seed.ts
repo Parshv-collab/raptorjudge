@@ -2,12 +2,7 @@ import { v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import {
-  createAccount,
-  getAuthUserId,
-  modifyAccountCredentials,
-  retrieveAccount,
-} from "@convex-dev/auth/server";
+import { createAccount, modifyAccountCredentials } from "@convex-dev/auth/server";
 import { sha256Hex, hmacSha256Hex, randomHex } from "./crypto";
 import { appendAudit } from "./lib/audit";
 import { FIXTURES } from "./lib/fixturesData";

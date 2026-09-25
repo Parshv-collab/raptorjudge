@@ -1,4 +1,3 @@
-import React from "react";
 import { Link } from "react-router-dom";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Button } from "@/components/ui/Button";

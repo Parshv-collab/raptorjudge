@@ -977,12 +977,6 @@ export const judgeRecord = query({
     const judge = await ctx.db.get(args.judgeId);
     if (!judge) throw new Error("Judge not found");
 
-    const assignments = await ctx.db
-      .query("judgeAssignments")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    const judgeAssignments = assignments.filter((a) => a.judgeId === args.judgeId);
-
     const scores = await ctx.db
       .query("judgeScores")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))

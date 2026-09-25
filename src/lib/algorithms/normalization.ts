@@ -244,7 +244,6 @@ export function normalizeScores(
     }),
   );
   const mmScores = new Map(submissions.map((s) => [s.submissionId, s.minMaxNormalized]));
-  const bayesScores = new Map(submissions.map((s) => [s.submissionId, s.bayesianAdjusted]));
 
   // --- calibration compression -------------------------------------------
   // Spread between judge means (harsh vs generous) and between submission

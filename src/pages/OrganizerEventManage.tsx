@@ -969,7 +969,7 @@ function RubricTab({
   const [weight, setWeight] = useState(0.25);
   const [minScore, setMinScore] = useState(1);
   const [maxScore, setMaxScore] = useState(10);
-  const [sortOrder, setSortOrder] = useState(10);
+  const [, setSortOrder] = useState(10);
 
   const criteria = rubricData?.criteria || [];
   const isDefault = rubricData?.isDefault;

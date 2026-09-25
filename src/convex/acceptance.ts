@@ -49,7 +49,13 @@ export const runSuite = mutation({
     add("T1", "t1.roles", "All 4 roles present in seeded data", roles.size >= 4);
 
     const authUsers = users.filter((u) => (u.tokenIdentifier ?? "").length > 0);
-    add("T1", "t1.auth_linked", "Accounts support session identity", users.length > 0);
+    add(
+      "T1",
+      "t1.auth_linked",
+      "Every seeded account carries a session identity",
+      users.length > 0 && authUsers.length === users.length,
+      `accounts=${users.length} linked=${authUsers.length}`,
+    );
 
     const events = await ctx.db.query("events").collect();
     const event = events[0];

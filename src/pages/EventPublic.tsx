@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { useParams, Link } from "react-router-dom";
 import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { GlassCard } from "@/components/ui/GlassCard";
@@ -28,7 +28,6 @@ const FAQ_ITEMS = [
 
 export default function EventPublic() {
   const { slug } = useParams<{ slug: string }>();
-  const navigate = useNavigate();
   const { isAuthenticated, isLoading } = useConvexAuth();
 
   const event = useQuery(api.events.getBySlug, slug ? { slug } : "skip");

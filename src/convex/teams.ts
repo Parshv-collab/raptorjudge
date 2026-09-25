@@ -169,7 +169,6 @@ export const create = mutation({
       }
     }
 
-    const settings = parseSettings(event.settings);
     const inviteCode = randomHex(6);
 
     const teamId = await ctx.db.insert("teams", {

@@ -105,7 +105,7 @@ export async function requireEvent(ctx: QueryCtx | MutationCtx, eventId: Id<"eve
 
 /** Deadline gate for participant submission edits (T1 strict deadline enforcement). */
 export async function assertSubmissionWindow(
-  ctx: MutationCtx,
+  _ctx: MutationCtx,
   event: Doc<"events">,
   actorRole: Role,
 ): Promise<void> {
