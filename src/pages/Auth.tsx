@@ -15,13 +15,6 @@ import { Alert } from "@/components/ui/Alert";
 import { resolveReturnTo } from "@/lib/safeRedirect";
 import { humanizeConvexError } from "@/lib/errors";
 
-const DEMO_ACCOUNTS = [
-  { email: "admin@raptors.dev", label: "Admin", role: "admin" },
-  { email: "organizer@raptors.dev", label: "Organizer", role: "organizer" },
-  { email: "judge1@raptors.dev", label: "Judge 1", role: "judge" },
-  { email: "participant1@raptors.dev", label: "Participant", role: "participant" },
-];
-
 const PROFESSIONS = [
   { value: "developer", label: "Software Developer / Engineer" },
   { value: "designer", label: "UI/UX Designer" },
@@ -67,8 +60,6 @@ export default function Auth() {
     location.pathname !== "/auth" ? location.pathname : searchParams.get("returnTo"),
     "/home"
   );
-  const reseed = useAction(api.seed.seed);
-
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [signupStep, setSignupStep] = useState<1 | 2>(1);
 
@@ -132,7 +123,7 @@ export default function Auth() {
         setNeedsCode(true);
         setError("Too many wrong codes. Factor locked temporarily.");
       } else if (/Invalid email or password/i.test(raw) || /InvalidSecret|InvalidAccountId/i.test(raw)) {
-        setError("Invalid email or password. Default demo password is 'dogfood2026'.");
+        setError("Invalid email or password. Please check your credentials.");
       } else {
         setError(humanizeConvexError(err));
       }
@@ -174,15 +165,6 @@ export default function Auth() {
     } finally {
       setBusy(false);
     }
-  }
-
-  async function quickFill(demoEmail: string) {
-    setMode("signin");
-    setEmail(demoEmail);
-    setPassword("dogfood2026");
-    setNeedsCode(false);
-    setCode("");
-    setError(null);
   }
 
   if (disabledState) {
@@ -487,50 +469,6 @@ export default function Auth() {
           )}
         </GlassCard>
 
-        {/* Demo Accounts Box */}
-        <div className="w-full mt-6">
-          <GlassCard className="p-4 text-xs">
-            <div className="flex items-center justify-between mb-2 pb-1 border-b border-black/5">
-              <span className="font-bold text-[#1d1d1f]">Demo Accounts</span>
-              <span className="text-[10px] font-mono text-[#6e6e73]">Pass: dogfood2026</span>
-            </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              {DEMO_ACCOUNTS.map((account) => (
-                <button
-                  key={account.email}
-                  type="button"
-                  onClick={() => quickFill(account.email)}
-                  className="px-2.5 py-1.5 rounded-button bg-white/50 border border-white/80 hover:bg-white/80 text-left transition-colors"
-                >
-                  <p className="font-bold text-[#1d1d1f] truncate">{account.label}</p>
-                  <p className="text-[10px] text-[#6e6e73] truncate">{account.email}</p>
-                </button>
-              ))}
-            </div>
-
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              isLoading={busy}
-              onClick={async () => {
-                setBusy(true);
-                setError(null);
-                try {
-                  await reseed({});
-                  toast.success("Demo fixtures re-seeded successfully!");
-                } catch (err: any) {
-                  setError(err?.message || "Failed to seed demo data");
-                } finally {
-                  setBusy(false);
-                }
-              }}
-              className="w-full mt-3 text-xs"
-            >
-              ⚡ Reseed Demo Data
-            </Button>
-          </GlassCard>
-        </div>
       </div>
     </div>
   );
