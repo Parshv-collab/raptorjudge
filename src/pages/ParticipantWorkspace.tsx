@@ -399,6 +399,11 @@ export default function ParticipantWorkspace() {
         )}
       </GlassCard>
 
+      {/* Team Chat & File Sharing (Private to Team Members) */}
+      {team && (
+        <TeamChatSection teamId={team._id} />
+      )}
+
       {/* Submission Draft / Form Section */}
       {team && (
         <GlassCard className="p-6">
@@ -638,5 +643,168 @@ export default function ParticipantWorkspace() {
         </GlassCard>
       )}
     </div>
+  );
+}
+
+function TeamChatSection({ teamId }: { teamId: any }) {
+  const messages = useQuery((api as any).teamChat.listMessages, { teamId });
+  const sendMessage = useMutation((api as any).teamChat.sendMessage);
+  const generateUploadUrl = useMutation((api as any).teamChat.generateUploadUrl);
+
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [attachedFile, setAttachedFile] = useState<{
+    storageId: string;
+    name: string;
+    type: string;
+  } | null>(null);
+
+  async function handleSend(e: React.FormEvent) {
+    e.preventDefault();
+    if (!text.trim() && !attachedFile) return;
+    setBusy(true);
+    try {
+      await sendMessage({
+        teamId,
+        content: text.trim(),
+        fileStorageId: attachedFile?.storageId as never,
+        fileName: attachedFile?.name,
+        fileType: attachedFile?.type,
+      });
+      setText("");
+      setAttachedFile(null);
+    } catch (err: any) {
+      toast.error(humanizeConvexError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File too large. Max file size is 10MB.");
+      return;
+    }
+    setUploading(true);
+    try {
+      const uploadUrl = await generateUploadUrl();
+      const res = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      const { storageId } = await res.json();
+      setAttachedFile({ storageId, name: file.name, type: file.type });
+      toast.success("File attached to message!");
+    } catch (err: any) {
+      toast.error(humanizeConvexError(err));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <GlassCard className="p-6">
+      <div className="flex justify-between items-center mb-4">
+        <div>
+          <h2 className="text-lg font-bold text-[#1d1d1f]">Team Member Chat & File Sharing</h2>
+          <p className="text-xs text-[#6e6e73]">
+            Private team workspace discussion and shared attachments (visible only to team members).
+          </p>
+        </div>
+        <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase rounded-full bg-[#ff0055]/10 text-[#ff0055]">
+          Private Team Room
+        </span>
+      </div>
+
+      {/* Message Stream */}
+      <div className="max-h-80 overflow-y-auto flex flex-col gap-3 p-3 rounded-input bg-white/40 border border-white/80 mb-4">
+        {(messages || []).map((msg: any) => (
+          <div
+            key={msg.id}
+            className="p-3 rounded-card bg-white/70 border border-white shadow-sm flex flex-col gap-1 text-xs"
+          >
+            <div className="flex justify-between items-center">
+              <span className="font-bold text-[#1d1d1f]">{msg.authorName}</span>
+              <span className="text-[10px] text-[#6e6e73]">
+                {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+
+            {msg.content && (
+              <p className="text-[#1d1d1f] leading-relaxed whitespace-pre-line">{msg.content}</p>
+            )}
+
+            {msg.fileUrl && (
+              <div className="mt-1 pt-2 border-t border-black/5 flex items-center gap-2">
+                <span className="text-sm">📎</span>
+                <a
+                  href={msg.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-[#ff0055] hover:underline text-xs truncate max-w-xs"
+                >
+                  {msg.fileName || "Download Attachment"}
+                </a>
+              </div>
+            )}
+          </div>
+        ))}
+
+        {(!messages || messages.length === 0) && (
+          <p className="text-xs text-[#6e6e73] text-center py-8">
+            No team messages yet. Start the conversation with your team!
+          </p>
+        )}
+      </div>
+
+      {/* Composer Input */}
+      <form onSubmit={handleSend} className="flex flex-col gap-2">
+        {attachedFile && (
+          <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-xs flex justify-between items-center">
+            <span className="font-semibold text-amber-900 truncate">📎 Attached: {attachedFile.name}</span>
+            <button
+              type="button"
+              onClick={() => setAttachedFile(null)}
+              className="text-[#ff0055] font-bold text-xs"
+            >
+              Remove
+            </button>
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <Input
+            placeholder="Type a message to your teammates..."
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            className="flex-1"
+          />
+
+          <label className="cursor-pointer px-3 py-2 text-xs font-semibold rounded-button bg-white/60 border border-white/80 hover:bg-white/90 transition-colors shrink-0 flex items-center justify-center">
+            {uploading ? "Uploading..." : "📎 Share File"}
+            <input
+              type="file"
+              className="hidden"
+              onChange={handleFileUpload}
+              disabled={uploading}
+            />
+          </label>
+
+          <Button
+            type="submit"
+            variant="primary"
+            size="md"
+            isLoading={busy}
+            disabled={!text.trim() && !attachedFile}
+          >
+            Send
+          </Button>
+        </div>
+      </form>
+    </GlassCard>
   );
 }

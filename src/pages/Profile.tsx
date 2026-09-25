@@ -51,14 +51,26 @@ export default function Profile() {
 
   const [name, setName] = useState("");
   const [bio, setBio] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState("");
+  const [avatarStorageId, setAvatarStorageId] = useState("");
   const [uploading, setUploading] = useState(false);
+
+  // Resolve storage URL if avatarStorageId is a Convex storage ID
+  const avatarUrlQuery = useQuery(
+    api.events.getStorageUrl,
+    avatarStorageId && !avatarStorageId.startsWith("http")
+      ? { storageId: avatarStorageId as never }
+      : "skip"
+  );
+
+  const displayAvatarUrl = avatarStorageId.startsWith("http")
+    ? avatarStorageId
+    : avatarUrlQuery || "";
 
   async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
-      toast.error("Invalid image type.");
+      toast.error("Invalid image type. Supported: JPG, PNG, WEBP, GIF.");
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
@@ -74,9 +86,9 @@ export default function Profile() {
         body: file,
       });
       const { storageId } = await res.json();
-      setAvatarUrl(storageId);
+      setAvatarStorageId(storageId);
       await updateProfile({ avatarUrl: storageId });
-      toast.success("Avatar updated!");
+      toast.success("Avatar profile picture updated!");
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
     } finally {
@@ -96,7 +108,7 @@ export default function Profile() {
     if (me) {
       setName(me.name || "");
       setBio(me.bio || "");
-      setAvatarUrl(me.avatarUrl || "");
+      setAvatarStorageId(me.avatarUrl || "");
     }
   }, [me]);
 
@@ -106,7 +118,7 @@ export default function Profile() {
     try {
       await updateProfile({
         bio,
-        avatarUrl,
+        avatarUrl: avatarStorageId,
       });
       toast.success("Profile updated successfully!");
     } catch (err: any) {
@@ -168,25 +180,35 @@ export default function Profile() {
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs font-semibold text-[#1d1d1f]">Avatar Image</label>
-            <div className="flex items-center gap-4">
-              {avatarUrl ? (
-                <img src={avatarUrl} alt="Avatar" className="w-12 h-12 rounded-full object-cover border border-white" />
+            <label className="text-xs font-semibold text-[#1d1d1f]">Profile Picture</label>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              {displayAvatarUrl ? (
+                <img
+                  src={displayAvatarUrl}
+                  alt="Avatar Preview"
+                  className="w-16 h-16 rounded-full object-cover border-2 border-white shadow-sm"
+                />
               ) : (
-                <div className="w-12 h-12 rounded-full bg-[#ff0055]/10 text-[#ff0055] font-bold flex items-center justify-center">
-                  {(name || "U").charAt(0)}
+                <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-[#ff0055]/20 to-[#ff5588]/20 text-[#ff0055] font-black text-xl flex items-center justify-center border border-white/80 shadow-sm">
+                  {(name || "U").charAt(0).toUpperCase()}
                 </div>
               )}
-              <label className="cursor-pointer px-3 py-1.5 text-xs font-semibold rounded-button bg-white/60 border border-white/80 hover:bg-white/90 transition-colors">
-                {uploading ? "Uploading..." : "Upload Avatar"}
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  className="hidden"
-                  onChange={handleAvatarUpload}
-                  disabled={uploading}
-                />
-              </label>
+
+              <div className="flex flex-col gap-1 w-full sm:w-auto">
+                <label className="cursor-pointer px-4 py-2 text-xs font-semibold rounded-button bg-white/60 border border-white/80 hover:bg-white/90 transition-colors shrink-0 text-center shadow-sm">
+                  {uploading ? "Uploading Image..." : "Select Profile Picture from Device"}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={handleAvatarUpload}
+                    disabled={uploading}
+                  />
+                </label>
+                <span className="text-[10px] text-[#6e6e73]">
+                  JPG, PNG, WEBP or GIF up to 5MB.
+                </span>
+              </div>
             </div>
           </div>
 

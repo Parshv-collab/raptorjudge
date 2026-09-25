@@ -234,10 +234,14 @@ export const seed = action({
     }
 
     // 9. Create 4 demo accounts required for acceptance testing
+    // Link judge_a and judge_b to the first and second judges in FIXTURES.judges
+    const firstJudgeEmail = FIXTURES.judges[0]?.email || "tomas.varga@example.org";
+    const secondJudgeEmail = FIXTURES.judges[1]?.email || "wei.lindqvist@example.org";
+
     const demoAccounts = [
       { key: "organizer", email: "organizer@fixture.local", name: "Fixture Organizer", role: "organizer" },
-      { key: "judge_a", email: "judge_a@fixture.local", name: "Tomas Varga (Judge A)", role: "judge" },
-      { key: "judge_b", email: "judge_b@fixture.local", name: "Wei Lindqvist (Judge B)", role: "judge" },
+      { key: "judge_a", email: firstJudgeEmail, name: FIXTURES.judges[0]?.name || "Tomas Varga (Judge A)", role: "judge" },
+      { key: "judge_b", email: secondJudgeEmail, name: FIXTURES.judges[1]?.name || "Wei Lindqvist (Judge B)", role: "judge" },
       { key: "participant", email: "participant@fixture.local", name: "Fixture Participant", role: "participant" },
     ];
 
