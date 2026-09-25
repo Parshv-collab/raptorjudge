@@ -57,4 +57,21 @@ export default defineSchema({
     lookingForTeam: v.optional(v.boolean()),
     createdAt: v.number(),
   }).index("by_event", ["eventId"]).index("by_user", ["userId"]).index("by_event_user", ["eventId", "userId"]),
+  flags: defineTable({
+    submissionId: v.id("submissions"),
+    eventId: v.id("events"),
+    reason: v.string(),
+    status: v.string(),
+    createdAt: v.number(),
+    reviewedAt: v.optional(v.number()),
+  }).index("by_submission", ["submissionId"]).index("by_event", ["eventId"]),
+  teamMessages: defineTable({
+    teamId: v.id("teams"),
+    userId: v.id("users"),
+    content: v.string(),
+    fileStorageId: v.optional(v.id("_storage")),
+    fileName: v.optional(v.string()),
+    fileType: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_team", ["teamId"]),
 });
