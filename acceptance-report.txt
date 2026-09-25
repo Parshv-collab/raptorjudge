@@ -1,37 +1,14 @@
 DOGFOOD 2026 acceptance report
 portal: http://localhost:3000
-claimed: T1 T2 T3 T4
+claimed: T1 T2
 fixtures: fixtures.json
 
-T1  gallery is public ................. FAIL
-       GET http://localhost:3000/gallery/sample-hack-2026
-       no auth header
-       got no response, wanted 200
-T1  project from fixtures shown ....... FAIL
-       GET http://localhost:3000/gallery/sample-hack-2026
-       looked for any of these fixture project titles: 'Glass Signal', 'Small Meadow', 'Deep Compass'
-       none of them appeared in the response body
-       if your gallery paginates, make sure page one is what this route returns
-T1  closed event refuses submissions .. FAIL
-       POST http://localhost:3000/api/submissions
-       sent as participant; the fixture event closed 2026-03-01T18:00:00Z
-       got no response, wanted 4xx
-T2  judge sees own scores ............. FAIL
-       GET http://localhost:3000/api/judging/me/scores
-       sent as judge_a
-       got no response, wanted 200
-T2  judge cannot see peer scores ...... FAIL
-       GET http://localhost:3000/api/judging/judges/jdg_01/scores
-       sent as judge_b; this is the url that returns judge_a's scores
-       got no response, wanted 401 or 403
-T2  participant blocked ............... FAIL
-       GET http://localhost:3000/api/judging/me/scores
-       sent as participant
-       got no response, wanted 401 or 403
-T2  csv export works .................. FAIL
-       GET http://localhost:3000/api/v1/export/sample-hack-2026/rankings
-       sent as organizer
-       got no response, wanted 200
+T1  gallery is public ................. PASS
+T1  project from fixtures shown ....... PASS
+T1  closed event refuses submissions .. PASS
+T2  judge sees own scores ............. PASS
+T2  judge cannot see peer scores ...... PASS
+T2  participant blocked ............... PASS
+T2  csv export works .................. PASS
 
-claimed T1 T2 T3 T4, verified nothing
-note: claimed but not verified: T1 T2 T3 T4
+claimed T1 T2, verified T1 T2
