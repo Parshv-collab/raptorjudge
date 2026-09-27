@@ -1,8 +1,11 @@
 import { Password } from "@convex-dev/auth/providers/Password";
 import { convexAuth } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
+import type { MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { installProviderGuard, type CredentialsAuthorize } from "./lib/authProvider";
 import { sha256Hex } from "./crypto";
+import { appendAudit } from "./lib/audit";
 import {
   describeSignInFailure,
   INVALID_TOTP,
@@ -138,6 +141,52 @@ function hardenAuthorize(authorize: CredentialsAuthorize): CredentialsAuthorize 
 
 const guarded = installProviderGuard(passwordProvider, hardenAuthorize);
 
+/**
+ * Issue 31: self-registration grants the participant role.
+ *
+ * Convex Auth creates the `users` doc itself, so with no hook the role stays
+ * `undefined` and the account is a second-class citizen: the SPA has to
+ * synthesise a participant on the read path (`users.me`) while anything that
+ * inspects the real doc sees no role at all. That split is visible in the
+ * product — the REST surface answers "participant required" (403) for an
+ * account the Convex mutations happily accept, because `requireRole` defaults
+ * a missing role to participant while `http.ts` compares it literally.
+ *
+ * Granting the role where the account is created closes the gap for everyone.
+ * The `users.me` read-side fallback stays exactly as it is, so the no-role
+ * screen is still reachable for genuine edge cases (a broken invite, a stale
+ * session) where a role never arrives at all.
+ *
+ * Nothing here can raise a role: it only fills in the one missing value, and an
+ * account that already has a role is left untouched. Judge / organizer / admin
+ * therefore remain invite-only — `admin.acceptInvite` patches the role
+ * unconditionally, so an invite still promotes a freshly signed-up participant.
+ */
+async function grantDefaultParticipantRole(
+  ctx: MutationCtx,
+  args: { userId: Id<"users">; existingUserId: Id<"users"> | null },
+): Promise<void> {
+  // The library runs this after *every* authentication, not just sign-up.
+  // `existingUserId` is non-null whenever the account already existed, so this
+  // only ever fires for a genuinely new `users` row.
+  if (args.existingUserId !== null) return;
+
+  const user = await ctx.db.get(args.userId);
+  // Belt and braces: never touch an account that already carries a role.
+  if (!user || user.role !== undefined) return;
+
+  await ctx.db.patch(args.userId, { role: "participant" });
+  // Audited like every other role write. No actorId on purpose: nobody
+  // privileged performed this, the account granted it to itself by signing up.
+  await appendAudit(ctx, {
+    action: "user.signup_default_role",
+    targetType: "user",
+    targetId: String(args.userId),
+    beforeState: JSON.stringify({ role: null, email: user.email }),
+    afterState: JSON.stringify({ role: "participant", source: "signup" }),
+  });
+}
+
 // Note: whether the guard is actually installed is asserted at runtime by
 // `lib/securityChecks.ts` (T5 `sec.auth_guard_installed`) rather than exported
 // as a constant. Convex modules should export Convex functions only, and the
@@ -145,4 +194,9 @@ const guarded = installProviderGuard(passwordProvider, hardenAuthorize);
 
 export const { auth, signIn, signOut, store } = convexAuth({
   providers: [guarded.provider],
+  callbacks: {
+    // The library calls this after every authentication; the
+    // `existingUserId !== null` check above is what narrows it to sign-up.
+    afterUserCreatedOrUpdated: grantDefaultParticipantRole,
+  },
 });
