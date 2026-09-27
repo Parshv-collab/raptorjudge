@@ -2,10 +2,11 @@ import React, { useState, useMemo } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { GlassCard } from "@/components/ui/GlassCard";
 import { Input } from "@/components/ui/Input";
 import { Tabs } from "@/components/ui/Tabs";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Badge } from "@/components/ui/Badge";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { usePrimaryEvent } from "@/lib/featuredEvent";
 
 export default function Search() {
@@ -54,7 +55,7 @@ export default function Search() {
   const totalResults = matchedEvents.length + matchedProjects.length + matchedTeams.length;
 
   const tabItems = [
-    { id: "all", label: "All Results", badge: totalResults },
+    { id: "all", label: "All results", badge: totalResults },
     { id: "events", label: "Events", badge: matchedEvents.length },
     { id: "projects", label: "Projects", badge: matchedProjects.length },
     { id: "teams", label: "Teams", badge: matchedTeams.length },
@@ -68,101 +69,97 @@ export default function Search() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-8">
-      <div>
-        <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-          Search Results
-        </span>
-        <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-0.5">
-          {queryParam ? `Results for "${queryParam}"` : "Search Platform"}
-        </h1>
-      </div>
+    <div className="flex flex-col gap-8">
+      <PageHeader
+        title={queryParam ? `Results for "${queryParam}"` : "Search"}
+        description="Events, projects and teams across the platform."
+        bordered={false}
+      />
 
-      <GlassCard className="p-4">
-        <form onSubmit={handleSearchSubmit} className="flex gap-3">
-          <Input
-            placeholder="Search events, projects, teams..."
-            value={queryInput}
-            onChange={(e) => setQueryInput(e.target.value)}
-          />
-          <button
-            type="submit"
-            className="px-5 py-2.5 bg-[#ff0055] text-white font-bold text-xs rounded-button shadow-sm hover:bg-[#e0004b] shrink-0"
-          >
-            Search
-          </button>
-        </form>
-      </GlassCard>
+      <form onSubmit={handleSearchSubmit} className="flex gap-3 max-w-2xl">
+        <Input
+          aria-label="Search query"
+          placeholder="Search events, projects, teams..."
+          value={queryInput}
+          onChange={(e) => setQueryInput(e.target.value)}
+        />
+        <button
+          type="submit"
+          className="h-10 px-5 rounded-btn bg-accent text-white text-sm font-medium hover:bg-accent-hover transition-colors duration-fast shrink-0"
+        >
+          Search
+        </button>
+      </form>
 
       <Tabs tabs={tabItems} activeTab={activeTab} onChange={(id) => setActiveTab(id)} />
 
       {totalResults === 0 ? (
         <EmptyState
-          title={`No results for '${queryParam}'`}
+          title={`No results for "${queryParam}"`}
           description="Try searching with different keywords or check spelling."
         />
       ) : (
-        <div className="flex flex-col gap-8">
+        <div className="flex flex-col gap-12">
           {(activeTab === "all" || activeTab === "events") && matchedEvents.length > 0 && (
-            <div className="flex flex-col gap-4">
-              <h2 className="text-base font-bold text-[#1d1d1f]">Events ({matchedEvents.length})</h2>
+            <section className="flex flex-col gap-4">
+              <h2 className="text-h3 text-primary">Events ({matchedEvents.length})</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {matchedEvents.map((e: any) => (
-                  <GlassCard key={e._id} hoverEffect className="p-5 flex flex-col justify-between">
+                  <Link
+                    key={e._id}
+                    to={`/e/${e.slug}`}
+                    className="bg-surface-1 border border-line rounded-card p-5 flex flex-col justify-between transition-colors duration-fast hover:border-line-strong"
+                  >
                     <div>
-                      <span className="px-2 py-0.5 text-[9px] font-bold uppercase rounded-full bg-[#ff0055]/10 text-[#ff0055] mb-2 inline-block">
-                        {e.status}
-                      </span>
-                      <h3 className="text-base font-bold text-[#1d1d1f]">{e.title}</h3>
-                      <p className="text-xs text-[#6e6e73] mt-1 line-clamp-2">{e.tagline || e.description}</p>
+                      <Badge variant="default" className="mb-2">{e.status}</Badge>
+                      <h3 className="text-[15px] font-semibold text-primary">{e.title}</h3>
+                      <p className="text-[13px] text-secondary mt-1 line-clamp-2">{e.tagline || e.description}</p>
                     </div>
-                    <Link to={`/e/${e.slug}`} className="mt-4 pt-2 border-t border-black/5">
-                      <span className="text-xs font-bold text-[#ff0055] hover:underline">
-                        View Event →
-                      </span>
-                    </Link>
-                  </GlassCard>
+                    <span className="mt-4 pt-3 border-t border-line text-[13px] font-medium text-accent">
+                      View event →
+                    </span>
+                  </Link>
                 ))}
               </div>
-            </div>
+            </section>
           )}
 
           {(activeTab === "all" || activeTab === "projects") && matchedProjects.length > 0 && (
-            <div className="flex flex-col gap-4">
-              <h2 className="text-base font-bold text-[#1d1d1f]">Projects ({matchedProjects.length})</h2>
+            <section className="flex flex-col gap-4">
+              <h2 className="text-h3 text-primary">Projects ({matchedProjects.length})</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {matchedProjects.map((p: any) => (
-                  <GlassCard key={p.id} hoverEffect className="p-5 flex flex-col justify-between">
+                  <Link
+                    key={p.id}
+                    to={`/project/${p.id}`}
+                    className="bg-surface-1 border border-line rounded-card p-5 flex flex-col justify-between transition-colors duration-fast hover:border-line-strong"
+                  >
                     <div>
-                      <span className="px-2 py-0.5 text-[9px] font-bold uppercase rounded-full bg-blue-500/10 text-blue-600 mb-2 inline-block">
-                        {p.trackName}
-                      </span>
-                      <h3 className="text-base font-bold text-[#1d1d1f]">{p.title}</h3>
-                      <p className="text-xs text-[#6e6e73] mt-1 line-clamp-2">{p.tagline}</p>
+                      <Badge variant="accent" className="mb-2">{p.trackName}</Badge>
+                      <h3 className="text-[15px] font-semibold text-primary">{p.title}</h3>
+                      <p className="text-[13px] text-secondary mt-1 line-clamp-2">{p.tagline}</p>
                     </div>
-                    <Link to={`/project/${p.id}`} className="mt-4 pt-2 border-t border-black/5">
-                      <span className="text-xs font-bold text-[#ff0055] hover:underline">
-                        View Project →
-                      </span>
-                    </Link>
-                  </GlassCard>
+                    <span className="mt-4 pt-3 border-t border-line text-[13px] font-medium text-accent">
+                      View project →
+                    </span>
+                  </Link>
                 ))}
               </div>
-            </div>
+            </section>
           )}
 
           {(activeTab === "all" || activeTab === "teams") && matchedTeams.length > 0 && (
-            <div className="flex flex-col gap-4">
-              <h2 className="text-base font-bold text-[#1d1d1f]">Teams ({matchedTeams.length})</h2>
+            <section className="flex flex-col gap-4">
+              <h2 className="text-h3 text-primary">Teams ({matchedTeams.length})</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {matchedTeams.map((t: any) => (
-                  <GlassCard key={t._id} className="p-5">
-                    <span className="text-[10px] font-bold text-[#6e6e73]">Team</span>
-                    <h3 className="text-base font-bold text-[#1d1d1f] mt-1">{t.name}</h3>
-                  </GlassCard>
+                  <div key={t._id} className="bg-surface-1 border border-line rounded-card p-5">
+                    <span className="text-[11px] uppercase tracking-[0.05em] text-muted">Team</span>
+                    <h3 className="text-[15px] font-semibold text-primary mt-1">{t.name}</h3>
+                  </div>
                 ))}
               </div>
-            </div>
+            </section>
           )}
         </div>
       )}

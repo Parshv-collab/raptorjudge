@@ -161,7 +161,34 @@ describe("describeSignInFailure (item 56: no account enumeration)", () => {
     expect(describeSignInFailureForUser(INVALID_TOTP)).toMatch(/not valid/);
     expect(describeSignInFailureForUser(TOTP_LOCKED)).toMatch(/Too many incorrect/);
     expect(describeSignInFailureForUser(TOTP_UNAVAILABLE)).toMatch(/ask an admin/);
-    expect(describeSignInFailureForUser(UNIFORM_SIGN_IN_ERROR)).toBe(UNIFORM_SIGN_IN_ERROR);
+    // The uniform marker becomes finished copy for the form (still identical for
+    // every credential failure, so nothing about account existence leaks).
+    expect(describeSignInFailureForUser(UNIFORM_SIGN_IN_ERROR)).toBe("Invalid email or password.");
+    expect(describeSignInFailureForUser("InvalidAccountId")).toBe("Invalid email or password.");
+    expect(describeSignInFailureForUser("InvalidSecret")).toBe("Invalid email or password.");
+  });
+
+  it("never echoes library internals or stack traces to the form", () => {
+    const noisy = [
+      "[Request ID: abc] Uncaught Error: InvalidSecret at handler (../convex/auth.ts:88)",
+      "ArgumentValidationError: Value does not match validator",
+      "",
+    ];
+    for (const message of noisy) {
+      const copy = describeSignInFailureForUser(message);
+      expect(copy.length).toBeGreaterThan(0);
+      expect(copy).not.toMatch(/at handler|Request ID|ArgumentValidation|:\d+\)/);
+    }
+    expect(describeSignInFailureForUser("totally unknown failure")).toBe(
+      "Something went wrong. Please try again.",
+    );
+  });
+
+  it("explains the sign-up failure modes in plain language", () => {
+    expect(describeSignInFailureForUser("Invalid password")).toMatch(/at least 8 characters/);
+    expect(describeSignInFailureForUser("Account already exists")).toMatch(/already exists/);
+    expect(describeSignInFailureForUser("Invalid email")).toMatch(/valid email/);
+    expect(describeSignInFailureForUser("Too many attempts")).toMatch(/Too many attempts/);
   });
 
   it("never treats an unopenable factor as a retryable prompt", () => {

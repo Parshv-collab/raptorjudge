@@ -1,20 +1,34 @@
 import React, { useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { humanizeConvexError } from "@/lib/errors";
-import { GlassCard } from "@/components/ui/GlassCard";
-import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonCard, SkeletonTable } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
+import { Badge } from "@/components/ui/Badge";
+import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Mail } from "lucide-react";
+
+/** "3 days" / "1 day" / "today" — human copy for the invite countdown. */
+function daysLeft(expiresAt: number): string {
+  const ms = expiresAt - Date.now();
+  if (ms <= 0) return "0 days";
+  const days = Math.ceil(ms / 86_400_000);
+  return `${days} day${days === 1 ? "" : "s"}`;
+}
 
 export default function AdminInvites() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
-  const invites = useQuery(api.admin.listInvites, authLoading || !isAuthenticated ? "skip" : {});
+  const skip = authLoading || !isAuthenticated;
+  const invites = useQuery(api.admin.listInvites, skip ? "skip" : {});
   const createInvite = useMutation(api.admin.createInvite);
   const revokeInvite = useMutation(api.admin.revokeInvite);
+  const regenerateInvite = useMutation(api.admin.regenerateInvite);
 
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("organizer");
@@ -28,7 +42,7 @@ export default function AdminInvites() {
       const res = await createInvite({ email: email.trim() || undefined, role });
       const fullUrl = `${window.location.origin}${res.url}`;
       setLastCreatedUrl(fullUrl);
-      toast.success("Invite created successfully!");
+      toast.success("Invite created.");
       setEmail("");
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
@@ -46,15 +60,30 @@ export default function AdminInvites() {
     }
   }
 
-  function handleCopy(url: string) {
-    navigator.clipboard.writeText(url);
-    toast.success("Invite link copied to clipboard!");
+  /** Issue 24: mint a fresh link for an expired invite in one click. */
+  async function handleRegenerate(inviteId: string) {
+    try {
+      const res = await regenerateInvite({ inviteId: inviteId as any });
+      setLastCreatedUrl(`${window.location.origin}${res.url}`);
+      toast.success("Invite regenerated — a new link was issued.");
+    } catch (err: any) {
+      toast.error(humanizeConvexError(err));
+    }
+  }
+
+  async function handleCopy(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Invite link copied to clipboard.");
+    } catch {
+      toast.error("Copy failed — select the link manually.");
+    }
   }
 
   if (authLoading) {
     return (
-      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
-        <SkeletonCard lines={6} />
+      <div className="flex flex-col gap-6">
+        <SkeletonTable rows={4} />
       </div>
     );
   }
@@ -62,28 +91,19 @@ export default function AdminInvites() {
   if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
-      <Link to="/admin">
-        <span className="text-xs font-semibold text-[#ff0055] hover:underline">
-          ← Back to Admin Dashboard
-        </span>
-      </Link>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title="Staff invites"
+        description="Grant organizer, judge or admin access with single-use tokens."
+      />
 
-      <div>
-        <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-          Access Control
-        </span>
-        <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-0.5">
-          Staff Invites
-        </h1>
-      </div>
-
-      <GlassCard className="p-6">
-        <h2 className="text-sm font-bold text-[#1d1d1f] mb-4">Create New Staff Invite</h2>
-        <form onSubmit={handleCreate} className="flex flex-col sm:flex-row gap-4 items-end">
+      {/* Create invite */}
+      <div className="bg-surface-1 border border-line rounded-card p-6">
+        <h2 className="text-h3 text-primary mb-4">Create invite</h2>
+        <form onSubmit={handleCreate} className="flex flex-col sm:flex-row gap-4 items-start sm:items-end">
           <div className="flex-1 w-full">
             <Input
-              label="Recipient Email (Optional)"
+              label="Recipient email (optional)"
               type="email"
               placeholder="organizer@example.com"
               value={email}
@@ -97,67 +117,97 @@ export default function AdminInvites() {
                 { value: "organizer", label: "Organizer" },
                 { value: "admin", label: "Admin" },
                 { value: "judge", label: "Judge" },
+                { value: "participant", label: "Participant" },
               ]}
               value={role}
               onChange={(v) => setRole(v)}
             />
           </div>
-          <Button variant="primary" size="md" isLoading={busy} type="submit">
-            Generate Invite
+          <Button variant="primary" isLoading={busy} type="submit">
+            Generate invite
           </Button>
         </form>
 
         {lastCreatedUrl && (
-          <div className="mt-4 p-4 rounded-card bg-emerald-500/10 border border-emerald-500/20 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-bold text-emerald-900">Invite URL Generated:</p>
-              <p className="text-xs font-mono text-emerald-800 break-all">{lastCreatedUrl}</p>
+          <div className="mt-5 p-4 rounded-card bg-success/5 border border-success/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-success">Invite URL generated</p>
+              <p className="text-[13px] font-mono text-secondary break-all mt-0.5">{lastCreatedUrl}</p>
             </div>
-            <Button variant="secondary" size="sm" onClick={() => handleCopy(lastCreatedUrl)}>
-              Copy Link
+            <Button variant="secondary" size="sm" onClick={() => handleCopy(lastCreatedUrl)} className="shrink-0">
+              Copy link
             </Button>
           </div>
         )}
-      </GlassCard>
+      </div>
 
-      <GlassCard className="p-6">
-        <h2 className="text-sm font-bold text-[#1d1d1f] mb-4">Pending Invites</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-black/10 font-bold uppercase tracking-wider text-[#6e6e73]">
-                <th className="py-3 px-4">Recipient Email</th>
-                <th className="py-3 px-4">Role</th>
-                <th className="py-3 px-4">Created By</th>
-                <th className="py-3 px-4">Expires</th>
-                <th className="py-3 px-4 text-right">Actions</th>
+      {/* Pending invites */}
+      <section className="flex flex-col gap-4">
+        <h2 className="text-h2 text-primary">Pending invites</h2>
+
+        {invites === undefined ? (
+          <SkeletonTable rows={4} />
+        ) : invites.length === 0 ? (
+          <EmptyState
+            icon={<Mail />}
+            title="No pending invites"
+            description="Generate an invite above to grant staff access. Unused invites expire automatically."
+          />
+        ) : (
+          <Table caption="Pending invites">
+            <THead>
+              <tr>
+                <TH>Recipient</TH>
+                <TH>Role</TH>
+                <TH>Created by</TH>
+                <TH>Expires</TH>
+                <TH numeric>Actions</TH>
               </tr>
-            </thead>
+            </THead>
             <tbody>
-              {(invites || []).map((inv: any) => (
-                <tr key={inv.id} className="border-b border-black/5 hover:bg-white/40">
-                  <td className="py-3.5 px-4 font-bold text-[#1d1d1f]">{inv.email}</td>
-                  <td className="py-3.5 px-4 font-semibold uppercase text-[10px] text-[#ff0055]">
-                    {inv.role}
-                  </td>
-                  <td className="py-3.5 px-4 text-[#6e6e73]">{inv.createdBy}</td>
-                  <td className="py-3.5 px-4 text-[#6e6e73]">
-                    {new Date(inv.expiresAt).toLocaleDateString()}
-                  </td>
-                  <td className="py-3.5 px-4 text-right flex gap-2 justify-end">
-                    <Button variant="danger" size="sm" onClick={() => handleRevoke(inv.id)}>
-                      Revoke
-                    </Button>
-                  </td>
-                </tr>
+              {invites.map((inv: any) => (
+                <TR key={inv.id}>
+                  <TD>
+                    <span className="font-medium">{inv.email || "Open link"}</span>
+                  </TD>
+                  <TD>
+                    <Badge variant={inv.role === "admin" ? "accent" : "default"}>{inv.role}</Badge>
+                  </TD>
+                  <TD>
+                    <span className="text-secondary">{inv.createdBy}</span>
+                  </TD>
+                  <TD>
+                    <div className="flex items-center gap-2">
+                      <span className="tnum text-secondary">
+                        {new Date(inv.expiresAt).toLocaleDateString()}
+                      </span>
+                      {inv.expired ? (
+                        <Badge variant="danger">Expired</Badge>
+                      ) : (
+                        <span className="tnum text-[12px] text-muted">
+                          Expires in {daysLeft(inv.expiresAt)}
+                        </span>
+                      )}
+                    </div>
+                  </TD>
+                  <TD numeric>
+                    <div className="flex justify-end gap-2">
+                      {inv.expired && (
+                        <Button variant="secondary" size="sm" onClick={() => handleRegenerate(inv.id)}>
+                          Regenerate
+                        </Button>
+                      )}
+                      <Button variant="danger" size="sm" onClick={() => handleRevoke(inv.id)}>
+                        Revoke
+                      </Button>
+                    </div>
+                  </TD>
+                </TR>
               ))}
             </tbody>
-          </table>
-          {(!invites || invites.length === 0) && (
-            <p className="text-xs text-[#6e6e73] text-center py-6">No pending invites.</p>
-          )}
-        </div>
-      </GlassCard>
+          </Table>
+        )}
+      </section>
     </div>
   );
 }

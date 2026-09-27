@@ -2,12 +2,13 @@ import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { GlassCard } from "@/components/ui/GlassCard";
 import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { deriveEventStatus } from "@/lib/eventStatus";
 
 const STATUS_OPTIONS = [
@@ -45,83 +46,75 @@ export default function Browse() {
 
   if (events === undefined) {
     return (
-      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          <SkeletonCard lines={3} /><SkeletonCard lines={3} /><SkeletonCard lines={3} />
+      <div className="flex flex-col gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={3} />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-8">
-      <div>
-        <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-          Explore
-        </span>
-        <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-0.5">
-          Browse Events
-        </h1>
-        <p className="text-xs text-[#6e6e73] mt-1">
-          Discover active, upcoming, and past hackathons.
-        </p>
-      </div>
+    <div className="flex flex-col gap-8">
+      <PageHeader title="Browse events" description="Discover active, upcoming, and past hackathons." />
 
-      {/* Search & Status Filter Bar */}
-      <GlassCard className="p-4 flex flex-col sm:flex-row gap-4 items-center">
+      {/* Search & status filter */}
+      <div className="bg-surface-1 border border-line rounded-card p-4 flex flex-col sm:flex-row gap-4 items-center">
         <div className="w-full sm:flex-1">
           <Input
+            aria-label="Search events"
             placeholder="Search events by title or host..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <div className="w-full sm:w-56">
-          <Dropdown
-            options={STATUS_OPTIONS}
-            value={statusFilter}
-            onChange={(v) => setStatusFilter(v)}
-          />
+          <Dropdown options={STATUS_OPTIONS} value={statusFilter} onChange={(v) => setStatusFilter(v)} />
         </div>
-      </GlassCard>
+      </div>
 
-      {/* Events Grid */}
+      {/* Events grid */}
       {filteredEvents.length === 0 ? (
         <EmptyState
-          title="No Open Events Found"
+          title="No events found"
           description="There are currently no events matching your search or status filter."
         />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredEvents.map((event: any) => (
-            <GlassCard key={event._id} hoverEffect className="p-6 flex flex-col justify-between">
+            <div
+              key={event._id}
+              className="bg-surface-1 border border-line rounded-card p-6 flex flex-col justify-between transition-colors duration-fast hover:border-line-strong"
+            >
               <div>
                 <div className="flex items-center justify-between gap-2 mb-3">
-                  <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-[#ff0055]/10 text-[#ff0055]">
+                  <Badge variant={["registration", "hacking"].includes(event.status) ? "success" : "default"}>
                     {deriveEventStatus(event).label}
-                  </span>
-                  <span className="text-xs font-medium text-[#6e6e73]">
-                    Hosted by {event.hostName || "RaptorJudge"}
+                  </Badge>
+                  <span className="text-[13px] text-muted truncate">
+                    {event.hostName || "RaptorJudge"}
                   </span>
                 </div>
 
-                <h2 className="text-xl font-bold text-[#1d1d1f] mb-1">{event.title}</h2>
-                <p className="text-xs text-[#6e6e73] line-clamp-2 leading-relaxed mb-4">
+                <h2 className="text-h3 text-primary">{event.title}</h2>
+                <p className="text-[13px] text-secondary line-clamp-2 leading-relaxed mt-1.5 mb-4">
                   {event.tagline || event.shortDescription || event.description}
                 </p>
               </div>
 
-              <div className="pt-4 border-t border-black/5 flex items-center justify-between">
-                <span className="text-xs font-semibold text-[#6e6e73]">
+              <div className="pt-4 border-t border-line flex items-center justify-between">
+                <span className="text-[13px] text-muted tnum">
                   Deadline: {new Date(event.submissionDeadline).toLocaleDateString()}
                 </span>
                 <Link to={`/e/${event.slug}`}>
-                  <Button variant="primary" size="sm">
-                    View Event →
+                  <Button variant="secondary" size="sm">
+                    View event
                   </Button>
                 </Link>
               </div>
-            </GlassCard>
+            </div>
           ))}
         </div>
       )}

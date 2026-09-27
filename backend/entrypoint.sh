@@ -134,6 +134,23 @@ if [ "${SKIP_AUTH_KEYS:-false}" != "true" ]; then
   fi
 fi
 
+# --- TEST_EVENTS (issue 30) --------------------------------------------------
+# Five extra demo events, one frozen in each lifecycle stage. Safe default is
+# "false", which leaves the seed exactly as it was: only Sample Hack 2026.
+#
+# This has to be published to the *deployment*, not just passed to the
+# container: Convex functions read process.env from the deployment's own
+# environment variables, so without this the seed action and the public
+# config query would both see TEST_EVENTS as unset and quietly do nothing.
+# Always published (never conditional) so flipping the flag in docker-compose.yml
+# / .env takes effect on the next `docker compose up`, including turning it off.
+echo "==> publishing TEST_EVENTS=${TEST_EVENTS:-false} to the deployment ..."
+if ! run_step npx convex env set TEST_EVENTS "${TEST_EVENTS:-false}" >/dev/null 2>&1; then
+  echo "ERROR: could not set TEST_EVENTS on the deployment." >&2
+  echo "       The seed would silently skip the multi-stage demo events." >&2
+  exit 1
+fi
+
 # --- migrations ------------------------------------------------------------
 echo "==> deploying Convex functions (schema migration) ..."
 run_step npx convex deploy

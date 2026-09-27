@@ -3,10 +3,13 @@ import { Navigate } from "react-router-dom";
 import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
-import { GlassCard } from "@/components/ui/GlassCard";
-import { Button } from "@/components/ui/Button";
-import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { humanizeConvexError } from "@/lib/errors";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { Badge } from "@/components/ui/Badge";
+import { QrCode } from "@/components/ui/QrCode";
 
 export default function Security() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -19,26 +22,23 @@ export default function Security() {
   if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   return (
-    <div className="max-w-3xl mx-auto py-8 px-4">
-      <div className="mb-8">
-        <h1 className="text-2xl font-extrabold text-[#1d1d1f]">Account Security</h1>
-        <p className="text-xs text-[#6e6e73] mt-1">
-          Configure two-factor authentication and review your security status
-        </p>
-      </div>
+    <div className="flex flex-col gap-6 max-w-3xl">
+      <PageHeader
+        title="Security"
+        description="Two-factor authentication for privileged accounts."
+      />
 
       {me === undefined ? (
         <SkeletonCard lines={3} />
       ) : !eligible ? (
-        <GlassCard className="p-6">
-          <h3 className="text-sm font-bold text-[#1d1d1f] mb-1">
-            Two-Factor Authentication Not Available
-          </h3>
-          <p className="text-xs text-[#6e6e73] leading-relaxed">
-            Two-factor authentication (TOTP) is restricted to <span className="font-bold text-[#1d1d1f]">admin</span> and{" "}
-            <span className="font-bold text-[#1d1d1f]">organizer</span> accounts. Participant and judge accounts sign in with password credentials.
+        <div className="bg-surface-1 border border-line rounded-card p-6">
+          <h3 className="text-[15px] font-medium text-primary">Two-factor authentication not available</h3>
+          <p className="text-[13px] text-secondary mt-1 leading-relaxed">
+            TOTP second factors are restricted to{" "}
+            <Badge variant="accent">admin</Badge> and <Badge variant="success">organizer</Badge>{" "}
+            accounts. Participant and judge accounts sign in with password credentials only.
           </p>
-        </GlassCard>
+        </div>
       ) : (
         <TotpPanel />
       )}
@@ -58,6 +58,7 @@ function TotpPanel() {
   const [enrollment, setEnrollment] = useState<{
     otpauthUri: string;
     secretForManualEntry: string;
+    secretRaw?: string;
   } | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -68,7 +69,7 @@ function TotpPanel() {
       const result = await enroll({});
       setEnrollment(result);
       setCode("");
-      toast.success("Enrolment key generated. Confirm with code.");
+      toast.success("Enrollment key generated. Confirm with a code from your app.");
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
     } finally {
@@ -82,7 +83,7 @@ function TotpPanel() {
       await confirm({ code });
       setEnrollment(null);
       setCode("");
-      toast.success("Two-factor authentication enabled!");
+      toast.success("Two-factor authentication enabled.");
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
     } finally {
@@ -106,125 +107,138 @@ function TotpPanel() {
   const copy = async (value: string) => {
     try {
       await navigator.clipboard.writeText(value);
-      toast.success("Copied to clipboard");
+      toast.success("Copied to clipboard.");
     } catch {
-      toast.error("Copy failed");
+      toast.error("Copy failed.");
     }
   };
 
   return (
     <div className="flex flex-col gap-6">
-      <GlassCard className="p-6">
-        <div className="flex items-center gap-3 mb-2">
-          <div className={`p-2 rounded-xl ${status?.enabled ? "bg-emerald-500/10 text-emerald-600" : "bg-black/5 text-[#6e6e73]"}`}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-          </div>
-          <div>
-            <h3 className="text-sm font-bold text-[#1d1d1f]">
+      {/* Status card */}
+      <div className="bg-surface-1 border border-line rounded-card p-6 flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <h3 className="text-h3 text-primary">
               {status === undefined
-                ? "Checking status..."
+                ? "Checking status…"
                 : status.enabled
-                ? "Two-Factor Authentication is Active"
-                : "Two-Factor Authentication is Disabled"}
+                  ? "Two-factor authentication is active"
+                  : "Two-factor authentication is off"}
             </h3>
-            <p className="text-xs text-[#6e6e73]">
-              A 6-digit authenticator app code will be required when signing in.
+            {status?.enabled && <Badge variant="success">Enabled</Badge>}
+          </div>
+          <p className="text-[13px] text-secondary mt-1">
+            A 6-digit authenticator app code will be required when signing in.
+          </p>
+          {status?.enrolledAt && (
+            <p className="font-mono text-[12px] text-muted mt-3 tnum">
+              Enrolled {new Date(status.enrolledAt).toLocaleString()}
             </p>
+          )}
+        </div>
+      </div>
+
+      {/* Enrollment entry point */}
+      {!status?.enabled && !enrollment && (
+        <div>
+          <Button variant="primary" isLoading={busy} onClick={startEnrollment}>
+            Enable two-factor authentication
+          </Button>
+        </div>
+      )}
+
+      {/* Enrollment flow */}
+      {enrollment && (
+        <div className="bg-surface-1 border border-accent/40 rounded-card p-6 flex flex-col gap-5">
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-accent">
+              Step 1 — add the key to your authenticator app
+            </p>
+            <div className="mt-3 flex flex-col sm:flex-row gap-5 items-start">
+              {/* Issue 28: camera enrolment — scan with Google Authenticator,
+                  Aegis, 1Password, etc. The manual key below stays as fallback. */}
+              <div className="p-2 bg-white rounded-input border border-line shrink-0">
+                <QrCode value={enrollment.otpauthUri} size={168} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] text-secondary">
+                  Scan this with your authenticator app, or enter the key manually:
+                </p>
+                <div className="mt-3 p-3.5 bg-surface-2 rounded-input border border-line font-mono text-[15px] tracking-[0.2em] text-primary select-all tnum break-all">
+                  {enrollment.secretForManualEntry}
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <Button variant="secondary" size="sm" onClick={() => copy(enrollment.secretForManualEntry)}>
+                    Copy key
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => copy(enrollment.otpauthUri)}>
+                    Copy otpauth URI
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-line pt-5">
+            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-accent">
+              Step 2 — confirm with a code
+            </p>
+            <div className="flex gap-3 items-center mt-3">
+              <Input
+                aria-label="6-digit authenticator code"
+                inputMode="numeric"
+                maxLength={6}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                placeholder="000000"
+                className="w-36 text-center font-mono text-base tracking-[0.2em]"
+              />
+              <Button
+                variant="primary"
+                isLoading={busy}
+                disabled={code.length !== 6}
+                onClick={confirmEnrollment}
+              >
+                Confirm
+              </Button>
+              <Button variant="ghost" onClick={() => setEnrollment(null)}>
+                Cancel
+              </Button>
+            </div>
           </div>
         </div>
-
-        {status?.enrolledAt && (
-          <p className="text-[11px] font-mono text-[#6e6e73] mt-4 border-t border-black/5 pt-3">
-            Enrolled: {new Date(status.enrolledAt).toLocaleString()}
-          </p>
-        )}
-      </GlassCard>
-
-      {!status?.enabled && !enrollment && (
-        <Button variant="primary" size="md" isLoading={busy} onClick={startEnrollment}>
-          Enable Two-Factor Authentication
-        </Button>
       )}
 
-      {enrollment && (
-        <GlassCard className="p-6 border-[#ff0055]/30">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-[#ff0055] mb-3">
-            Step 1 — Add key to authenticator app
-          </h4>
-
-          <div className="p-3 bg-white/80 rounded-input border border-white font-mono text-sm tracking-widest text-[#1d1d1f] mb-3">
-            {enrollment.secretForManualEntry}
-          </div>
-
-          <div className="flex gap-2 mb-4">
-            <Button variant="secondary" size="sm" onClick={() => copy(enrollment.secretForManualEntry)}>
-              Copy Manual Key
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => copy(enrollment.otpauthUri)}>
-              Copy URI
-            </Button>
-          </div>
-
-          <h4 className="text-xs font-bold uppercase tracking-wider text-[#ff0055] mb-2 pt-2 border-t border-black/5">
-            Step 2 — Confirm with code
-          </h4>
-
-          <div className="flex gap-2 items-center">
-            <input
-              inputMode="numeric"
-              maxLength={6}
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-              placeholder="000000"
-              className="w-36 px-3 py-2 text-center font-mono text-base rounded-input bg-white/60 border border-white shadow-sm focus-ring-accent"
-            />
-            <Button
-              variant="primary"
-              size="md"
-              isLoading={busy}
-              disabled={code.length !== 6}
-              onClick={confirmEnrollment}
-            >
-              Confirm
-            </Button>
-            <Button variant="ghost" size="md" onClick={() => setEnrollment(null)}>
-              Cancel
-            </Button>
-          </div>
-        </GlassCard>
-      )}
-
+      {/* Disable flow */}
       {status?.enabled && (
-        <GlassCard className="p-6 border-red-200">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-[#e63946] mb-2">
-            Disable Two-Factor Authentication
+        <div className="bg-danger/5 border border-danger/40 rounded-card p-6">
+          <h4 className="text-[11px] font-medium uppercase tracking-[0.08em] text-danger">
+            Disable two-factor authentication
           </h4>
-          <p className="text-xs text-[#6e6e73] mb-4">
-            Enter a live code from your authenticator app to disable TOTP.
+          <p className="text-[13px] text-secondary mt-1.5 mb-4">
+            Enter a live code from your authenticator app to turn TOTP off.
           </p>
-
-          <div className="flex gap-2 items-center">
-            <input
+          <div className="flex gap-3 items-center">
+            <Input
+              aria-label="6-digit authenticator code"
               inputMode="numeric"
               maxLength={6}
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
               placeholder="000000"
-              className="w-36 px-3 py-2 text-center font-mono text-base rounded-input bg-white/60 border border-white shadow-sm focus-ring-accent"
+              className="w-36 text-center font-mono text-base tracking-[0.2em]"
             />
             <Button
               variant="danger"
-              size="md"
               isLoading={busy}
               disabled={code.length !== 6}
               onClick={turnOff}
             >
-              Disable Factor
+              Disable factor
             </Button>
           </div>
-        </GlassCard>
+        </div>
       )}
     </div>
   );

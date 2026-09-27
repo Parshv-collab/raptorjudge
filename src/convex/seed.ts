@@ -1,10 +1,11 @@
 import { v } from "convex/values";
-import { action, internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { action, internalAction, internalMutation, internalQuery, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { createAccount, modifyAccountCredentials } from "@convex-dev/auth/server";
 import { sha256Hex, hmacSha256Hex, randomHex } from "./crypto";
 import { appendAudit } from "./lib/audit";
+import { rankEventProjects } from "./lib/results";
 import { FIXTURES } from "./lib/fixturesData";
 
 /**
@@ -14,6 +15,27 @@ import { FIXTURES } from "./lib/fixturesData";
  */
 
 const SEED_PASSWORD = "dogfood2026";
+
+/**
+ * Idempotency marker for the opt-in multi-stage test events (issue 30).
+ * Kept separate from `fixture-seeded-2026` so flipping TEST_EVENTS on a
+ * deployment that was already seeded can still add the demo events without
+ * re-running (or wiping) the DOGFOOD fixtures.
+ */
+const TEST_EVENTS_FLAG = "test-events-v1";
+
+/** Lifecycle stages a test event is frozen in, in the order the visitor sees them. */
+const TEST_EVENT_STAGES = [
+  "registration",
+  "hacking",
+  "judging",
+  "voting",
+  "published",
+  "closed",
+] as const;
+
+const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 
 const LOOKUP_PROFESSIONS = [
   "Software Engineer", "Frontend Engineer", "Backend Engineer",
@@ -67,10 +89,23 @@ export const seed = action({
     votesCreated: number;
     matchesCreated: number;
     certificatesIssued: number;
+    /** Slugs of the opt-in multi-stage test events created by this run. */
+    testEventSlugs: string[];
   }> => {
+    // Issue 30: TEST_EVENTS is checked *before* the fixture early-return so a
+    // deployment that was seeded with the flag off can still gain the demo
+    // events on a later run (it never re-runs the fixtures themselves).
+    const testEventsWanted = process.env.TEST_EVENTS === "true";
+    const testEventsAlreadySeeded = testEventsWanted
+      ? await ctx.runQuery(internal.seed.getSeedFlag, { key: TEST_EVENTS_FLAG })
+      : false;
+
     // Check seed flags for idempotency
     const alreadySeeded = await ctx.runQuery(internal.seed.getSeedFlag, { key: "fixture-seeded-2026" });
     if (alreadySeeded) {
+      const testEventSlugs = testEventsWanted && !testEventsAlreadySeeded
+        ? await seedTestEvents(ctx)
+        : [];
       console.log("Demo data already exists (fixture-seeded-2026).");
       return {
         ok: true,
@@ -79,6 +114,7 @@ export const seed = action({
         votesCreated: 0,
         matchesCreated: 0,
         certificatesIssued: 0,
+        testEventSlugs,
       };
     }
 
@@ -272,12 +308,14 @@ export const seed = action({
     const tokens: Record<string, string> = {};
     const SESSION_SECRET = "raptorjudge-session-secret-key-2026";
 
+    let organizerUserId: Id<"users"> | null = null;
     for (const demo of demoAccounts) {
       const { id: userId } = await ctx.runMutation(internal.seed.upsertSeedUser, {
         email: demo.email,
         name: demo.name,
         role: demo.role,
       });
+      if (demo.key === "organizer") organizerUserId = userId as Id<"users">;
       await ctx.runAction(internal.seed.ensureSeedUser, { email: demo.email, password: SEED_PASSWORD });
 
       // Generate deterministic token
@@ -292,6 +330,16 @@ export const seed = action({
       });
     }
 
+    // The event is inserted before the accounts exist, so ownership is stamped
+    // here: without it `events.listMine` (the organizer console) had nothing to
+    // scope to and the seeded organizer saw an empty dashboard.
+    if (organizerUserId) {
+      await ctx.runMutation(internal.seed.setEventOrganizer, {
+        eventId,
+        organizerId: organizerUserId,
+      });
+    }
+
     // 9. Run the duplicate detector once so the seeded event already shows the
     //    fixtures' duplicate pair ("Dry Harbour" filed twice) instead of an
     //    empty Duplicate Flags tab until an organizer clicks the scan button.
@@ -301,6 +349,11 @@ export const seed = action({
     console.log(
       `duplicate scan: ${duplicateScan.matches} match(es), ${duplicateScan.newlyFlagged} flag(s)`,
     );
+
+    // 9b. Seed the five default help-center entries (issue 27) — idempotent,
+    //     guarded by a platform flag inside the mutation itself.
+    const helpSeed = await ctx.runMutation(internal.help.seedDefaultsInternal, {});
+    if (helpSeed.seeded > 0) console.log(`help content: ${helpSeed.seeded} entry(ies) seeded`);
 
     // 10. Community voting demo (T3.1): quadratic votes whose tallies stay
     //     hidden until the event reaches `published`.
@@ -352,6 +405,12 @@ export const seed = action({
     // 12. Certificates (T4.3) so /verify has real material to check.
     const certs = await ctx.runMutation(internal.certificates.issueAllInternal, { eventId });
 
+    // 13. Optional multi-stage test events (issue 30). Off by default, so the
+    //     seed behaves exactly as it did before when TEST_EVENTS is not "true".
+    const testEventSlugs = testEventsWanted && !testEventsAlreadySeeded
+      ? await seedTestEvents(ctx)
+      : [];
+
     // Set seed flag
     await ctx.runMutation(internal.seed.setSeedFlag, { key: "fixture-seeded-2026" });
 
@@ -366,6 +425,9 @@ export const seed = action({
     console.log(
       `demo extras: ${votesCreated} votes, ${matchesCreated} pairwise matches, ${certs.issued} certificates`,
     );
+    if (testEventSlugs.length > 0) {
+      console.log(`test events (TEST_EVENTS=true): ${testEventSlugs.join(", ")}`);
+    }
 
     return {
       ok: true,
@@ -374,9 +436,425 @@ export const seed = action({
       votesCreated,
       matchesCreated,
       certificatesIssued: certs.issued,
+      testEventSlugs,
     };
   },
 });
+
+/**
+ * Seed the five multi-stage demo events (issue 30).
+ *
+ * Only reachable when the deployment's TEST_EVENTS env var is exactly "true",
+ * and guarded by the `test-events-v1` platform flag so re-running the seed is
+ * safe. Every window is computed from Date.now() at seed time, so each event
+ * always sits in the stage it demonstrates no matter when the seed runs.
+ *
+ * All content comes from the existing fixture users, teams, judges and
+ * projects — no new accounts are invented. Tracks, teams, submissions,
+ * assignments, scores and votes go through the same internal mutations the
+ * regular seed already uses, and every vote lands in the hash-chained audit
+ * log via `createVote`.
+ *
+ * Sample Hack 2026 is never touched here: it stays closed, so the acceptance
+ * suite keeps its 7/7 in both modes.
+ */
+async function seedTestEvents(ctx: ActionCtx): Promise<string[]> {
+  const now = Date.now();
+  const d = (days: number) => now + days * DAY_MS;
+  const h = (hours: number) => now + hours * HOUR_MS;
+
+  const created: string[] = [];
+
+  // Reuse the fixture panels rather than creating anyone: the first three
+  // fixture judges staff the judged events, and fixture team members cast the
+  // community votes.
+  const judgeEmails = FIXTURES.judges.slice(0, 3).map((j) => j.email);
+  const judgeRows = await Promise.all(
+    judgeEmails.map((email) => ctx.runQuery(internal.seed.getSeedUserIdByEmail, { email })),
+  );
+  const judgeIds = judgeRows.filter((id): id is Id<"users"> => Boolean(id));
+  const voterRows = await Promise.all(
+    FIXTURES.teams.slice(0, 10).map((tm) =>
+      ctx.runQuery(internal.seed.getSeedUserIdByEmail, { email: tm.members[0] }),
+    ),
+  );
+  const voterIds = voterRows.filter((id): id is Id<"users"> => Boolean(id));
+  const organizerRow = await ctx.runQuery(internal.seed.getSeedUserIdByEmail, {
+    email: "organizer@fixture.local",
+  });
+  const organizerId = organizerRow as Id<"users"> | null;
+
+  // The rubric the fixture scores were written against (3 weighted criteria).
+  const criterionNames = Array.from(
+    FIXTURES.scores.reduce((set, sc) => {
+      for (const name of Object.keys(sc.criteria ?? {})) set.add(name);
+      return set;
+    }, new Set<string>()),
+  );
+  const equalWeight = criterionNames.length > 0 ? 1.0 / criterionNames.length : 1.0;
+
+  /** One project from FIXTURES.projects plus the team + track it needs. */
+  type SeededProject = { submissionId: Id<"submissions">; teamId: Id<"teams"> };
+
+  /**
+   * Create a project (and its team, and a shared track) inside `eventId`.
+   * `index` keeps team names and vote targets distinct per event.
+   */
+  const createProject = async (
+    eventId: Id<"events">,
+    trackId: Id<"tracks">,
+    fixtureProjectIndex: number,
+  ): Promise<SeededProject | null> => {
+    const fp = FIXTURES.projects[fixtureProjectIndex];
+    if (!fp) return null;
+    const teamFixture = FIXTURES.teams.find((tm) => tm.id === fp.team);
+    if (!teamFixture) return null;
+
+    const memberRows = await Promise.all(
+      teamFixture.members.map((email) =>
+        ctx.runQuery(internal.seed.getSeedUserIdByEmail, { email }),
+      ),
+    );
+    const members = memberRows.filter((id): id is Id<"users"> => Boolean(id));
+    if (members.length === 0) return null;
+
+    const teamId = await ctx.runMutation(internal.seed.createTeam, {
+      eventId,
+      name: teamFixture.name,
+      createdBy: members[0],
+    });
+    for (let i = 0; i < members.length; i++) {
+      await ctx.runMutation(internal.seed.addMember, {
+        teamId,
+        userId: members[i],
+        memberRole: i === 0 ? "leader" : "member",
+      });
+    }
+
+    const submissionId = await ctx.runMutation(internal.seed.createSubmission, {
+      eventId,
+      teamId,
+      trackId,
+      title: fp.title,
+      tagline: fp.summary || fp.title,
+      description: fp.summary || fp.title,
+      repositoryUrl: fp.repo_url || "https://github.com/example/repo",
+      videoUrl: "",
+      demoUrl: "",
+      tags: "",
+      status: "submitted",
+      // Inside the window, before the deadline this event is frozen at.
+      submittedAt: Math.min(new Date(fp.submitted_at ?? Date.now()).getTime() || now, d(-1)),
+    });
+
+    return { submissionId, teamId };
+  };
+
+  /** Rubric criteria for an event, mirroring the fixture rubric. */
+  const createCriteria = async (eventId: Id<"events">) => {
+    const map = new Map<string, Id<"rubricCriteria">>();
+    for (let i = 0; i < criterionNames.length; i++) {
+      const name = criterionNames[i];
+      const id = await ctx.runMutation(internal.seed.createCriterion, {
+        eventId,
+        name: name.charAt(0).toUpperCase() + name.slice(1),
+        description: `${name} criterion`,
+        weight: equalWeight,
+        minScore: 1,
+        maxScore: 5,
+        sortOrder: i,
+      });
+      map.set(name, id);
+    }
+    return map;
+  };
+
+  /**
+   * Assign `judgeIds` across `submissionIds` and score the first
+   * `scoredCount` of them, so a judging-stage event shows a partially filled
+   * queue while a finished one is fully scored.
+   */
+  const assignAndScore = async (
+    eventId: Id<"events">,
+    submissionIds: Id<"submissions">[],
+    criteria: Map<string, Id<"rubricCriteria">>,
+    scoredCount: number,
+  ) => {
+    let scored = 0;
+    for (let i = 0; i < submissionIds.length; i++) {
+      const judgeId = judgeIds[i % judgeIds.length];
+      if (!judgeId) continue;
+      const isScored = scored < scoredCount;
+      const assignmentId = await ctx.runMutation(internal.seed.createAssignment, {
+        eventId,
+        judgeId,
+        submissionId: submissionIds[i],
+        status: isScored ? "completed" : "assigned",
+      });
+      if (!isScored) continue;
+      scored++;
+      // Vary the score by project so normalization produces a real spread
+      // rather than a flat panel (a flat panel collapses to 5 for everyone).
+      for (const [name, criterionId] of criteria) {
+        const value = 1 + ((i + name.length) % 5);
+        await ctx.runMutation(internal.seed.createScore, {
+          eventId,
+          assignmentId,
+          submissionId: submissionIds[i],
+          judgeId,
+          criterionId,
+          score: value,
+          privateNotes: "",
+        });
+      }
+    }
+  };
+
+  /** Community votes through `createVote`, so each row is audited. */
+  const castVotes = async (eventId: Id<"events">, submissionIds: Id<"submissions">[], count: number) => {
+    for (let i = 0; i < count && submissionIds.length > 0; i++) {
+      const userId = voterIds[i % voterIds.length];
+      if (!userId) continue;
+      await ctx.runMutation(internal.seed.createVote, {
+        eventId,
+        userId,
+        submissionId: submissionIds[i % submissionIds.length],
+        points: (i % 3) + 1,
+      });
+    }
+  };
+
+  const eventShell = {
+    timezone: "UTC",
+    settings: "min_team_size=1,max_team_size=4,solo_allowed=true,voting_type=quadratic",
+  } as const;
+
+  // --- Event A — registration open, nothing built yet ----------------------
+  {
+    const slug = "test-hack-registration";
+    const eventId = await ctx.runMutation(internal.seed.createEvent, {
+      ...eventShell,
+      slug,
+      title: "Test Hack — Registration",
+      tagline: "Sign-ups are open. No projects yet — the lifecycle starts here.",
+      description:
+        "Demo event frozen at the registration stage: teams can join and the event page renders, but nothing has been submitted and no judging has started.",
+      registrationStart: d(-2),
+      registrationEnd: d(20),
+      submissionDeadline: d(30),
+      judgingStart: d(31),
+      judgingEnd: d(40),
+      votingStart: d(41),
+      votingEnd: d(50),
+      status: "registration",
+    });
+    if (organizerId) {
+      await ctx.runMutation(internal.seed.setEventOrganizer, { eventId, organizerId });
+    }
+    // One track so the event has prizes configured from the start.
+    await ctx.runMutation(internal.seed.createTrack, {
+      eventId,
+      name: "Open Track",
+      description: "Every demo project starts here.",
+      prizeDescription: "Opens at registration close",
+      prizeAmount: 500,
+    });
+    await ctx.runMutation(internal.seed.logSeedAction, {
+      eventId,
+      action: "seed.test_events",
+      summary: "Seeded registration-stage demo event (0 projects, 0 judges, 0 votes).",
+    });
+    created.push(slug);
+  }
+
+  // --- Event B — submissions open, 5 projects, no judging yet --------------
+  {
+    const slug = "test-hack-submissions";
+    const eventId = await ctx.runMutation(internal.seed.createEvent, {
+      ...eventShell,
+      slug,
+      title: "Test Hack — Submissions",
+      tagline: "Hacking in progress. Projects are landing, judging has not started.",
+      description:
+        "Demo event frozen at the submissions stage: teams exist and projects have been submitted, so the draft/submit/locked flow can be exercised against a live deadline.",
+      registrationStart: d(-20),
+      registrationEnd: d(-2),
+      submissionDeadline: d(20),
+      judgingStart: d(21),
+      judgingEnd: d(30),
+      votingStart: d(31),
+      votingEnd: d(40),
+      status: "hacking",
+    });
+    if (organizerId) {
+      await ctx.runMutation(internal.seed.setEventOrganizer, { eventId, organizerId });
+    }
+    const trackId = await ctx.runMutation(internal.seed.createTrack, {
+      eventId,
+      name: "Open Track",
+      description: "Every demo project starts here.",
+      prizeDescription: "Awarded after judging",
+      prizeAmount: 750,
+    });
+    const projects: SeededProject[] = [];
+    for (let i = 0; i < 5; i++) {
+      const p = await createProject(eventId, trackId, i);
+      if (p) projects.push(p);
+    }
+    await ctx.runMutation(internal.seed.logSeedAction, {
+      eventId,
+      action: "seed.test_events",
+      summary: `Seeded submissions-stage demo event (${projects.length} projects, 0 judges, 0 votes).`,
+    });
+    created.push(slug);
+  }
+
+  // --- Event C — judging now, 3 judges assigned, 4 scored -------------------
+  {
+    const slug = "test-hack-judging";
+    const eventId = await ctx.runMutation(internal.seed.createEvent, {
+      ...eventShell,
+      slug,
+      title: "Test Hack — Judging",
+      tagline: "Judging is open. The panel has a partially scored queue.",
+      description:
+        "Demo event frozen mid-judging: 8 projects are in, 3 judges are assigned and only 4 projects are scored, so progress, reminders and the locked-rubric state are all reachable.",
+      registrationStart: d(-30),
+      registrationEnd: d(-15),
+      submissionDeadline: d(-1),
+      judgingStart: h(-12),
+      judgingEnd: d(5),
+      votingStart: d(6),
+      votingEnd: d(15),
+      status: "judging",
+    });
+    if (organizerId) {
+      await ctx.runMutation(internal.seed.setEventOrganizer, { eventId, organizerId });
+    }
+    const trackId = await ctx.runMutation(internal.seed.createTrack, {
+      eventId,
+      name: "Open Track",
+      description: "Every demo project starts here.",
+      prizeDescription: "Awarded after judging",
+      prizeAmount: 750,
+    });
+    const projects: SeededProject[] = [];
+    for (let i = 0; i < 8; i++) {
+      const p = await createProject(eventId, trackId, i);
+      if (p) projects.push(p);
+    }
+    const criteria = await createCriteria(eventId);
+    await assignAndScore(eventId, projects.map((p) => p.submissionId), criteria, 4);
+    await ctx.runMutation(internal.seed.logSeedAction, {
+      eventId,
+      action: "seed.test_events",
+      summary: `Seeded judging-stage demo event (${projects.length} projects, ${judgeIds.length} judges assigned, 4 scored).`,
+    });
+    created.push(slug);
+  }
+
+  // --- Event D — community voting open, everything scored ------------------
+  {
+    const slug = "test-hack-voting";
+    const eventId = await ctx.runMutation(internal.seed.createEvent, {
+      ...eventShell,
+      slug,
+      title: "Test Hack — Voting",
+      tagline: "Judging is done. Community voting is open and tallies are hidden.",
+      description:
+        "Demo event frozen at the voting stage: all 6 projects are scored, 15 community votes have been cast, and tallies stay hidden until the organizer publishes results.",
+      registrationStart: d(-40),
+      registrationEnd: d(-25),
+      submissionDeadline: d(-15),
+      judgingStart: d(-14),
+      judgingEnd: d(-1),
+      votingStart: h(-12),
+      votingEnd: d(5),
+      status: "voting",
+    });
+    if (organizerId) {
+      await ctx.runMutation(internal.seed.setEventOrganizer, { eventId, organizerId });
+    }
+    const trackId = await ctx.runMutation(internal.seed.createTrack, {
+      eventId,
+      name: "Open Track",
+      description: "Every demo project starts here.",
+      prizeDescription: "Awarded after voting",
+      prizeAmount: 750,
+    });
+    const projects: SeededProject[] = [];
+    for (let i = 0; i < 6; i++) {
+      const p = await createProject(eventId, trackId, i);
+      if (p) projects.push(p);
+    }
+    const criteria = await createCriteria(eventId);
+    const submissionIds = projects.map((p) => p.submissionId);
+    await assignAndScore(eventId, submissionIds, criteria, submissionIds.length);
+    await castVotes(eventId, submissionIds, 15);
+    await ctx.runMutation(internal.seed.logSeedAction, {
+      eventId,
+      action: "seed.test_events",
+      summary: `Seeded voting-stage demo event (${submissionIds.length} projects, all scored, 15 votes).`,
+    });
+    created.push(slug);
+  }
+
+  // --- Event E — results published, winner crowned --------------------------
+  {
+    const slug = "test-hack-results";
+    const eventId = await ctx.runMutation(internal.seed.createEvent, {
+      ...eventShell,
+      slug,
+      title: "Test Hack — Results",
+      tagline: "Results are in. Rankings, certificates and the crowned winner.",
+      description:
+        "Demo event frozen at the published stage: 8 scored projects, 30 community votes and a crowned winner, so the results page, exports and certificates all have real material.",
+      registrationStart: d(-60),
+      registrationEnd: d(-45),
+      submissionDeadline: d(-35),
+      judgingStart: d(-34),
+      judgingEnd: d(-20),
+      votingStart: d(-19),
+      votingEnd: d(-5),
+      status: "published",
+      publishedAt: d(-4),
+      resultsAnnounced: d(-4),
+    });
+    if (organizerId) {
+      await ctx.runMutation(internal.seed.setEventOrganizer, { eventId, organizerId });
+    }
+    const trackId = await ctx.runMutation(internal.seed.createTrack, {
+      eventId,
+      name: "Open Track",
+      description: "Every demo project starts here.",
+      prizeDescription: "Awarded — see results",
+      prizeAmount: 750,
+    });
+    const projects: SeededProject[] = [];
+    for (let i = 0; i < 8; i++) {
+      const p = await createProject(eventId, trackId, i);
+      if (p) projects.push(p);
+    }
+    const criteria = await createCriteria(eventId);
+    const submissionIds = projects.map((p) => p.submissionId);
+    await assignAndScore(eventId, submissionIds, criteria, submissionIds.length);
+    await castVotes(eventId, submissionIds, 30);
+
+    // Crown a winner the same way the organizer console does: rank the event
+    // and pin #1, so the results page shows a trophy instead of an empty state.
+    const winnerId = await ctx.runMutation(internal.seed.crownSeedWinner, { eventId });
+    const certs = await ctx.runMutation(internal.certificates.issueAllInternal, { eventId });
+    await ctx.runMutation(internal.seed.logSeedAction, {
+      eventId,
+      action: "seed.test_events",
+      summary: `Seeded published demo event (${submissionIds.length} projects, 30 votes, ${certs.issued} certificates${winnerId ? ", winner crowned" : ""}).`,
+    });
+    created.push(slug);
+  }
+
+  await ctx.runMutation(internal.seed.setSeedFlag, { key: TEST_EVENTS_FLAG });
+  return created;
+}
 
 // ------------------------------------------------------------ internal mutations ---
 
@@ -487,6 +965,9 @@ export const createEvent = internalMutation({
     registrationStart: v.number(), registrationEnd: v.number(), submissionDeadline: v.number(),
     judgingStart: v.number(), judgingEnd: v.number(), votingStart: v.number(), votingEnd: v.number(),
     timezone: v.string(), settings: v.string(), status: v.string(),
+    // Only the multi-stage test events pass these; the DOGFOOD event does not.
+    publishedAt: v.optional(v.number()),
+    resultsAnnounced: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique();
@@ -495,6 +976,72 @@ export const createEvent = internalMutation({
       return existing._id;
     }
     return ctx.db.insert("events", args);
+  },
+});
+
+/** Stamp the seeded event's owner (the event exists before its accounts do). */
+export const setEventOrganizer = internalMutation({
+  args: { eventId: v.id("events"), organizerId: v.id("users") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.eventId, { organizerId: args.organizerId });
+    return { ok: true };
+  },
+});
+
+/**
+ * Resolve an existing seeded user by email. The test events must not invent
+ * accounts, so they look people up rather than creating them.
+ */
+export const getSeedUserIdByEmail = internalQuery({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.query("users").withIndex("email", (q) => q.eq("email", args.email)).unique();
+    return user ? (user._id as string) : null;
+  },
+});
+
+/**
+ * Audit a bulk/internal seed write. Individual votes and pairwise matches are
+ * already audited by their own mutations; this records the event-level writes
+ * so every test event shows up in the chain instead of appearing from nowhere.
+ */
+export const logSeedAction = internalMutation({
+  args: { eventId: v.id("events"), action: v.string(), summary: v.string() },
+  handler: async (ctx, args) => {
+    await appendAudit(ctx, {
+      eventId: args.eventId,
+      action: args.action,
+      targetType: "event",
+      targetId: String(args.eventId),
+      afterState: JSON.stringify({ summary: args.summary, source: "seed" }),
+    });
+    return { ok: true };
+  },
+});
+
+/**
+ * Pin the event's #1 project as the winner using the same ranking the results
+ * page uses, so a published demo event shows a trophy rather than an empty
+ * state. Returns the winning submission id, or null when nothing ranks yet.
+ */
+export const crownSeedWinner = internalMutation({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    const { ranking } = await rankEventProjects(ctx, args.eventId, { ignoreOverride: true });
+    const winner = ranking[0];
+    if (!winner) return null;
+    await ctx.db.patch(args.eventId, {
+      winnerOverrideProjectId: winner.submissionId as Id<"submissions">,
+      winnerIsOverridden: true,
+    });
+    await appendAudit(ctx, {
+      eventId: args.eventId,
+      action: "winner.crown",
+      targetType: "submission",
+      targetId: winner.submissionId,
+      afterState: JSON.stringify({ source: "seed", rank: 1, title: winner.title ?? null }),
+    });
+    return winner.submissionId;
   },
 });
 

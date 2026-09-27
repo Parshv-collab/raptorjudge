@@ -9,12 +9,13 @@ export const Chip: React.FC<ChipProps> = ({ selected = false, label, className =
   return (
     <button
       type="button"
+      aria-pressed={selected}
       className={`
-        inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-full transition-all duration-150 focus-ring-accent
+        inline-flex items-center px-3 h-8 text-[13px] font-medium rounded-pill border transition-colors duration-fast
         ${
           selected
-            ? "bg-[#ff0055] text-white shadow-sm shadow-[#ff0055]/30"
-            : "bg-white/50 text-[#1d1d1f] border border-white/80 hover:bg-white/80"
+            ? "bg-accent/10 text-accent border-accent/40"
+            : "bg-surface-1 text-secondary border-line hover:border-line-strong hover:text-primary"
         }
         ${className}
       `}
@@ -54,8 +55,8 @@ export const ChipGroup: React.FC<ChipGroupProps> = ({
   return (
     <div className={`w-full flex flex-col gap-1.5 ${className}`}>
       {label && (
-        <label className="text-xs font-semibold text-[#1d1d1f]">
-          {label} {maxSelectable && <span className="text-[#6e6e73] font-normal">(Max {maxSelectable})</span>}
+        <label className="text-[13px] text-secondary">
+          {label} {maxSelectable && <span className="text-muted">(max {maxSelectable})</span>}
         </label>
       )}
       <div className="flex flex-wrap gap-2">

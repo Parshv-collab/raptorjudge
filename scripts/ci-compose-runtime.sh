@@ -23,7 +23,10 @@
 # relevant container logs so the failure is diagnosable from CI output alone.
 set -eu
 
-SLUG="${EVENT_SLUG:-dogfood-2026}"
+# Must match the event the fixture seed actually creates (src/convex/seed.ts)
+# and the slug in .dogfood.toml. A stale default here made every per-event
+# check 404 (the API correctly refuses unknown slugs).
+SLUG="${EVENT_SLUG:-sample-hack-2026}"
 API="${API_BASE:-http://localhost:8000}"
 SITE="${SITE_BASE:-http://localhost:3000}"
 
@@ -182,7 +185,11 @@ esac
 # An unsigned token whose payload claims to be the seeded admin. The REST layer
 # used to base64-decode and trust exactly this shape.
 SITE_ORIGIN="${CONVEX_SITE_ORIGIN:-http://127.0.0.1:3211}"
-forged="$(node -e "const b=(o)=>Buffer.from(JSON.stringify(o)).toString('base64url');process.stdout.write(\`\${b({alg:'none',typ:'JWT'})}.\${b({sub:'admin|forged',iss:'${SITE_ORIGIN}',aud:'convex',exp:Math.floor(Date.now()/1000)+3600})}.\`)"')"
+# The token is built inside node (no shell interpolation inside the script),
+# with the issuer passed through the environment to keep shell quoting sane:
+# the previous inline version had an unbalanced quote that broke `sh` parsing
+# for the rest of the file (dash died at the next multi-line command).
+forged="$(FORGED_ISS=${SITE_ORIGIN} node -e 'const b=(o)=>Buffer.from(JSON.stringify(o)).toString("base64url");const iss=process.env.FORGED_ISS;process.stdout.write(b({alg:"none",typ:"JWT"})+"."+b({sub:"admin|forged",iss:iss,aud:"convex",exp:Math.floor(Date.now()/1000)+3600})+".")')"
 forged_code="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' -X POST \
   -H "Authorization: Bearer ${forged}" -H 'Content-Type: application/json' \
   -d '{}' "${API}/api/v1/acceptance")"
@@ -216,12 +223,13 @@ for pair in tracks rubric; do
   fi
 done
 
-# The gallery is deliberately hidden until judging starts (it would otherwise
-# publish every team's work during the hacking stage). The seeded event sits in
-# `hacking`, so an empty gallery here is the *correct* answer — and if the event
-# ever is past that point, the seeded submissions must show up.
+# The gallery is deliberately hidden until submissions close (it would otherwise
+# publish every team's work during hacking). The seeded event is `closed`, which
+# is past that gate — matching the API rule in httpPublic.galleryPublic and the
+# UI rule in Gallery.tsx: hidden for draft/registration/hacking, visible for
+# closed/judging/voting/published/archived.
 case "${event_status}" in
-  judging | voting | published | archived)
+  closed | judging | voting | published | archived)
     cards="$(curl -sS --max-time 10 "${API}/api/v1/gallery/${SLUG}" |
       node -e 'let s="";process.stdin.on("data",(d)=>(s+=d)).on("end",()=>{try{process.stdout.write(String((JSON.parse(s).cards??[]).length))}catch{process.stdout.write("0")}})')"
     if [ "${cards}" -gt 0 ]; then

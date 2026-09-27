@@ -1,10 +1,52 @@
+import { useMemo, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
-import { useQuery, useConvexAuth } from "convex/react";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
+import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
-import { GlassCard } from "@/components/ui/GlassCard";
+import { Button } from "@/components/ui/Button";
+import { humanizeConvexError } from "@/lib/errors";
 import { StatCard } from "@/components/ui/StatCard";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Badge } from "@/components/ui/Badge";
 import { SkeletonCard, SkeletonStat } from "@/components/ui/SkeletonCard";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { usePrimaryEvent } from "@/lib/featuredEvent";
+import {
+  Users,
+  CalendarDays,
+  ClipboardList,
+  ScrollText,
+  ShieldCheck,
+  Mail,
+  Scale,
+} from "lucide-react";
+
+const QUICK_LINKS = [
+  {
+    to: "/admin/users",
+    icon: <Users />,
+    title: "Users",
+    description: "Roles, disables, force logout, deletion.",
+  },
+  {
+    to: "/admin/events",
+    icon: <CalendarDays />,
+    title: "Events",
+    description: "Platform-wide lifecycle and ownership.",
+  },
+  {
+    to: "/admin/judging",
+    icon: <Scale />,
+    title: "Judging",
+    description: "Every assignment across every event.",
+  },
+  {
+    to: "/admin/invites",
+    icon: <Mail />,
+    title: "Invites",
+    description: "Staff access tokens and revocation.",
+  },
+];
 
 export default function AdminDashboard() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -17,144 +59,194 @@ export default function AdminDashboard() {
   const event = skip ? primaryEvent : (events?.[0] ?? primaryEvent);
   const submissions = useQuery(api.submissions.byEvent, skip || !event ? "skip" : { eventId: event._id });
   const audit = useQuery(api.audit.list, skip ? "skip" : { limit: 10 });
+  // In-app acceptance self-check: same checks the REST report runs, stored so
+  // the result survives a reload instead of living only in the response body.
+  const latestReport = useQuery(api.acceptance.latestReport, skip ? "skip" : {});
+  const runSuite = useMutation(api.acceptance.runSuite);
+  const saveReport = useMutation(api.acceptance.saveReport);
+  const [checkBusy, setCheckBusy] = useState(false);
 
-  if (authLoading) {
+  // The stored report is JSON text so it can grow without a schema change.
+  const parsedReport = useMemo(() => {
+    if (!latestReport) return null;
+    try {
+      return JSON.parse(latestReport) as { summary?: string; runAt?: number; checks?: any[] };
+    } catch {
+      return null;
+    }
+  }, [latestReport]);
+  const reportSummary = parsedReport?.summary ?? "";
+  const reportPassedAt = parsedReport?.runAt ?? null;
+  const reportChecks = parsedReport?.checks ?? [];
+
+  async function handleRunAcceptance() {
+    setCheckBusy(true);
+    try {
+      const report = await runSuite({});
+      await saveReport({ report: JSON.stringify(report) });
+      toast.success(report.summary);
+    } catch (err) {
+      toast.error(humanizeConvexError(err));
+    } finally {
+      setCheckBusy(false);
+    }
+  }
+
+  if (authLoading || !isAuthenticated || me === undefined || !events || !users) {
     return (
-      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-          <SkeletonStat /><SkeletonStat /><SkeletonStat /><SkeletonStat />
+      <div className="flex flex-col gap-8">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <SkeletonStat />
+          <SkeletonStat />
+          <SkeletonStat />
+          <SkeletonStat />
         </div>
         <SkeletonCard lines={4} />
       </div>
     );
   }
-
-  if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   if (me && me.role !== "admin") {
-    return (
-      <Navigate
-        to={me.role === "organizer" ? "/organizer" : "/home"}
-        replace
-      />
-    );
-  }
-
-  if (!me || !events || !users) {
-    return (
-      <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-6">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-          <SkeletonStat /><SkeletonStat /><SkeletonStat /><SkeletonStat />
-        </div>
-        <SkeletonCard lines={4} />
-      </div>
-    );
+    return <Navigate to={me.role === "organizer" ? "/organizer" : "/home"} replace />;
   }
 
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-8">
-      {/* Heading */}
-      <div>
-        <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-          System Administration
-        </span>
-        <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-0.5">
-          Admin
-        </h1>
+    <div className="flex flex-col gap-8">
+      <PageHeader
+        title="System administration"
+        description="Platform-wide users, events and the tamper-evident audit trail."
+      />
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard label="Users" value={users.length} subtext="All roles" icon={<Users />} />
+        <StatCard label="Events" value={events.length} subtext="Every lifecycle stage" icon={<CalendarDays />} />
+        <StatCard
+          label="Submissions"
+          value={submissions?.length ?? 0}
+          subtext={event ? event.title : "—"}
+          icon={<ClipboardList />}
+        />
+        <StatCard label="Audit entries" value={audit?.length ?? 0} subtext="Latest 10 shown below" icon={<ScrollText />} />
       </div>
 
-      {/* Stats Row (4 max) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard label="Total Users" value={users.length} />
-        <StatCard label="Total Events" value={events.length} />
-        <StatCard label="Submissions" value={submissions?.length ?? 0} />
-        <StatCard label="Pending Invites" value="0" />
-      </div>
-
-      {/* Quick Links Grid (4 cards) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Link to="/admin/users">
-          <GlassCard hoverEffect className="p-6 h-full flex flex-col justify-between">
-            <div>
-              <h3 className="text-base font-bold text-[#1d1d1f]">Users</h3>
-              <p className="text-xs text-[#6e6e73] mt-1">Manage accounts and role permissions</p>
+      {/* Quick links */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {QUICK_LINKS.map((link) => (
+          <Link key={link.to} to={link.to} className="group">
+            <div className="h-full bg-surface-1 border border-line rounded-card p-6 flex flex-col justify-between transition-colors duration-fast group-hover:border-line-strong">
+              <div>
+                <div className="text-muted mb-3 [&>svg]:w-5 [&>svg]:h-5">{link.icon}</div>
+                <h3 className="text-h3 text-primary">{link.title}</h3>
+                <p className="text-[13px] text-secondary mt-1">{link.description}</p>
+              </div>
+              <span className="text-[13px] font-medium text-accent mt-5 group-hover:text-accent-hover transition-colors duration-fast">
+                Open →
+              </span>
             </div>
-            <span className="text-xs font-bold text-[#ff0055] mt-4 inline-block">
-              Open Users →
-            </span>
-          </GlassCard>
-        </Link>
-
-        <Link to="/admin/events">
-          <GlassCard hoverEffect className="p-6 h-full flex flex-col justify-between">
+          </Link>
+        ))}
+        <Link to="/security" className="group">
+          <div className="h-full bg-surface-1 border border-line rounded-card p-6 flex flex-col justify-between transition-colors duration-fast group-hover:border-line-strong">
             <div>
-              <h3 className="text-base font-bold text-[#1d1d1f]">Events</h3>
-              <p className="text-xs text-[#6e6e73] mt-1">Review all events platform-wide</p>
+              <div className="text-muted mb-3 [&>svg]:w-5 [&>svg]:h-5">
+                <ShieldCheck />
+              </div>
+              <h3 className="text-h3 text-primary">Security</h3>
+              <p className="text-[13px] text-secondary mt-1">Two-factor authentication for privileged roles.</p>
             </div>
-            <span className="text-xs font-bold text-[#ff0055] mt-4 inline-block">
-              Open Events →
+            <span className="text-[13px] font-medium text-accent mt-5 group-hover:text-accent-hover transition-colors duration-fast">
+              Open →
             </span>
-          </GlassCard>
-        </Link>
-
-        <Link to="/admin/audit">
-          <GlassCard hoverEffect className="p-6 h-full flex flex-col justify-between">
-            <div>
-              <h3 className="text-base font-bold text-[#1d1d1f]">Audit Log</h3>
-              <p className="text-xs text-[#6e6e73] mt-1">Inspect tamper-evident system logs</p>
-            </div>
-            <span className="text-xs font-bold text-[#ff0055] mt-4 inline-block">
-              Open Audit →
-            </span>
-          </GlassCard>
-        </Link>
-
-        <Link to="/security">
-          <GlassCard hoverEffect className="p-6 h-full flex flex-col justify-between">
-            <div>
-              <h3 className="text-base font-bold text-[#1d1d1f]">Settings</h3>
-              <p className="text-xs text-[#6e6e73] mt-1">Security and 2FA configuration</p>
-            </div>
-            <span className="text-xs font-bold text-[#ff0055] mt-4 inline-block">
-              Open Settings →
-            </span>
-          </GlassCard>
+          </div>
         </Link>
       </div>
 
-      {/* Recent Audit Events (Last 10) */}
-      <GlassCard className="p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-bold text-[#1d1d1f]">Recent Audit Trail</h2>
-          <Link to="/admin/audit">
-            <span className="text-xs font-semibold text-[#ff0055] hover:underline">
-              View Full Trail →
-            </span>
+      {/* Acceptance self-check */}
+      <section className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-h2 text-primary">Acceptance self-check</h2>
+            <p className="text-[13px] text-secondary mt-0.5">
+              Re-runs the platform's own integrity checks (role isolation, result gating,
+              audit chain) against the live data. Same suite as <code className="font-mono text-[12px]">GET /api/v1/acceptance</code>.
+            </p>
+          </div>
+          <Button variant="secondary" size="sm" isLoading={checkBusy} onClick={handleRunAcceptance}>
+            Run checks
+          </Button>
+        </div>
+
+        {latestReport ? (
+          <div className="bg-surface-1 border border-line rounded-card p-5 flex flex-col gap-3">
+            <p className="text-[13px] text-primary font-medium">{reportSummary}</p>
+            {reportPassedAt ? (
+              <p className="text-[12px] text-muted tnum">
+                Last run {new Date(reportPassedAt).toLocaleString()}
+              </p>
+            ) : null}
+            <div className="flex flex-col gap-1.5">
+              {reportChecks.slice(0, 6).map((c: any) => (
+                <div
+                  key={`${c.tier}-${c.id}`}
+                  className="flex items-center justify-between gap-3 text-[13px]"
+                >
+                  <span className="text-secondary truncate">
+                    <span className="font-mono text-[11px] text-muted mr-2">{c.id}</span>
+                    {c.description}
+                  </span>
+                  <Badge variant={c.skipped ? "default" : c.pass ? "success" : "danger"}>
+                    {c.skipped ? "skipped" : c.pass ? "pass" : "fail"}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <EmptyState
+            icon={<ShieldCheck />}
+            title="No self-check stored yet"
+            description="Run the checks once and the report is kept here for the rest of the deployment."
+          />
+        )}
+      </section>
+
+      {/* Recent audit */}
+      <section className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-h2 text-primary">Recent audit trail</h2>
+          <Link
+            to="/admin/audit"
+            className="text-[13px] text-accent hover:text-accent-hover transition-colors duration-fast"
+          >
+            Full trail →
           </Link>
         </div>
 
-        <div className="flex flex-col gap-2">
-          {(audit || []).map((log: any) => (
-            <div
-              key={log.id}
-              className="p-3 rounded-input bg-white/60 border border-white flex flex-wrap justify-between items-center text-xs gap-2"
-            >
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-[#1d1d1f]">{log.action}</span>
-                <span className="text-[10px] text-[#6e6e73] uppercase px-1.5 py-0.5 rounded bg-black/5">
-                  {log.targetType}
+        {audit === undefined ? (
+          <SkeletonCard lines={5} />
+        ) : audit.length === 0 ? (
+          <EmptyState
+            icon={<ScrollText />}
+            title="No audit entries yet"
+            description="Privileged writes — role changes, publishes, deletes — will appear here as they happen."
+          />
+        ) : (
+          <div className="bg-surface-1 border border-line rounded-card divide-y divide-[color:var(--color-border)]">
+            {audit.map((log: any) => (
+              <div key={log.id} className="px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-[13px]">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="font-mono text-[12px] font-medium text-primary">{log.action}</span>
+                  <Badge>{log.targetType}</Badge>
+                </div>
+                <span className="font-mono text-[12px] text-muted tnum">
+                  {new Date(log.timestamp).toLocaleString()}
                 </span>
               </div>
-              <span className="font-mono text-[10px] text-[#6e6e73]">
-                {new Date(log.timestamp).toLocaleString()}
-              </span>
-            </div>
-          ))}
-          {(!audit || audit.length === 0) && (
-            <p className="text-xs text-[#6e6e73] text-center py-4">No recent audit logs.</p>
-          )}
-        </div>
-      </GlassCard>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

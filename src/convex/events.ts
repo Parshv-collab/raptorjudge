@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query, type QueryCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { getCurrentUser, requireOrganizer, requireUser } from "./lib/common";
 import { appendAudit } from "./lib/audit";
@@ -23,12 +24,98 @@ export const listMine = query({ args: {}, handler: async (ctx) => {
   return (user.role === "admin" ? all : all.filter((e) => e.organizerId === user._id));
 } });
 export const listPublic = query({ args: {}, handler: async (ctx) => (await ctx.db.query("events").collect()).filter((e) => e.status !== "draft") });
-export const get = query({ args: { eventId: v.id("events") }, handler: async (ctx, args) => {
-  const event = await ctx.db.get(args.eventId);
-  if (!event) throw new Error("Event not found");
-  await assertEventVisible(ctx, event);
-  return event;
-} });
+
+/**
+ * Public, unauthenticated runtime config for the marketing surfaces (issue 30).
+ *
+ * `testEvents` mirrors the TEST_EVENTS deployment env var. The landing page
+ * uses it to decide whether to render the stage-grouped event sections; when
+ * the flag is off it shows only Sample Hack 2026, exactly as before. Nothing
+ * sensitive is exposed here — it is one boolean, and a public event list is
+ * already readable without auth.
+ */
+export const publicConfig = query({
+  args: {},
+  handler: async () => ({ testEvents: process.env.TEST_EVENTS === "true" }),
+});
+
+/**
+ * The stage buckets the landing page renders, in lifecycle order. The copy is
+ * the public-facing label for each lifecycle stage, kept here so the page
+ * cannot drift from the server's notion of a stage.
+ */
+const STAGE_SECTIONS: { key: string; label: string; blurb: string; statuses: string[] }[] = [
+  {
+    key: "registration",
+    label: "Registration open",
+    blurb: "Teams are signing up. Nothing has been submitted yet.",
+    statuses: ["registration"],
+  },
+  {
+    key: "submissions",
+    label: "Submissions open",
+    blurb: "Hacking is underway — projects are landing against a live deadline.",
+    statuses: ["hacking"],
+  },
+  {
+    key: "judging",
+    label: "Now judging",
+    blurb: "The panel is scoring against a locked weighted rubric.",
+    statuses: ["judging"],
+  },
+  {
+    key: "voting",
+    label: "Vote now",
+    blurb: "Judging is done, community voting is open and tallies are hidden.",
+    statuses: ["voting"],
+  },
+  {
+    key: "past",
+    label: "Past events",
+    blurb: "Published results, rankings and certificates.",
+    statuses: ["published", "closed", "archived"],
+  },
+];
+
+/**
+ * Public events grouped by lifecycle stage, with the counts the landing page
+ * shows (issue 30). Empty buckets are omitted, so a deployment with only the
+ * closed Sample Hack 2026 returns exactly one group.
+ */
+export const stageOverview = query({
+  args: {},
+  handler: async (ctx) => {
+    const all = (await ctx.db.query("events").collect()).filter((e) => e.status !== "draft");
+    const teams = await ctx.db.query("teams").collect();
+    const members = await ctx.db.query("teamMembers").collect();
+    const submissions = await ctx.db.query("submissions").collect();
+
+    return STAGE_SECTIONS.map((section) => {
+      const events = all
+        .filter((e) => section.statuses.includes(e.status))
+        // Newest activity first, so a freshly seeded demo event leads its group.
+        .sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0))
+        .map((event) => {
+          const eventTeamIds = new Set(
+            teams.filter((t) => t.eventId === event._id).map((t) => String(t._id)),
+          );
+          return {
+            slug: event.slug,
+            title: event.title,
+            tagline: event.tagline,
+            status: event.status,
+            projectCount: submissions.filter((s) => s.eventId === event._id).length,
+            teamCount: eventTeamIds.size,
+            participantCount: members.filter((m) => eventTeamIds.has(String(m.teamId))).length,
+          };
+        });
+      return { key: section.key, label: section.label, blurb: section.blurb, events };
+    }).filter((section) => section.events.length > 0);
+  },
+});
+// `get({ eventId })` was removed: every caller resolved an event by slug
+// (`getBySlug`) or through a public variant, so it was an unused public read
+// that duplicated `assertEventVisible` gating.
 export const getBySlug = query({ args: { slug: v.string() }, handler: async (ctx, args) => {
   const event = await ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique();
   if (!event) return null;
@@ -152,7 +239,36 @@ export const deleteEvent = mutation({ args: { eventId: v.id("events") }, handler
 export const setStage = mutation({ args: { eventId: v.id("events"), stage: v.string() }, handler: async (ctx, args) => {
   const actor = await requireOrganizer(ctx); const event = await ctx.db.get(args.eventId); if (!event) throw new Error("Event not found");
   const stages = ["draft", "registration", "hacking", "judging", "voting", "published", "archived"]; if (!stages.includes(args.stage)) throw new Error("Invalid stage");
-  await ctx.db.patch(args.eventId, { status: args.stage }); await appendAudit(ctx, { eventId: args.eventId, actorId: actor._id, action: "event.stage_change", targetType: "event", targetId: String(args.eventId), beforeState: event.status, afterState: args.stage }); return { ok: true };
+  await ctx.db.patch(args.eventId, { status: args.stage }); await appendAudit(ctx, { eventId: args.eventId, actorId: actor._id, action: "event.stage_change", targetType: "event", targetId: String(args.eventId), beforeState: event.status, afterState: args.stage });
+  // Announcing results is the one transition subscribers act on: it changes the
+  // public gallery for everyone, so it gets a webhook of its own — and it now
+  // also notifies the participants (issue 23.3).
+  if (args.stage === "published" && event.status !== "published") {
+    await ctx.scheduler.runAfter(0, internal.webhooks.dispatch, {
+      eventId: args.eventId,
+      eventType: "results.published",
+      payload: JSON.stringify({ eventId: String(args.eventId), slug: event.slug, title: event.title, publishedAt: Date.now() }),
+    });
+    // Resolve the participant list inline (mutations cannot call runQuery) so
+    // the scheduled fan-out has concrete recipients.
+    const eventTeams = await ctx.db
+      .query("teams")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    const eventTeamIds = new Set(eventTeams.map((t) => t._id));
+    const allMembers = await ctx.db.query("teamMembers").collect();
+    const participantIds = Array.from(
+      new Set(allMembers.filter((m) => eventTeamIds.has(m.teamId)).map((m) => String(m.userId))),
+    ) as never[];
+    await ctx.scheduler.runAfter(0, internal.notifications.createManyInternal, {
+      eventId: args.eventId,
+      userIds: participantIds,
+      type: "results_published",
+      message: `Results published for ${event.title}`,
+      linkUrl: `/results/${event.slug}`,
+    });
+  }
+  return { ok: true };
 } });
 
 export const adminTransferOwnership = mutation({ args: { eventId: v.id("events"), newOrganizerId: v.id("users") }, handler: async (ctx, args) => {
@@ -212,3 +328,64 @@ export const featured = query({ args: {}, handler: async (ctx) => {
     }).length,
   })).sort((a, b) => b.participantCount - a.participantCount).slice(0, 4);
 } });
+
+/**
+ * True while at least one event is still accepting judging-side writes
+ * (anything before publication). Issue 21+25: drives the judge shell's
+ * decision to show the Pairwise entry at all — once every event has published
+ * there is nothing left to compare.
+ */
+export const anyOpenForJudging = query({
+  args: {},
+  handler: async (ctx) => {
+    const events = await ctx.db.query("events").collect();
+    return events.some((e) => !["published", "archived", "closed"].includes(e.status));
+  },
+});
+
+/**
+ * The event a public surface should hero (issue 29).
+ *
+ * A closed event must never be the featured one while anything better exists,
+ * so the priority is:
+ *   1. an open event (registration / hacking / judging / voting),
+ *   2. the next upcoming event (registration in the future),
+ *   3. the most recently published event ("Results are in").
+ * `null` when nothing qualifies — callers render their empty state.
+ */
+export const featuredForVisitors = query({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const all = (await ctx.db.query("events").collect()).filter((e) => e.status !== "draft");
+    const withCounts = await Promise.all(
+      all.map(async (event) => {
+        const teams = await ctx.db
+          .query("teams")
+          .withIndex("by_event", (q) => q.eq("eventId", event._id))
+          .collect();
+        const members = await ctx.db.query("teamMembers").collect();
+        const teamIds = new Set(teams.map((t) => t._id));
+        const participantCount = members.filter((m) => teamIds.has(m.teamId)).length;
+        return { event, participantCount };
+      }),
+    );
+
+    const open = withCounts
+      .filter(({ event }) => ["registration", "hacking", "judging", "voting"].includes(event.status))
+      .sort((a, b) => b.participantCount - a.participantCount);
+    if (open.length > 0) return { ...open[0].event, participantCount: open[0].participantCount, phase: "open" as const };
+
+    const upcoming = withCounts
+      .filter(({ event }) => event.registrationStart > now)
+      .sort((a, b) => a.event.registrationStart - b.event.registrationStart);
+    if (upcoming.length > 0) return { ...upcoming[0].event, participantCount: upcoming[0].participantCount, phase: "upcoming" as const };
+
+    const published = withCounts
+      .filter(({ event }) => ["published", "archived"].includes(event.status))
+      .sort((a, b) => (b.event.publishedAt ?? 0) - (a.event.publishedAt ?? 0));
+    if (published.length > 0) return { ...published[0].event, participantCount: published[0].participantCount, phase: "results" as const };
+
+    return null;
+  },
+});

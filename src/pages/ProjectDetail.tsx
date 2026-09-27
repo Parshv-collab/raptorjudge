@@ -3,13 +3,14 @@ import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
-import { GlassCard } from "@/components/ui/GlassCard";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { humanizeConvexError } from "@/lib/errors";
 import { usePrimaryEventSlug } from "@/lib/featuredEvent";
+import { Markdown } from "@/components/ui/Markdown";
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -17,6 +18,13 @@ export default function ProjectDetail() {
   const detail = useQuery(api.submissions.detail, id ? { submissionId: id as never } : "skip");
   const comments = useQuery(api.comments.listForSubmission, id ? { submissionId: id as never } : "skip");
   const me = useQuery(api.users.me, {});
+  const voteStatus = useQuery(
+    api.voting.voteStatus,
+    detail?.eventId ? { eventId: detail.eventId } : "skip",
+  );
+  const castVote = useMutation(api.voting.castVote);
+  const removeVote = useMutation(api.voting.removeVote);
+  const [votePoints, setVotePoints] = useState(1);
   const addComment = useMutation(api.comments.add);
   const flagComment = useMutation(api.comments.flag);
   const deleteComment = useMutation(api.comments.deleteComment);
@@ -32,6 +40,34 @@ export default function ProjectDetail() {
       await addComment({ submissionId: id as never, content: text });
       setText("");
       toast.success("Comment posted");
+    } catch (err) {
+      toast.error(humanizeConvexError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleVote(points: number) {
+    if (!id || !detail?.eventId) return;
+    setBusy(true);
+    try {
+      await castVote({ eventId: detail.eventId, submissionId: id as never, points });
+      toast.success(
+        voteStatus?.votingType === "upvote" ? "Upvote recorded" : `${points} point${points === 1 ? "" : "s"} cast`,
+      );
+    } catch (err) {
+      toast.error(humanizeConvexError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemoveVote() {
+    if (!id || !detail?.eventId) return;
+    setBusy(true);
+    try {
+      await removeVote({ eventId: detail.eventId, submissionId: id as never });
+      toast.success("Vote withdrawn");
     } catch (err) {
       toast.error(humanizeConvexError(err));
     } finally {
@@ -59,7 +95,7 @@ export default function ProjectDetail() {
 
   if (detail === undefined) {
     return (
-      <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
+      <div className="max-w-4xl mx-auto flex flex-col gap-6">
         <SkeletonCard lines={4} />
       </div>
     );
@@ -67,7 +103,7 @@ export default function ProjectDetail() {
 
   if (detail === null) {
     return (
-      <div className="max-w-4xl mx-auto py-8 px-4">
+      <div className="max-w-4xl mx-auto">
         <EmptyState
           title="Project not found"
           description="This submission may have been withdrawn, or the link is out of date."
@@ -84,89 +120,151 @@ export default function ProjectDetail() {
     me?._id && (String(comment.authorId) === String(me._id) || me.role === "organizer" || me.role === "admin");
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
-      <Link to={`/gallery/${detail.eventSlug ?? fallbackSlug}`}>
-        <span className="text-xs font-semibold text-[#ff0055] hover:underline">
-          ← Back to {detail.eventTitle ? `${detail.eventTitle} gallery` : "Gallery"}
-        </span>
+    <div className="max-w-4xl mx-auto flex flex-col gap-10">
+      <Link
+        to={`/gallery/${detail.eventSlug ?? fallbackSlug}`}
+        className="text-sm text-accent hover:text-accent-hover transition-colors duration-fast self-start"
+      >
+        ← Back to {detail.eventTitle ? `${detail.eventTitle} gallery` : "gallery"}
       </Link>
 
-      {/* Header Info */}
-      <GlassCard className="p-6 sm:p-8">
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-[#ff0055]/10 text-[#ff0055]">
-            {detail.trackName || "General Track"}
-          </span>
-          <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-emerald-500/10 text-emerald-600">
-            {detail.status}
-          </span>
+      {/* Header */}
+      <header className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {(detail as any).isWinner && <Badge variant="accent">🏆 Winner</Badge>}
+          {(detail as any).rank && !(detail as any).isWinner && (
+            <Badge variant="success">#{(detail as any).rank}</Badge>
+          )}
+          <Badge variant="accent">{detail.trackName || "General Track"}</Badge>
+          <Badge variant={detail.status === "submitted" ? "success" : "default"}>{detail.status}</Badge>
           {detail.submittedAt && (
-            <span className="text-[11px] text-[#6e6e73] ml-auto">
-              Submitted: {new Date(detail.submittedAt).toLocaleDateString()}
+            <span className="text-[13px] text-muted ml-auto tnum">
+              Submitted {new Date(detail.submittedAt).toLocaleDateString()}
             </span>
           )}
         </div>
 
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1d1d1f] tracking-tight">
-          {detail.title}
-        </h1>
-        <p className="text-sm font-medium text-[#6e6e73] mt-1">{detail.tagline}</p>
-        <p className="text-xs font-semibold text-[#1d1d1f] mt-2">Team: {detail.teamName}</p>
+        <h1 className="text-h1 text-primary">{detail.title}</h1>
+        <p className="text-base text-secondary">{detail.tagline}</p>
+        <p className="text-sm text-primary">
+          Team <span className="font-semibold">{detail.teamName}</span>
+        </p>
 
-        {/* Action Links */}
-        <div className="flex flex-wrap gap-3 mt-6 pt-4 border-t border-black/5">
-          {detail.repositoryUrl && (
-            <a href={detail.repositoryUrl} target="_blank" rel="noopener noreferrer">
-              <Button variant="secondary" size="sm">
-                Repository ↗
+        {detail.repositoryUrl || detail.demoUrl || detail.videoUrl ? (
+          <div className="flex flex-wrap gap-3 mt-3">
+            {detail.repositoryUrl && (
+              <a href={detail.repositoryUrl} target="_blank" rel="noopener noreferrer">
+                <Button variant="secondary" size="sm">
+                  Repository ↗
+                </Button>
+              </a>
+            )}
+            {detail.demoUrl && (
+              <a href={detail.demoUrl} target="_blank" rel="noopener noreferrer">
+                <Button variant="secondary" size="sm">
+                  Live demo ↗
+                </Button>
+              </a>
+            )}
+            {detail.videoUrl && (
+              <a href={detail.videoUrl} target="_blank" rel="noopener noreferrer">
+                <Button variant="secondary" size="sm">
+                  Video pitch ↗
+                </Button>
+              </a>
+            )}
+          </div>
+        ) : null}
+      </header>
+
+      {/* Community vote — the only participant-facing write on this page. The
+          server owns every rule (stage window, quadratic budget, rate limit,
+          one-vote-per-project in upvote mode); this panel only mirrors them. */}
+      {voteStatus && me?.role !== "judge" && (() => {
+        const myVote = (voteStatus.myVotes ?? []).find(
+          (v: any) => v.submissionId === String(id),
+        );
+        const isUpvote = voteStatus.votingType === "upvote";
+        const creditsLeft = voteStatus.budget - voteStatus.creditsSpent;
+        return (
+          <section className="border-t border-line pt-8 flex flex-col gap-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-h2 text-primary">Community vote</h2>
+              <span className="text-[13px] text-muted tnum">
+                {isUpvote
+                  ? myVote
+                    ? "You upvoted this project"
+                    : "One upvote per project"
+                  : `${creditsLeft} of ${voteStatus.budget} credits left`}
+              </span>
+            </div>
+
+            {!me ? (
+              <p className="text-sm text-secondary">
+                <Link to="/auth" className="text-accent hover:text-accent-hover transition-colors duration-fast">
+                  Sign in
+                </Link>{" "}
+                to vote on this project.
+              </p>
+            ) : !voteStatus.votingOpen ? (
+              <p className="text-sm text-secondary">
+                Voting is {voteStatus.resultsVisible ? "closed for this event" : "not open yet"} — points can
+                be cast while the event is in its voting stage.
+              </p>
+            ) : myVote ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge variant="accent">{myVote.points} point{myVote.points === 1 ? "" : "s"}</Badge>
+                <span className="text-[13px] text-muted">
+                  {isUpvote
+                    ? "Your upvote is recorded."
+                    : `Cost ${myVote.creditsSpent} credit${myVote.creditsSpent === 1 ? "" : "s"}.`}
+                </span>
+                <Button variant="secondary" size="sm" isLoading={busy} onClick={handleRemoveVote}>
+                  Withdraw vote
+                </Button>
+              </div>
+            ) : isUpvote ? (
+              <Button variant="primary" size="sm" isLoading={busy} onClick={() => handleVote(1)} className="self-start">
+                Upvote this project
               </Button>
-            </a>
-          )}
-          {detail.demoUrl && (
-            <a href={detail.demoUrl} target="_blank" rel="noopener noreferrer">
-              <Button variant="secondary" size="sm">
-                Live Demo ↗
-              </Button>
-            </a>
-          )}
-          {detail.videoUrl && (
-            <a href={detail.videoUrl} target="_blank" rel="noopener noreferrer">
-              <Button variant="secondary" size="sm">
-                Video Pitch ↗
-              </Button>
-            </a>
-          )}
-        </div>
-      </GlassCard>
+            ) : (
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="w-32">
+                  <Input
+                    label="Points"
+                    type="number"
+                    min={1}
+                    value={String(votePoints)}
+                    onChange={(e) => setVotePoints(Math.max(1, Number(e.target.value) || 1))}
+                  />
+                </div>
+                <Button variant="primary" size="sm" isLoading={busy} onClick={() => handleVote(votePoints)}>
+                  Cast {votePoints} point{votePoints === 1 ? "" : "s"} ({votePoints * votePoints} credits)
+                </Button>
+              </div>
+            )}
+          </section>
+        );
+      })()}
 
       {/* Description */}
-      <GlassCard className="p-6 sm:p-8">
-        <h2 className="text-base font-bold text-[#1d1d1f] mb-3">Project Description</h2>
-        <div className="text-xs sm:text-sm text-[#1d1d1f] leading-relaxed whitespace-pre-line">
-          {detail.description}
-        </div>
-      </GlassCard>
+      <section className="border-t border-line pt-8">
+        <h2 className="text-h2 text-primary mb-4">About this project</h2>
+        <Markdown content={detail.description ?? ""} />
+      </section>
 
-      {/* Comments / Discussion Section */}
-      <GlassCard className="p-6 sm:p-8">
-        <h2 className="text-base font-bold text-[#1d1d1f] mb-4">
-          Discussion ({comments?.length ?? 0})
-        </h2>
+      {/* Discussion */}
+      <section className="border-t border-line pt-8">
+        <h2 className="text-h2 text-primary mb-5">Discussion ({comments?.length ?? 0})</h2>
 
-        <form onSubmit={handlePostComment} className="flex flex-col sm:flex-row gap-2 mb-6">
+        <form onSubmit={handlePostComment} className="flex flex-col sm:flex-row gap-3 mb-8">
           <Input
             placeholder="Add a comment or feedback..."
             value={text}
             onChange={(e) => setText(e.target.value)}
             aria-label="Add a comment"
           />
-          <Button
-            type="submit"
-            variant="primary"
-            size="md"
-            isLoading={busy}
-            disabled={!text.trim()}
-          >
+          <Button type="submit" variant="primary" size="md" isLoading={busy} disabled={!text.trim()}>
             Post
           </Button>
         </form>
@@ -174,36 +272,26 @@ export default function ProjectDetail() {
         {comments === undefined ? (
           <SkeletonCard lines={2} />
         ) : comments.length === 0 ? (
-          <EmptyState
-            title="No comments yet"
-            description="Be the first to share feedback on this project."
-          />
+          <EmptyState title="No comments yet" description="Be the first to share feedback on this project." />
         ) : (
           <div className="flex flex-col gap-3">
             {comments.map((comment: any) => (
-              <div
-                key={comment.id}
-                className="p-3.5 rounded-input bg-white/60 border border-white shadow-sm flex flex-col gap-1"
-              >
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="font-bold text-[#1d1d1f]">{comment.authorName}</span>
-                  {comment.isFlagged && (
-                    <span className="px-2 py-0.5 text-[9px] font-bold uppercase rounded-full bg-amber-500/15 text-amber-700">
-                      Flagged
-                    </span>
-                  )}
-                  <span className="text-[10px] text-[#6e6e73] ml-auto">
+              <div key={comment.id} className="bg-surface-1 border border-line rounded-card p-4 flex flex-col gap-1.5">
+                <div className="flex items-center gap-2 text-[13px]">
+                  <span className="font-semibold text-primary">{comment.authorName}</span>
+                  {comment.isFlagged && <Badge variant="warning">Flagged</Badge>}
+                  <span className="text-[11px] text-muted ml-auto tnum">
                     {new Date(comment.createdAt).toLocaleString()}
                   </span>
                 </div>
-                <p className="text-xs text-[#6e6e73] leading-relaxed">{comment.content}</p>
+                <Markdown content={comment.content} className="text-[13px]" />
                 {canModerate(comment) && (
-                  <div className="flex gap-2 mt-1">
+                  <div className="flex gap-4 mt-1">
                     {!comment.isFlagged && (
                       <button
                         type="button"
                         onClick={() => handleFlag(comment.id)}
-                        className="text-[10px] font-semibold text-[#6e6e73] hover:text-[#1d1d1f] focus-ring-accent rounded px-1"
+                        className="text-[13px] text-muted hover:text-primary transition-colors duration-fast"
                         aria-label="Flag this comment for review"
                       >
                         Flag
@@ -212,7 +300,7 @@ export default function ProjectDetail() {
                     <button
                       type="button"
                       onClick={() => handleDelete(comment.id)}
-                      className="text-[10px] font-semibold text-[#e63946] hover:underline focus-ring-accent rounded px-1"
+                      className="text-[13px] text-muted hover:text-danger transition-colors duration-fast"
                       aria-label="Delete this comment"
                     >
                       Delete
@@ -223,7 +311,7 @@ export default function ProjectDetail() {
             ))}
           </div>
         )}
-      </GlassCard>
+      </section>
     </div>
   );
 }

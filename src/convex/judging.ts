@@ -1,7 +1,9 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import {
+  assertJudgingOpen,
   requireOrganizer,
   requireUser,
   requireRole,
@@ -10,7 +12,8 @@ import { assertWithinWindow } from "./lib/timeWindows";
 import { appendAudit } from "./lib/audit";
 import { planJudgeAssignments, type AssignmentPlan } from "../lib/algorithms/assignment";
 import { DEFAULT_RUBRIC } from "./lib/defaultRubric";
-import { hmacSha256Hex } from "./crypto";
+import { hmacSha256Hex, safeEqualHex } from "./crypto";
+import { isResultsPublished, rankEventProjects } from "./lib/results";
 
 async function getCertSecretReadOnly(ctx: any): Promise<string> {
   const row = await ctx.db
@@ -133,6 +136,7 @@ export const lockRubric = mutation({
   args: { eventId: v.id("events"), note: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
+    await assertJudgingOpen(ctx, args.eventId);
     await setPlatform(ctx, rubricLockKey(String(args.eventId)), "locked");
     await appendAudit(ctx, {
       eventId: args.eventId,
@@ -151,6 +155,7 @@ export const unlockRubric = mutation({
   args: { eventId: v.id("events"), note: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const actor = await requireRole(ctx, "admin");
+    await assertJudgingOpen(ctx, args.eventId);
     await setPlatform(ctx, rubricLockKey(String(args.eventId)), "unlocked");
     await appendAudit(ctx, {
       eventId: args.eventId,
@@ -199,6 +204,7 @@ export const customizeRubric = mutation({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
+    await assertJudgingOpen(ctx, args.eventId);
     const existing = await ctx.db
       .query("rubricCriteria")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
@@ -234,6 +240,7 @@ export const deleteCriterion = mutation({
   args: { eventId: v.id("events"), criterionId: v.id("rubricCriteria") },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
+    await assertJudgingOpen(ctx, args.eventId);
     await assertRubricEditable(ctx, args.eventId, actor.role ?? "participant");
     const criterion = await ctx.db.get(args.criterionId);
     if (!criterion) throw new Error("Criterion not found");
@@ -270,6 +277,7 @@ export const upsertCriterion = mutation({
   },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
+    await assertJudgingOpen(ctx, args.eventId);
     await assertRubricEditable(ctx, args.eventId, actor.role ?? "participant");
 
     const name = args.name.trim();
@@ -380,6 +388,7 @@ export const setJudgeTracks = mutation({
   args: { eventId: v.id("events"), judgeId: v.id("users"), tracks: v.array(v.string()) },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
+    await assertJudgingOpen(ctx, args.eventId);
     const tracks = await ctx.db
       .query("tracks")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
@@ -543,6 +552,7 @@ export const assignProjects = mutation({
   },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
+    await assertJudgingOpen(ctx, args.eventId);
     const now = Date.now();
     let count = 0;
     for (const subId of args.submissionIds) {
@@ -591,6 +601,7 @@ export const runAssignment = mutation({
   },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
+    await assertJudgingOpen(ctx, args.eventId);
     const { submitted, judges, planInput } = await buildAssignmentInputs(ctx, args.eventId);
     if (submitted.length === 0) throw new Error("No submitted projects to assign");
     if (judges.length === 0) throw new Error("No judge accounts exist");
@@ -800,6 +811,7 @@ export const submitScores = mutation({
     if (user.role === "judge" && assignment.judgeId !== user._id) {
       throw new Error("Forbidden: not your assignment");
     }
+    await assertJudgingOpen(ctx, assignment.eventId);
     const event = await ctx.db.get(assignment.eventId);
     if (!event) throw new Error("Event not found");
     if (user.role === "judge") {
@@ -869,6 +881,19 @@ export const submitScores = mutation({
         targetType: "assignment",
         targetId: String(args.assignmentId),
         afterState: JSON.stringify({ submissionId: String(assignment.submissionId), criteria: scoredCount }),
+      });
+      // Webhook event: a completed judging assignment is the unit subscribers
+      // care about (partial saves stay internal). Enqueued, never fired inline.
+      await ctx.scheduler.runAfter(0, internal.webhooks.dispatch, {
+        eventId: assignment.eventId,
+        eventType: "score.recorded",
+        payload: JSON.stringify({
+          assignmentId: String(args.assignmentId),
+          judgeId: String(user._id),
+          submissionId: String(assignment.submissionId),
+          criteriaScored: scoredCount,
+          completedAt: now,
+        }),
       });
     }
     return { ok: true, complete };
@@ -984,7 +1009,10 @@ export const judgeRecord = query({
     const judgeScores = scores.filter((s) => s.judgeId === args.judgeId);
 
     const projectsScoredCount = new Set(judgeScores.map((s) => String(s.submissionId))).size;
-    const issuedAt = Date.now();
+    // Attestation time = the judge's last submission. Using `Date.now()` here
+    // made the record look freshly issued on every read even though the
+    // signature (and therefore the record) never changes.
+    const issuedAt = judgeScores.reduce((max, s) => Math.max(max, s.submittedAt), 0);
 
     const secret = await getCertSecretReadOnly(ctx);
     const payloadStr = [
@@ -1012,34 +1040,67 @@ export const judgeRecord = query({
   },
 });
 
-/** All scores for an event (organizer/admin only — feeds normalization + exports). */
-export const allScores = query({
-  args: { eventId: v.id("events") },
+// A `leaderboard` query briefly lived here. It duplicated the ranking that
+// `submissions.publicGallery` already returns (same `rankEventProjects` helper,
+// same `rank` / `isWinner` fields on every card) and nothing called it, so the
+// public gallery remains the single ranked read for an event.
+
+/**
+ * Public verification of a judge record (the counterpart of
+ * `certificates.verify` for the `/verify/judge/:uuid` link that `judgeRecord`
+ * hands out).
+ *
+ * No identity required — the record is only readable by staff/self before
+ * publication, but its *authenticity* must be checkable by anyone holding the
+ * link. The signature covers judge, event and the two score counts; a tampered
+ * URL fails the constant-time comparison instead of rendering a green banner.
+ */
+export const verifyJudgeRecord = query({
+  args: {
+    judgeId: v.string(),
+    eventId: v.string(),
+    signature: v.string(),
+  },
   handler: async (ctx, args) => {
-    await requireOrganizer(ctx);
+    const invalid = { valid: false, reason: "signature mismatch — record may be forged" };
+    if (!args.judgeId || !args.eventId || !args.signature) {
+      return { valid: false, reason: "judge, event and signature are all required" };
+    }
+
+    const judge = await ctx.db.get(args.judgeId as Id<"users">).catch(() => null);
+    const event = await ctx.db.get(args.eventId as Id<"events">).catch(() => null);
+    if (!judge || !event) return { valid: false, reason: "record not found" };
+
     const scores = await ctx.db
       .query("judgeScores")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .collect();
-    const users = await ctx.db.query("users").collect();
-    const criteria = await ctx.db
-      .query("rubricCriteria")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    const subs = await ctx.db
-      .query("submissions")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    return scores.map((s) => ({
-      scoreId: String(s._id),
-      submissionId: String(s.submissionId),
-      submissionTitle: subs.find((x) => x._id === s.submissionId)?.title ?? "—",
-      judgeId: String(s.judgeId),
-      judgeName: users.find((u) => u._id === s.judgeId)?.name ?? "—",
-      criterionId: String(s.criterionId),
-      criterionName: criteria.find((c) => c._id === s.criterionId)?.name ?? "—",
-      score: s.score,
-      submittedAt: s.submittedAt,
-    }));
+    const judgeScores = scores.filter((s) => s.judgeId === judge._id);
+    const projectsScored = new Set(judgeScores.map((s) => String(s.submissionId))).size;
+
+    // Identical payload to `judgeRecord` — the two must never drift.
+    const payloadStr = [
+      judge._id,
+      event._id,
+      judge.name,
+      event.title,
+      projectsScored,
+      judgeScores.length,
+    ].join("|");
+    const secret = await getCertSecretReadOnly(ctx);
+    const expected = await hmacSha256Hex(secret, payloadStr);
+    const valid = safeEqualHex(expected, args.signature);
+
+    if (!valid) return invalid;
+    return {
+      valid: true,
+      reason: null,
+      judgeName: judge.name,
+      eventName: event.title,
+      eventSlug: event.slug,
+      projectsScored,
+      totalScoresSubmitted: judgeScores.length,
+      issuedAt: judgeScores.reduce((max, s) => Math.max(max, s.submittedAt), 0),
+    };
   },
 });

@@ -4,11 +4,12 @@ import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { humanizeConvexError } from "@/lib/errors";
-import { GlassCard } from "@/components/ui/GlassCard";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { Textarea } from "@/components/ui/Textarea";
 import { Checkbox } from "@/components/ui/Checkbox";
+import { PageHeader } from "@/components/ui/PageHeader";
 
 const slugify = (s: string) =>
   s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -95,7 +96,7 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
       });
       const { storageId } = await res.json();
       setField("bannerUrl", storageId);
-      toast.success("Banner image uploaded successfully!");
+      toast.success("Banner image uploaded");
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
     } finally {
@@ -126,7 +127,8 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
         coverImageRequired: event.coverImageRequired ?? false,
       });
     }
-  }, [event]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event?._id]);
 
   const setField = (key: keyof FormState, value: any) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -184,10 +186,10 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
           eventId: event._id,
           ...buildPayload,
         });
-        toast.success("Event updated successfully!");
+        toast.success("Event updated");
       } else {
         await create(buildPayload);
-        toast.success("Event draft saved!");
+        toast.success("Event draft saved");
       }
       navigate(`/organizer/events/${form.slug}`);
     } catch (e: any) {
@@ -199,7 +201,7 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
 
   if (authLoading) {
     return (
-      <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-8">
+      <div className="flex flex-col gap-8">
         <SkeletonCard lines={6} />
       </div>
     );
@@ -208,57 +210,61 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
   if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-8">
-      <div>
-        <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-          Organizer Form
-        </span>
-        <h1 className="text-3xl font-black text-[#1d1d1f] tracking-tight mt-0.5">
-          {edit ? "Edit Event" : "Create New Event"}
-        </h1>
-      </div>
+    <div className="max-w-4xl mx-auto flex flex-col gap-8">
+      <PageHeader
+        title={edit ? "Edit event" : "Create new event"}
+        description="Basics, schedule and participation settings."
+      />
 
-      <GlassCard className="p-8 flex flex-col gap-6">
-        <h2 className="text-sm font-bold text-[#1d1d1f]">Identity & Overview</h2>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSaveDraft();
+        }}
+        className="flex flex-col gap-10"
+      >
+        {/* Identity */}
+        <section className="flex flex-col gap-5">
+          <h2 className="text-h3 text-primary">Identity & overview</h2>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Input
-            label="Event Title *"
-            required
-            value={form.title}
-            onChange={(e) => {
-              setField("title", e.target.value);
-              if (!edit) setField("slug", slugify(e.target.value));
-            }}
-            placeholder="Hackathon 2026"
-          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input
+              label="Event title"
+              required
+              value={form.title}
+              onChange={(e) => {
+                setField("title", e.target.value);
+                if (!edit) setField("slug", slugify(e.target.value));
+              }}
+              placeholder="Hackathon 2026"
+            />
+            <Input
+              label="URL slug"
+              required
+              value={form.slug}
+              onChange={(e) => setField("slug", slugify(e.target.value))}
+              placeholder="hackathon-2026"
+            />
+            <Input
+              label="Host name"
+              value={form.hostName}
+              onChange={(e) => setField("hostName", e.target.value)}
+              placeholder="RaptorJudge Community"
+            />
+          </div>
 
-          <Input
-            label="URL Slug *"
-            required
-            value={form.slug}
-            onChange={(e) => setField("slug", slugify(e.target.value))}
-            placeholder="hackathon-2026"
-          />
-
-          <Input
-            label="Host Name"
-            value={form.hostName}
-            onChange={(e) => setField("hostName", e.target.value)}
-            placeholder="RaptorJudge Community"
-          />
-
-          <div className="flex flex-col gap-1.5 sm:col-span-2">
-            <label className="text-xs font-semibold text-[#1d1d1f]">Banner Image</label>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[13px] text-secondary">Banner image</label>
             <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
               <Input
+                aria-label="Banner URL"
                 placeholder="https://... or upload file"
                 value={form.bannerUrl}
                 onChange={(e) => setField("bannerUrl", e.target.value)}
                 className="flex-1"
               />
-              <label className="cursor-pointer px-4 py-2 text-xs font-semibold rounded-button bg-white/60 border border-white/80 hover:bg-white/90 transition-colors shrink-0">
-                {uploading ? "Uploading..." : "Upload File"}
+              <label className="cursor-pointer h-10 px-4 text-[13px] font-medium rounded-btn bg-surface-2 border border-line hover:border-line-strong text-secondary hover:text-primary transition-colors duration-fast inline-flex items-center justify-center shrink-0">
+                {uploading ? "Uploading…" : "Upload file"}
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp,image/gif"
@@ -268,156 +274,140 @@ export default function EventForm({ edit = false }: { edit?: boolean }) {
                 />
               </label>
               {form.bannerUrl && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setField("bannerUrl", "")}
-                >
+                <Button variant="ghost" size="sm" onClick={() => setField("bannerUrl", "")}>
                   Remove
                 </Button>
               )}
             </div>
             {form.bannerUrl && (
-              <div className="mt-2 relative w-full h-32 rounded-card overflow-hidden border border-white/80">
-                <img src={form.bannerUrl} alt="Banner Preview" className="w-full h-full object-cover" />
+              <div className="mt-2 relative w-full h-32 rounded-card overflow-hidden border border-line">
+                <img src={form.bannerUrl} alt="Banner preview" className="w-full h-full object-cover" />
               </div>
             )}
           </div>
-        </div>
 
-        <Input
-          label="Short Tagline / Description"
-          value={form.shortDescription}
-          onChange={(e) => setField("shortDescription", e.target.value)}
-          placeholder="Brief one-line summary"
-        />
+          <Input
+            label="Short tagline"
+            value={form.shortDescription}
+            onChange={(e) => setField("shortDescription", e.target.value)}
+            placeholder="Brief one-line summary"
+          />
 
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-[#1d1d1f]">
-            Full Description (Markdown)
-          </label>
-          <textarea
+          <Textarea
+            label="Full description (Markdown)"
             rows={5}
             value={form.fullDescription}
             onChange={(e) => setField("fullDescription", e.target.value)}
-            className="w-full p-3 text-xs rounded-input bg-white/50 border border-white/80 focus-ring-accent"
             placeholder="Detailed description of the hackathon..."
           />
-        </div>
 
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-[#1d1d1f]">
-            Rules & Guidelines (Markdown)
-          </label>
-          <textarea
+          <Textarea
+            label="Rules & guidelines (Markdown)"
             rows={4}
             value={form.rules}
             onChange={(e) => setField("rules", e.target.value)}
-            className="w-full p-3 text-xs rounded-input bg-white/50 border border-white/80 focus-ring-accent"
             placeholder="Rules, code of conduct, submission eligibility..."
           />
-        </div>
+        </section>
 
-        <h2 className="text-sm font-bold text-[#1d1d1f] pt-4 border-t border-black/5">
-          Event Schedule (7 Phase Dates)
-        </h2>
+        {/* Schedule */}
+        <section className="flex flex-col gap-5 border-t border-line pt-8">
+          <h2 className="text-h3 text-primary">Event schedule</h2>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <Input
-            label="Registration Opens"
-            type="datetime-local"
-            value={form.registrationOpens}
-            onChange={(e) => setField("registrationOpens", e.target.value)}
-          />
-          <Input
-            label="Registration Closes *"
-            type="datetime-local"
-            required
-            value={form.registrationCloses}
-            onChange={(e) => setField("registrationCloses", e.target.value)}
-          />
-          <Input
-            label="Submission Opens"
-            type="datetime-local"
-            value={form.submissionOpens}
-            onChange={(e) => setField("submissionOpens", e.target.value)}
-          />
-          <Input
-            label="Submission Deadline *"
-            type="datetime-local"
-            required
-            value={form.submissionDeadline}
-            onChange={(e) => setField("submissionDeadline", e.target.value)}
-          />
-          <Input
-            label="Judging Starts"
-            type="datetime-local"
-            value={form.judgingStarts}
-            onChange={(e) => setField("judgingStarts", e.target.value)}
-          />
-          <Input
-            label="Judging Ends"
-            type="datetime-local"
-            value={form.judgingEnds}
-            onChange={(e) => setField("judgingEnds", e.target.value)}
-          />
-          <Input
-            label="Results Announced *"
-            type="datetime-local"
-            required
-            value={form.resultsAnnounced}
-            onChange={(e) => setField("resultsAnnounced", e.target.value)}
-          />
-        </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Input
+              label="Registration opens"
+              type="datetime-local"
+              value={form.registrationOpens}
+              onChange={(e) => setField("registrationOpens", e.target.value)}
+            />
+            <Input
+              label="Registration closes"
+              type="datetime-local"
+              required
+              value={form.registrationCloses}
+              onChange={(e) => setField("registrationCloses", e.target.value)}
+            />
+            <Input
+              label="Submission opens"
+              type="datetime-local"
+              value={form.submissionOpens}
+              onChange={(e) => setField("submissionOpens", e.target.value)}
+            />
+            <Input
+              label="Submission deadline"
+              type="datetime-local"
+              required
+              value={form.submissionDeadline}
+              onChange={(e) => setField("submissionDeadline", e.target.value)}
+            />
+            <Input
+              label="Judging starts"
+              type="datetime-local"
+              value={form.judgingStarts}
+              onChange={(e) => setField("judgingStarts", e.target.value)}
+            />
+            <Input
+              label="Judging ends"
+              type="datetime-local"
+              value={form.judgingEnds}
+              onChange={(e) => setField("judgingEnds", e.target.value)}
+            />
+            <Input
+              label="Results announced"
+              type="datetime-local"
+              required
+              value={form.resultsAnnounced}
+              onChange={(e) => setField("resultsAnnounced", e.target.value)}
+            />
+          </div>
+        </section>
 
-        <h2 className="text-sm font-bold text-[#1d1d1f] pt-4 border-t border-black/5">
-          Participation & Team Settings
-        </h2>
+        {/* Participation */}
+        <section className="flex flex-col gap-5 border-t border-line pt-8">
+          <h2 className="text-h3 text-primary">Participation & teams</h2>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Input
-            label="Min Team Size"
-            type="number"
-            value={form.minTeamSize}
-            onChange={(e) => setField("minTeamSize", Number(e.target.value))}
-          />
-          <Input
-            label="Max Team Size"
-            type="number"
-            value={form.maxTeamSize}
-            onChange={(e) => setField("maxTeamSize", Number(e.target.value))}
-          />
-        </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input
+              label="Min team size"
+              type="number"
+              min={1}
+              value={form.minTeamSize}
+              onChange={(e) => setField("minTeamSize", Number(e.target.value))}
+            />
+            <Input
+              label="Max team size"
+              type="number"
+              min={1}
+              value={form.maxTeamSize}
+              onChange={(e) => setField("maxTeamSize", Number(e.target.value))}
+            />
+          </div>
 
-        <div className="flex flex-col sm:flex-row gap-6 mt-2">
-          <Checkbox
-            label="Solo Participation Allowed"
-            checked={form.soloAllowed}
-            onChange={(e) => setField("soloAllowed", e.target.checked)}
-          />
-          <Checkbox
-            label="Cover Image Required for Submissions"
-            checked={form.coverImageRequired}
-            onChange={(e) => setField("coverImageRequired", e.target.checked)}
-          />
-        </div>
+          <div className="flex flex-col sm:flex-row gap-6">
+            <Checkbox
+              label="Solo participation allowed"
+              checked={form.soloAllowed}
+              onChange={(e) => setField("soloAllowed", e.target.checked)}
+            />
+            <Checkbox
+              label="Cover image required for submissions"
+              checked={form.coverImageRequired}
+              onChange={(e) => setField("coverImageRequired", e.target.checked)}
+            />
+          </div>
+        </section>
 
-        {/* Buttons */}
-        <div className="flex justify-between items-center mt-6 pt-4 border-t border-black/5">
-          <Button variant="ghost" size="md" onClick={() => navigate(-1)}>
+        {/* Actions */}
+        <div className="sticky bottom-4 bg-surface-1 border border-line rounded-card p-4 flex justify-between items-center gap-4 shadow-modal">
+          <Button variant="ghost" size="md" type="button" onClick={() => navigate(-1)}>
             Cancel
           </Button>
-
-          <Button
-            variant="primary"
-            size="md"
-            isLoading={busy}
-            onClick={handleSaveDraft}
-          >
-            {edit ? "Update Event" : "Save Event Draft"}
+          <Button variant="primary" size="md" type="submit" isLoading={busy}>
+            {edit ? "Update event" : "Save event draft"}
           </Button>
         </div>
-      </GlassCard>
+      </form>
     </div>
   );
 }

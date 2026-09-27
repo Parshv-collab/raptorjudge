@@ -73,7 +73,7 @@ export const getJudgeScoresForUser = internalQuery({
  * Public event lookup for the REST surface.
  *
  * A `draft` event is unpublished, so the public API treats it as absent — the
- * same rule `events.get`/`getBySlug` apply for signed-in callers. Without this,
+ * same rule `events.getBySlug` applies for signed-in callers. Without this,
  * an unannounced event's title and schedule would be readable over REST while
  * the SPA correctly hid it.
  */

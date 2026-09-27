@@ -97,8 +97,20 @@ export const register = mutation({
 export const setActive = mutation({
   args: { webhookId: v.id("webhooks"), isActive: v.boolean() },
   handler: async (ctx, args) => {
-    await requireOrganizer(ctx);
+    const actor = await requireOrganizer(ctx);
+    const hook = await ctx.db.get(args.webhookId);
+    if (!hook) throw new Error("Webhook not found");
     await ctx.db.patch(args.webhookId, { isActive: args.isActive });
+    // Pausing an endpoint stops deliveries silently, so it belongs in the chain.
+    await appendAudit(ctx, {
+      eventId: hook.eventId,
+      actorId: actor._id,
+      action: "webhook.set_active",
+      targetType: "webhook",
+      targetId: String(args.webhookId),
+      beforeState: JSON.stringify({ isActive: hook.isActive }),
+      afterState: JSON.stringify({ isActive: args.isActive }),
+    });
     return { ok: true };
   },
 });

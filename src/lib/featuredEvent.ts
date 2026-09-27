@@ -2,37 +2,41 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
 /**
- * Slug of the fixture event produced by `convex/seed.ts` and referenced by the
- * acceptance checker (`.dogfood.toml` → `/api/v1/gallery/sample-hack-2026`).
+ * Fallback slug for the acceptance checker's fixture event
+ * (`.dogfood.toml` → `/api/v1/gallery/sample-hack-2026`).
  *
- * It is only a *fallback*: every surface that needs "the current event" first
- * asks the backend for the featured event, so a deployment that seeds or
- * creates a different event still works without editing the frontend.
+ * It is only used when the featured-event query has not resolved yet, so the
+ * acceptance contract keeps a stable target; every surface that *displays* the
+ * featured event now uses the live query below, which never picks a closed
+ * event while anything better exists (issue 29).
  */
 export const DEFAULT_EVENT_SLUG = "sample-hack-2026";
 
 export interface PrimaryEvent {
   event: any | null;
   slug: string;
+  /** "open" | "upcoming" | "results" — drives the "Results are in" callout. */
+  phase: "open" | "upcoming" | "results" | null;
   isLoading: boolean;
 }
 
 /**
- * Resolve the event a public/landing surface should highlight.
+ * Resolve the event a public/landing surface should highlight (issue 29).
  *
- * Prefers the "featured" discovery feed (events with an active lifecycle
- * status, ranked by participants) and falls back to the first non-draft event,
- * then to {@link DEFAULT_EVENT_SLUG}. Both queries are public, so this is safe
- * to call from unauthenticated pages.
+ * Priority, enforced server-side by `events.featuredForVisitors`:
+ *   1. an open event (registration / hacking / judging / voting),
+ *   2. the next upcoming event (registration in the future),
+ *   3. the most recently published event ("Results are in"),
+ *   4. nothing — callers render their empty state.
  */
 export function usePrimaryEvent(): PrimaryEvent {
-  const featured = useQuery(api.events.featured, {});
-  const publicEvents = useQuery(api.events.listPublic, {});
-  const event = featured?.[0] ?? publicEvents?.[0] ?? null;
+  const featured = useQuery(api.events.featuredForVisitors, {});
+  const event = featured ?? null;
   return {
     event,
     slug: event?.slug ?? DEFAULT_EVENT_SLUG,
-    isLoading: featured === undefined || publicEvents === undefined,
+    phase: event?.phase ?? null,
+    isLoading: featured === undefined,
   };
 }
 

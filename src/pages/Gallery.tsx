@@ -2,11 +2,12 @@ import { useState, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { GlassCard } from "@/components/ui/GlassCard";
 import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Badge } from "@/components/ui/Badge";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { DEFAULT_EVENT_SLUG } from "@/lib/featuredEvent";
 
 const SORT_OPTIONS = [
@@ -14,6 +15,16 @@ const SORT_OPTIONS = [
   { value: "title_asc", label: "Title (A-Z)" },
   { value: "title_desc", label: "Title (Z-A)" },
 ];
+
+/**
+ * Ordering rules (they live on the server, this screen just renders them):
+ *  - before publication the query returns a deterministic per-day shuffle, so
+ *    the grid carries no information about merit and `rank` is absent;
+ *  - after publication it returns the final ranking (Bradley–Terry if the event
+ *    ran pairwise comparisons, else the normalized z-score) with `rank` on every
+ *    card and `isWinner` on #1.
+ */
+const RESULTS_PUBLISHED_STATUSES = ["published", "archived"];
 
 export default function Gallery() {
   const { slug } = useParams<{ slug: string }>();
@@ -38,121 +49,135 @@ export default function Gallery() {
     if (sortBy === "title_asc") {
       list = [...list].sort((a, b) => a.title.localeCompare(b.title));
     } else if (sortBy === "title_desc") {
-      list = [...list].sort((a, b) => b.title.localeCompare(a.title));
+      list = [...list].sort((b, a) => a.title.localeCompare(b.title));
     }
     return list;
   }, [cards, selectedTrack, sortBy]);
 
   const galleryClosed = event && ["draft", "registration", "hacking"].includes(event.status);
+  const resultsPublished = Boolean(event && RESULTS_PUBLISHED_STATUSES.includes(event.status));
 
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4 flex flex-col gap-8">
-      {/* Gallery Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-extrabold text-[#1d1d1f]">
-            {event?.title ? `${event.title} Projects` : "Project Gallery"}
-          </h1>
-          <p className="text-xs text-[#6e6e73] mt-1">
-            {galleryClosed
-              ? "Gallery submissions will be visible once hacking concludes."
-              : `Browsing ${visibleProjects.length} project submissions`}
-          </p>
+    <div className="flex flex-col gap-8">
+      <PageHeader
+        title={event?.title ? `${event.title} — projects` : "Project gallery"}
+        description={
+          galleryClosed
+            ? "Gallery submissions will be visible once hacking concludes."
+            : resultsPublished
+              ? `${visibleProjects.length} project${visibleProjects.length === 1 ? "" : "s"}, ranked by the final results`
+              : `Browsing ${visibleProjects.length} project submission${visibleProjects.length === 1 ? "" : "s"} — order is randomised until results are announced`
+        }
+        actions={
+          <Link
+            to={`/e/${slug || DEFAULT_EVENT_SLUG}`}
+            className="text-sm text-accent hover:text-accent-hover transition-colors duration-fast"
+          >
+            ← Back to event
+          </Link>
+        }
+      />
+
+      {/* Filter bar */}
+      <div className="flex flex-col gap-4">
+        <div className="bg-surface-1 border border-line rounded-card p-4 flex flex-col sm:flex-row gap-4 items-center">
+          <div className="w-full sm:flex-1">
+            <Input
+              aria-label="Search projects"
+              placeholder="Search project title, tagline, team..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="w-full sm:w-48">
+            <Dropdown options={SORT_OPTIONS} value={sortBy} onChange={(val) => setSortBy(val)} />
+          </div>
         </div>
 
-        <Link to={`/e/${slug || DEFAULT_EVENT_SLUG}`}>
-          <span className="text-xs font-semibold text-[#ff0055] hover:underline">
-            ← Back to Event
-          </span>
-        </Link>
+        {/* Track filter chips */}
+        {tracks && tracks.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedTrack("")}
+              className={`h-8 px-3.5 rounded-pill text-[13px] font-medium border transition-colors duration-fast ${
+                selectedTrack === ""
+                  ? "bg-accent/10 text-accent border-accent/40"
+                  : "bg-surface-1 text-secondary border-line hover:text-primary hover:border-line-strong"
+              }`}
+            >
+              All tracks
+            </button>
+            {tracks.map((t) => (
+              <button
+                key={t._id}
+                type="button"
+                onClick={() => setSelectedTrack(t.name)}
+                className={`h-8 px-3.5 rounded-pill text-[13px] font-medium border transition-colors duration-fast ${
+                  selectedTrack === t.name
+                    ? "bg-accent/10 text-accent border-accent/40"
+                    : "bg-surface-1 text-secondary border-line hover:text-primary hover:border-line-strong"
+                }`}
+              >
+                {t.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Filter Controls Bar */}
-      <GlassCard className="p-4 flex flex-col sm:flex-row gap-4 items-center">
-        <div className="w-full sm:flex-1">
-          <Input
-            placeholder="Search project title, tagline, team..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-
-        <div className="w-full sm:w-48">
-          <Dropdown
-            options={[
-              { value: "", label: "All Tracks" },
-              ...(tracks || []).map((t) => ({ value: t.name, label: t.name })),
-            ]}
-            value={selectedTrack}
-            onChange={(val) => setSelectedTrack(val)}
-          />
-        </div>
-
-        <div className="w-full sm:w-48">
-          <Dropdown
-            options={SORT_OPTIONS}
-            value={sortBy}
-            onChange={(val) => setSortBy(val)}
-          />
-        </div>
-      </GlassCard>
-
-      {/* Gallery Cards Grid (3 per row desktop, 2 tablet, 1 mobile) */}
+      {/* Cards grid */}
       {cards === undefined ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          <SkeletonCard lines={3} /><SkeletonCard lines={3} /><SkeletonCard lines={3} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={3} />
         </div>
       ) : galleryClosed ? (
         <EmptyState
-          title="Gallery Embargoed"
+          title="Gallery embargoed"
           description="Submissions for this event will be published after the submission deadline."
         />
       ) : visibleProjects.length === 0 ? (
         <EmptyState
-          title="No Projects Found"
+          title="No projects found"
           description="No submitted projects match your current filter or search query."
         />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {visibleProjects.map((project: any) => (
-            <Link key={project.id} to={`/project/${project.id}`}>
-              <GlassCard
-                hoverEffect
-                className="h-full flex flex-col justify-between p-5 border-white/80"
-              >
-                <div>
-                  {/* Cover Image Placeholder */}
-                  <div className="w-full h-36 rounded-input bg-gradient-to-br from-[#ff0055]/10 via-purple-500/10 to-blue-500/10 border border-white/80 flex items-center justify-center text-[#ff0055] mb-4 font-bold text-lg">
-                    {project.title.substring(0, 2).toUpperCase()}
-                  </div>
+            <Link key={project.id} to={`/project/${project.id}`} className="group">
+              <div className="h-full bg-surface-1 border border-line rounded-card overflow-hidden transition-colors duration-fast group-hover:border-line-strong flex flex-col">
+                <div className="h-32 bg-surface-2 border-b border-line flex items-center justify-center font-mono text-xl text-accent">
+                  {project.title.substring(0, 2).toUpperCase()}
+                </div>
 
+                <div className="p-5 flex flex-col flex-1">
                   <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-[#ff0055]/10 text-[#ff0055]">
-                      {project.trackName || "General Track"}
-                    </span>
-                    <span className="text-[11px] font-semibold text-[#6e6e73]">
-                      {project.teamName}
-                    </span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Badge variant="accent">{project.trackName || "General Track"}</Badge>
+                      {project.isWinner ? (
+                        <Badge variant="success">🏆 Winner</Badge>
+                      ) : project.rank ? (
+                        <Badge variant="default">#{project.rank}</Badge>
+                      ) : null}
+                    </div>
+                    <span className="text-[13px] text-muted truncate">{project.teamName}</span>
                   </div>
 
-                  <h3 className="text-base font-bold text-[#1d1d1f] mb-1 line-clamp-1">
-                    {project.title}
-                  </h3>
-
-                  <p className="text-xs text-[#6e6e73] line-clamp-2 leading-relaxed">
+                  <h3 className="text-[15px] font-semibold text-primary">{project.title}</h3>
+                  <p className="text-[13px] text-secondary line-clamp-2 leading-relaxed mt-1">
                     {project.tagline || project.description}
                   </p>
-                </div>
 
-                <div className="mt-4 pt-3 border-t border-black/5 flex justify-between items-center text-[11px] font-semibold text-[#ff0055]">
-                  <span>View Details →</span>
-                  {project.tags && (
-                    <span className="text-[#6e6e73] font-normal truncate max-w-[150px]">
-                      {project.tags}
-                    </span>
-                  )}
+                  <div className="mt-auto pt-4 border-t border-line flex justify-between items-center text-[13px]">
+                    <span className="font-medium text-accent">View details →</span>
+                    {project.tags && (
+                      <span className="text-muted truncate max-w-[150px] font-mono text-[11px]">{project.tags}</span>
+                    )}
+                  </div>
                 </div>
-              </GlassCard>
+              </div>
             </Link>
           ))}
         </div>

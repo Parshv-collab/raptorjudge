@@ -4,10 +4,13 @@ import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { humanizeConvexError } from "@/lib/errors";
-import { GlassCard } from "@/components/ui/GlassCard";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { Alert } from "@/components/ui/Alert";
+import { Textarea } from "@/components/ui/Textarea";
+import { Markdown } from "@/components/ui/Markdown";
 
 /** Draft autosave lives in localStorage, namespaced per assignment. */
 const DRAFT_PREFIX = "raptorjudge:judge-draft:";
@@ -89,7 +92,7 @@ export default function JudgeScore() {
 
   if (!queue || (item && rubricData === undefined)) {
     return (
-      <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
+      <div className="flex flex-col gap-6">
         <SkeletonCard lines={4} />
       </div>
     );
@@ -133,7 +136,7 @@ export default function JudgeScore() {
         // Nothing to clean up if storage is unavailable.
       }
       if (result.complete) {
-        toast.success("Scores locked in — thanks!");
+        toast.success("Scores locked in");
         navigate("/judge");
       } else {
         toast.success("Draft scores saved");
@@ -146,144 +149,112 @@ export default function JudgeScore() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4 flex flex-col gap-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <Link to="/judge">
-          <span className="text-xs font-semibold text-[#ff0055] hover:underline focus-ring-accent rounded px-1">
-            ← Back to judging queue
-          </span>
+    <div className="max-w-4xl mx-auto flex flex-col gap-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <Link to="/judge" className="text-sm text-accent hover:text-accent-hover self-start">
+          ← Back to judging queue
         </Link>
 
-        {/* Progress: "You've scored 3 of 8" */}
+        {/* "You've scored 3 of 8" progress */}
         <div className="sm:w-64">
-          <div className="flex justify-between items-center text-[11px] font-semibold text-[#6e6e73] mb-1">
-            <span>
-              You&apos;ve scored {completedCount} of {totalCount}
-            </span>
-            <span>{totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0}%</span>
-          </div>
-          <ProgressBar value={totalCount > 0 ? (completedCount / totalCount) * 100 : 0} />
+          <ProgressBar
+            value={totalCount > 0 ? (completedCount / totalCount) * 100 : 0}
+            label={`You've scored ${completedCount} of ${totalCount}`}
+          />
         </div>
       </div>
 
       {locked && (
-        <div className="p-3.5 rounded-card bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-2.5 text-xs text-emerald-800 font-medium">
-          <span aria-hidden="true">🔒</span>
-          <span>
-            Your score for this project is locked. Scores cannot be edited after submission — ask an
-            organizer if a correction is required.
-          </span>
-        </div>
+        <Alert variant="success" title="Score locked">
+          Scores cannot be edited after submission — ask an organizer if a correction is required.
+        </Alert>
       )}
 
-      {/* Summary Header Card */}
-      <GlassCard className="p-6 sm:p-8">
-        <div className="flex flex-wrap justify-between items-start gap-4">
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-[#ff0055]">
-              {(selectedItem.submission as any).trackName || "General Track"}
-            </span>
-            <h1 className="text-2xl sm:text-3xl font-black text-[#1d1d1f] tracking-tight mt-1">
-              {selectedItem.submission.title}
-            </h1>
-            <p className="text-xs font-bold text-[#6e6e73] mt-1">
-              Team: {selectedItem.submission.teamName}
-            </p>
-          </div>
+      {/* Project summary */}
+      <header className="bg-surface-1 border border-line rounded-card p-6 sm:p-8 flex flex-wrap justify-between items-start gap-6">
+        <div className="min-w-0">
+          <Badge variant="accent" className="mb-3">
+            {(selectedItem.submission as any).trackName || "General Track"}
+          </Badge>
+          <h1 className="text-h1 text-primary">{selectedItem.submission.title}</h1>
+          <p className="text-sm text-secondary mt-1">Team {selectedItem.submission.teamName}</p>
 
-          <div className="p-4 rounded-card bg-gradient-to-br from-[#ff0055]/10 to-purple-500/10 border border-white text-center shrink-0">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#6e6e73]">
-              Weighted Total
-            </span>
-            <div className="text-2xl font-black text-[#ff0055]">
-              {weightedTotal.toFixed(1)} / {maxPossibleWeighted.toFixed(1)}
-            </div>
-            <span className="text-[10px] font-bold text-[#6e6e73]">
-              ({percentageScore.toFixed(0)}% of maximum)
-            </span>
+          <div className="flex flex-wrap gap-2 mt-5 pt-5 border-t border-line">
+            {selectedItem.submission.repositoryUrl && (
+              <a href={selectedItem.submission.repositoryUrl} target="_blank" rel="noopener noreferrer">
+                <Button variant="secondary" size="sm">Repository ↗</Button>
+              </a>
+            )}
+            {selectedItem.submission.demoUrl && (
+              <a href={selectedItem.submission.demoUrl} target="_blank" rel="noopener noreferrer">
+                <Button variant="secondary" size="sm">Live demo ↗</Button>
+              </a>
+            )}
+            {selectedItem.submission.videoUrl && (
+              <a href={selectedItem.submission.videoUrl} target="_blank" rel="noopener noreferrer">
+                <Button variant="secondary" size="sm">Video pitch ↗</Button>
+              </a>
+            )}
           </div>
         </div>
 
-        {/* Links */}
-        <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-black/5">
-          {selectedItem.submission.repositoryUrl && (
-            <a href={selectedItem.submission.repositoryUrl} target="_blank" rel="noopener noreferrer">
-              <Button variant="secondary" size="sm">Repository ↗</Button>
-            </a>
-          )}
-          {selectedItem.submission.demoUrl && (
-            <a href={selectedItem.submission.demoUrl} target="_blank" rel="noopener noreferrer">
-              <Button variant="secondary" size="sm">Live Demo ↗</Button>
-            </a>
-          )}
-          {selectedItem.submission.videoUrl && (
-            <a href={selectedItem.submission.videoUrl} target="_blank" rel="noopener noreferrer">
-              <Button variant="secondary" size="sm">Video Pitch ↗</Button>
-            </a>
-          )}
+        {/* Live weighted total */}
+        <div className="bg-surface-2 border border-line rounded-card px-6 py-5 text-center shrink-0">
+          <span className="text-[11px] uppercase tracking-[0.05em] text-muted block">Weighted total</span>
+          <div className="text-3xl font-semibold text-accent tnum mt-1">
+            {weightedTotal.toFixed(1)}
+            <span className="text-muted text-lg"> / {maxPossibleWeighted.toFixed(1)}</span>
+          </div>
+          <span className="text-[11px] text-muted tnum">{percentageScore.toFixed(0)}% of maximum</span>
         </div>
-      </GlassCard>
+      </header>
 
       {/* Rubric banners */}
       {rubricData?.isDefault && (
-        <div className="p-4 rounded-card bg-amber-500/10 border border-amber-500/30 flex items-center gap-3 text-xs text-amber-900 font-medium">
-          <span className="text-base" aria-hidden="true">ℹ️</span>
-          <span>This event uses the Default Rubric. Your organizer may update this before judging opens.</span>
-        </div>
+        <Alert variant="warning" title="Default rubric">
+          This event uses the default rubric. Your organizer may update this before judging opens.
+        </Alert>
       )}
       {!weightValid && (
-        <div className="p-4 rounded-card bg-[#e63946]/10 border border-[#e63946]/30 flex items-center gap-3 text-xs text-[#a3262f] font-medium">
-          <span className="text-base" aria-hidden="true">⚠️</span>
-          <span>
-            This rubric&apos;s weights sum to {Number(rubricData?.weightSum ?? 0).toFixed(2)}, not 1.00.
-            Weighted totals are approximate until the organizer fixes it.
-          </span>
-        </div>
+        <Alert variant="error" title="Rubric weights invalid">
+          This rubric&apos;s weights sum to {Number(rubricData?.weightSum ?? 0).toFixed(2)}, not 1.00.
+          Weighted totals are approximate until the organizer fixes it.
+        </Alert>
       )}
 
       {/* Description */}
-      <GlassCard className="p-6">
-        <h2 className="text-sm font-bold text-[#1d1d1f] mb-2">Project Overview</h2>
-        <p className="text-xs text-[#6e6e73] leading-relaxed whitespace-pre-line">
-          {selectedItem.submission.description}
-        </p>
-      </GlassCard>
+      <section className="border-t border-line pt-8">
+        <h2 className="text-h3 text-primary mb-3">Project overview</h2>
+        <Markdown content={selectedItem.submission.description ?? ""} />
+      </section>
 
-      {/* Rubric Criteria Scoring Form */}
-      <GlassCard className="p-6 sm:p-8 flex flex-col gap-6">
+      {/* Rubric scoring form */}
+      <section className="bg-surface-1 border border-line rounded-card p-6 sm:p-8 flex flex-col gap-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-bold text-[#1d1d1f]">Rubric evaluation</h2>
-          <span className="text-[11px] text-[#6e6e73]">
-            Drafts autosave locally as you move the sliders.
-          </span>
+          <h2 className="text-h2 text-primary">Rubric evaluation</h2>
+          <span className="text-[13px] text-muted">Drafts autosave locally as you move the sliders.</span>
         </div>
 
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-5">
           {sortedRubric.map((criterion: any) => {
             const currentScore = scoreFor(criterion);
             return (
-              <div
-                key={criterion._id}
-                className="p-4 rounded-input bg-white/60 border border-white flex flex-col gap-3"
-              >
-                <div className="flex justify-between items-center text-xs gap-3">
+              <div key={criterion._id} className="bg-surface-2 border border-line rounded-card p-5 flex flex-col gap-3">
+                <div className="flex justify-between items-center gap-3">
                   <div>
-                    <label
-                      htmlFor={`criterion-${criterion._id}`}
-                      className="font-bold text-[#1d1d1f]"
-                    >
+                    <label htmlFor={`criterion-${criterion._id}`} className="text-[15px] font-semibold text-primary">
                       {criterion.name}
                     </label>
-                    <span className="ml-2 text-[10px] font-bold text-[#6e6e73]">
-                      ({Math.round(criterion.weight * 100)}% weight)
+                    <span className="ml-2 text-[11px] font-medium text-muted tnum">
+                      {Math.round(criterion.weight * 100)}% weight
                     </span>
                   </div>
-                  <span className="font-bold text-sm text-[#1d1d1f] shrink-0">
+                  <span className="text-sm font-semibold text-primary tnum shrink-0">
                     {currentScore} / {criterion.maxScore}
                   </span>
                 </div>
 
-                <p className="text-[11px] text-[#6e6e73]">{criterion.description}</p>
+                <p className="text-[13px] text-secondary">{criterion.description}</p>
 
                 <input
                   id={`criterion-${criterion._id}`}
@@ -301,48 +272,41 @@ export default function JudgeScore() {
                   onChange={(e) =>
                     setScores((prev) => ({ ...prev, [criterion._id]: Number(e.target.value) }))
                   }
-                  className="w-full accent-[#ff0055] cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full accent-accent cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </div>
             );
           })}
         </div>
 
-        {/* Private Notes */}
-        <div className="flex flex-col gap-1.5 mt-2">
-          <label htmlFor="judge-private-notes" className="text-xs font-semibold text-[#1d1d1f]">
-            Private notes for the organizer
-          </label>
-          <textarea
-            id="judge-private-notes"
-            rows={3}
-            value={notes}
-            disabled={locked}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Optional private observations or feedback..."
-            className="w-full p-3 text-xs rounded-input text-[#1d1d1f] bg-white/50 border border-white/80 focus-ring-accent disabled:opacity-60"
-          />
-        </div>
+        {/* Private notes */}
+        <Textarea
+          id="judge-private-notes"
+          label="Private notes for the organizer"
+          rows={3}
+          value={notes}
+          disabled={locked}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Optional private observations or feedback..."
+        />
 
-        {/* Action Buttons */}
-        <div className="flex gap-3 mt-4 pt-4 border-t border-black/5">
+        {/* Sticky action bar */}
+        <div className="sticky bottom-4 bg-surface-1 border border-line rounded-card p-4 flex items-center justify-between gap-4 shadow-modal">
+          <p className="text-[13px] text-secondary hidden sm:block">
+            Submitting locks the score. It cannot be edited afterwards.
+          </p>
           <Button
             variant="primary"
             size="md"
             isLoading={busy}
             disabled={locked}
             onClick={handleSaveScores}
-            className="w-full"
+            className="w-full sm:w-auto"
           >
             {locked ? "Score locked" : "Submit & lock score"}
           </Button>
         </div>
-        {!locked && (
-          <p className="text-[10px] text-[#6e6e73] text-center -mt-2">
-            Submitting locks the score. It cannot be edited afterwards.
-          </p>
-        )}
-      </GlassCard>
+      </section>
     </div>
   );
 }
