@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { requireUser } from "./lib/common";
 import { normalizeScores, type JudgeScoreSet } from "../lib/algorithms/normalization";
+import { judgeScoreSets } from "./lib/results";
 
 /**
  * Normalization service (T2 + Bonus).
@@ -27,44 +28,13 @@ export const analyze = query({
     if (!published && !isStaff) {
       throw new Error("Judging results are not published yet");
     }
-    const scores = await ctx.db
-      .query("judgeScores")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    if (scores.length === 0) {
+    // Per-judge weighted score vectors — shared with the results/ranking helper
+    // (`lib/results.ts`) so the proof screen and the published leaderboard can
+    // never disagree about how a score was computed.
+    const judgeSets = await judgeScoreSets(ctx, args.eventId);
+    if (judgeSets.length === 0) {
       return { ok: false, reason: "no scores recorded yet", result: null };
     }
-    const criteria = await ctx.db
-      .query("rubricCriteria")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    const weightOf = (criterionId: string) =>
-      criteria.find((c) => String(c._id) === criterionId)?.weight ?? 1 / Math.max(1, criteria.length);
-
-    // per (judge, submission): weighted mean of criterion scores
-    const perJudge = new Map<string, Map<string, number>>();
-    const acc = new Map<string, Map<string, { sum: number; w: number }>>();
-    for (const s of scores) {
-      const jKey = String(s.judgeId);
-      const sKey = String(s.submissionId);
-      acc.set(jKey, acc.get(jKey) ?? new Map());
-      const inner = acc.get(jKey)!;
-      inner.set(sKey, inner.get(sKey) ?? { sum: 0, w: 0 });
-      const cur = inner.get(sKey)!;
-      cur.sum += s.score * weightOf(String(s.criterionId));
-      cur.w += weightOf(String(s.criterionId));
-    }
-    for (const [judgeId, inner] of acc) {
-      perJudge.set(judgeId, new Map());
-      for (const [subId, { sum, w }] of inner) {
-        perJudge.get(judgeId)!.set(subId, w > 0 ? sum / w : sum);
-      }
-    }
-
-    const judgeSets: JudgeScoreSet[] = [...perJudge.entries()].map(([judgeId, m]) => ({
-      judgeId,
-      scores: Object.fromEntries(m),
-    }));
 
     const result = normalizeScores(judgeSets);
 

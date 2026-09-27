@@ -23,6 +23,10 @@ export default defineSchema({
     judgingEnds: v.optional(v.number()), resultsAnnounced: v.optional(v.number()), minTeamSize: v.optional(v.number()),
     maxTeamSize: v.optional(v.number()), soloAllowed: v.optional(v.boolean()), coverImageRequired: v.optional(v.boolean()),
     publishedAt: v.optional(v.number()),
+    // Winner override (T2 results): the project pinned to #1, and whether #1
+    // came from an override rather than the computed ranking.
+    winnerOverrideProjectId: v.optional(v.id("submissions")),
+    winnerIsOverridden: v.optional(v.boolean()),
   }).index("by_slug", ["slug"]).index("by_organizer", ["organizerId"]),
   tracks: defineTable({ eventId: v.id("events"), name: v.string(), description: v.string(), prizeDescription: v.string(), prizeAmount: v.number() }).index("by_event", ["eventId"]),
   teams: defineTable({ eventId: v.id("events"), name: v.string(), inviteCode: v.string(), trackId: v.optional(v.id("tracks")), createdBy: v.id("users") }).index("by_event", ["eventId"]).index("by_invite", ["inviteCode"]),
@@ -61,10 +65,26 @@ export default defineSchema({
     submissionId: v.id("submissions"),
     eventId: v.id("events"),
     reason: v.string(),
+    /** "duplicate" (same team) or "review" (cross-team repo, plagiarism hint). */
+    severity: v.optional(v.string()),
     status: v.string(),
     createdAt: v.number(),
     reviewedAt: v.optional(v.number()),
   }).index("by_submission", ["submissionId"]).index("by_event", ["eventId"]),
+  winnerOverrides: defineTable({
+    eventId: v.id("events"),
+    requestedBy: v.id("users"),
+    requestedAt: v.number(),
+    targetProjectId: v.id("submissions"),
+    reason: v.string(),
+    status: v.union(v.literal("pending"), v.literal("accepted"), v.literal("rejected")),
+    /** "organizer_request" (needs admin approval) or "admin_direct". */
+    source: v.optional(v.string()),
+    reviewedBy: v.optional(v.id("users")),
+    reviewedAt: v.optional(v.number()),
+    reviewerNote: v.optional(v.string()),
+    appliedAt: v.optional(v.number()),
+  }).index("by_event", ["eventId"]).index("by_status", ["status"]).index("by_target", ["targetProjectId"]),
   teamMessages: defineTable({
     teamId: v.id("teams"),
     userId: v.id("users"),

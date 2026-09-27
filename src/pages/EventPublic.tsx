@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { Markdown } from "@/components/ui/Markdown";
 import { deriveEventStatus } from "@/lib/eventStatus";
 
 const FAQ_ITEMS = [
@@ -153,9 +154,7 @@ export default function EventPublic() {
         <div className="lg:col-span-2 flex flex-col gap-12">
           <section>
             <h2 className="text-h2 text-primary mb-4">About the event</h2>
-            <div className="text-sm text-secondary leading-relaxed whitespace-pre-line">
-              {event.fullDescription || event.description}
-            </div>
+            <Markdown content={event.fullDescription || event.description} />
           </section>
 
           <section>
@@ -189,7 +188,7 @@ export default function EventPublic() {
                   <div key={track._id} className="bg-surface-1 border border-line rounded-card p-5 flex flex-col justify-between gap-2">
                     <div>
                       <h3 className="text-[15px] font-semibold text-primary">{track.name}</h3>
-                      <p className="text-[13px] text-secondary mt-1 leading-relaxed">{track.description}</p>
+                      <Markdown content={track.description} className="text-[13px] mt-1" />
                     </div>
                     {track.prizeAmount && track.prizeAmount > 0 ? (
                       <div className="text-lg font-semibold text-accent tnum mt-2">
@@ -215,7 +214,7 @@ export default function EventPublic() {
                       <h3 className="text-[15px] font-semibold text-primary">{criterion.name}</h3>
                       <Badge variant="accent">{Math.round(criterion.weight * 100)}%</Badge>
                     </div>
-                    <p className="text-[13px] text-secondary leading-relaxed">{criterion.description}</p>
+                    <Markdown content={criterion.description} className="text-[13px]" />
                   </div>
                 ))}
               </div>
@@ -224,9 +223,13 @@ export default function EventPublic() {
 
           <section>
             <h2 className="text-h2 text-primary mb-4">Rules & guidelines</h2>
-            <div className="text-sm text-secondary leading-relaxed whitespace-pre-line bg-surface-1 border border-line rounded-card p-6">
-              {event.rules ||
-                "1. All projects must be submitted before the deadline.\n2. Team sizes up to 4 members are allowed.\n3. All code written must be original or open source.\n4. Decisions by judges are final after normalization."}
+            <div className="bg-surface-1 border border-line rounded-card p-6">
+              <Markdown
+                content={
+                  event.rules ||
+                  "1. All projects must be submitted before the deadline.\n2. Team sizes up to 4 members are allowed.\n3. All code written must be original or open source.\n4. Decisions by judges are final after normalization."
+                }
+              />
             </div>
           </section>
 

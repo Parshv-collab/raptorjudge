@@ -126,7 +126,7 @@ projection, duplicate flagging, load cap and rubric weights.
 |---|---|---|
 | **T1 Core** | Four-role auth with sessions, TOTP for privileged roles, event lifecycle state machine, tracks + prizes, teams + invite codes, draft autosave, strict deadline lock, public gallery, comments | Complete |
 | **T2 Judging** | Load-balanced conflict-aware assignment with a per-judge cap and track affinity, assignment **preview** (dry run), weight-validated rubrics that **lock** when judging starts, isolated judge queues, per-criterion scoring with localStorage draft autosave, scores that lock on submit, "you've scored N of M" progress, z-score normalization (0–10), Bradley–Terry pairwise ranking, CSV/JSON exports | Complete |
-| **T3 Public** | Plain + quadratic community voting with hidden tallies, comment moderation (flag/unflag/delete), seeded-randomized gallery ordering, rate limiting (votes + comments), duplicate detection (title **or** repo URL) with organizer review, hash-chained audit log with chain verification | Complete |
+| **T3 Public** | Plain + quadratic community voting with hidden tallies, comment moderation (flag/unflag/delete), seeded-randomized gallery ordering, rate limiting (votes + comments), team-scoped duplicate detection (same team: title, repo URL, or both — a repo shared across teams is a review-only flag) with organizer review, hash-chained audit log with chain verification | Complete |
 | **T4 Stretch** | REST API + OpenAPI 3.0.3 document at `/api/openapi.json`, HMAC-SHA256 signed webhooks with replay protection, certificates with public verification, signed judge records, embeddable gallery widget, bulk JSON import/export | Complete |
 | **Bonus** | Normalization proof regenerated from fixtures, Bradley–Terry MM ranking, STRIDE threat model, API-first design | Complete |
 
@@ -199,6 +199,16 @@ Honest, specific, and current:
 - **A few destructive confirmations still use the browser `confirm()` dialog**
   (delete user, delete event, delete criterion, remove flagged submission)
   instead of the in-app `ConfirmDialog`. Functional, but an obvious polish gap.
+  The highest-stakes action — overriding the winner — does use the in-app
+  typed confirmation (`DangerConfirmModal`).
+- **Password recovery is human-mediated by design.** There is no mail service
+  in an offline deployment, so `/auth` explains that an organizer or admin must
+  issue a temporary password (`/admin/users → Reset password`, audited, live
+  sessions invalidated). Self-service reset needs an SMTP relay and is not
+  implemented.
+- **Markdown is a safe subset.** `Markdown` renders headings, emphasis, lists,
+  tables, code and links; raw HTML is never rendered, so embedded widgets or
+  custom iframes in a project summary are not possible.
 - **Export schema is unversioned.** CSV column sets are stable in practice but
   carry no version field.
 - **No database dump command.** Full-volume backup is `pg_dump` on the `db`

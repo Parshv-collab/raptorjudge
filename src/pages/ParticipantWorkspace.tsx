@@ -13,6 +13,7 @@ import { Alert } from "@/components/ui/Alert";
 import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmDialog } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Markdown } from "@/components/ui/Markdown";
 import { humanizeConvexError } from "@/lib/errors";
 import { usePrimaryEventSlug } from "@/lib/featuredEvent";
 
@@ -677,7 +678,7 @@ export function TeamChatSection({ teamId, className = "" }: { teamId: any; class
               </div>
 
               {msg.content && (
-                <p className="text-[13px] text-secondary leading-relaxed whitespace-pre-line">{msg.content}</p>
+                <Markdown content={msg.content} className="text-[13px]" />
               )}
 
               {msg.fileUrl && (

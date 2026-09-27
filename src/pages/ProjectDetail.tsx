@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { humanizeConvexError } from "@/lib/errors";
 import { usePrimaryEventSlug } from "@/lib/featuredEvent";
+import { Markdown } from "@/components/ui/Markdown";
 
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -95,6 +96,10 @@ export default function ProjectDetail() {
       {/* Header */}
       <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
+          {(detail as any).isWinner && <Badge variant="accent">🏆 Winner</Badge>}
+          {(detail as any).rank && !(detail as any).isWinner && (
+            <Badge variant="success">#{(detail as any).rank}</Badge>
+          )}
           <Badge variant="accent">{detail.trackName || "General Track"}</Badge>
           <Badge variant={detail.status === "submitted" ? "success" : "default"}>{detail.status}</Badge>
           {detail.submittedAt && (
@@ -140,7 +145,7 @@ export default function ProjectDetail() {
       {/* Description */}
       <section className="border-t border-line pt-8">
         <h2 className="text-h2 text-primary mb-4">About this project</h2>
-        <div className="text-sm text-secondary leading-relaxed whitespace-pre-line">{detail.description}</div>
+        <Markdown content={detail.description ?? ""} />
       </section>
 
       {/* Discussion */}
@@ -174,7 +179,7 @@ export default function ProjectDetail() {
                     {new Date(comment.createdAt).toLocaleString()}
                   </span>
                 </div>
-                <p className="text-sm text-secondary leading-relaxed">{comment.content}</p>
+                <Markdown content={comment.content} className="text-[13px]" />
                 {canModerate(comment) && (
                   <div className="flex gap-4 mt-1">
                     {!comment.isFlagged && (

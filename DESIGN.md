@@ -84,14 +84,36 @@ column), `.wordmark` (logo lockup), `.skip-link`, modal choreography
 
 Every authenticated page renders inside `src/components/layout/AppShell.tsx`:
 a **persistent 240px left sidebar** (wordmark, role-specific nav, account links,
-user footer with sign-out) plus the main content column. The sidebar is fixed on
-`lg+` and collapses into a hamburger drawer below it; the active item carries a
-2px accent left-border. Public routes (landing, events, event page, gallery,
-verify, legal, auth) use the same shell's public variant: slim top bar, no
-sidebar.
+user footer with sign-out) plus the main content column. The active item carries
+a 2px accent left-border.
+
+The sidebar is **one component for all four roles** — participant, judge,
+organizer and admin differ only in nav labels/hrefs (`ROLE_NAV`), never in
+geometry, padding, borders, hover state or the user block. Three responsive
+modes, driven purely by classes:
+
+| Viewport | Behaviour |
+|---|---|
+| ≥1024px | full 240px rail, labels visible |
+| 768–1023px | icon-only rail (labels hidden, `title` tooltip, centered rows) |
+| <768px | off-canvas drawer opened from the hamburger in the slim top bar |
+
+The wordmark always points at the current role's own console (`/admin`,
+`/organizer`, `/judge`, `/dashboard`) — never at the marketing page. Public
+routes (landing, events, event page, gallery, verify, legal, auth) use the same
+shell's public variant: slim top bar, no sidebar.
 
 `src/components/ui/PageHeader.tsx` is the in-content top bar for every page:
-h1 title, one-line muted description, actions right, bottom hairline.
+an optional **back control**, h1 title, one-line muted description, actions
+right, bottom hairline. The back target comes from the explicit parent map in
+`src/lib/parentRoute.ts` (`/admin/users → /admin`, `/judge/score/:id → /judge`,
+`/project/:id → /gallery/:slug`, `…/edit → …/:slug`, …); unknown non-root screens
+fall back to `navigate(-1)`, and root screens render no control at all.
+
+Role isolation is enforced twice: `src/components/ProtectedRoute.tsx` decides
+*before* rendering (no session → `/auth?returnTo=…`, wrong role → the visitor's
+own console, matching role → children) and every Convex query/mutation
+re-checks the caller server-side.
 
 ---
 
@@ -110,6 +132,9 @@ surface):
 | `Badge` | pill with tinted variants `default`/`success`/`warning`/`danger`/`accent` |
 | `Tabs` | underline-style tab strip with optional count badges (organizer console) |
 | `Modal` | scrim + rise-in dialog, Escape/backdrop close; `ConfirmDialog` is the destructive variant with `requireTyping` |
+| `DangerConfirmModal` | GitHub-style destructive confirmation for irreversible actions: body shows current vs proposed state and the primary button stays disabled until the operator retypes the target name exactly (case-sensitive) |
+| `Markdown` | safe renderer for user-authored text (headings, bold/italic, lists, tables, code, links). No raw HTML (`rehype-raw` is never enabled), hrefs restricted to `http(s)`/`mailto`/`tel`/`#`/relative, links open with `rel="noopener noreferrer"` |
+| `HeroCarousel` | `/auth` hero panel: 5 slides on a 6s rotation, CSS-only opacity + 8px translate transition, dot navigation, `aria-live="polite"`, pauses on hover and in hidden tabs, disabled under `prefers-reduced-motion` |
 | `Input`, `PasswordInput`, `Textarea`, `Select`/`Dropdown` | label + hint + error slots; native select backing for reliability |
 | `Checkbox`, `ChipGroup` | multi-select for tags, judge specialisations, filters |
 | `Alert` | inline tinted message (info / success / warning / error) |
@@ -122,7 +147,8 @@ surface):
 Layout and theming live in `src/components/layout/AppShell.tsx` (sidebar, role
 nav, mobile drawer, footer) and `src/components/ErrorBoundary.tsx` (catches
 render errors and offers a reload in the token system instead of a blank page).
-`src/components/theme/ThemeProvider.tsx` remains as the app-level provider.
+The palette itself is declared once in `src/styles/design-tokens.css` and
+mirrored into `tailwind.config.js`; there is no runtime theme provider.
 
 ---
 
@@ -135,8 +161,8 @@ render errors and offers a reload in the token system instead of a blank page).
 | `/invite/:token` | Invitation acceptance | Public |
 | `/events` | Public event browse | Public |
 | `/e/:slug` | Event overview: lifecycle, tracks, prizes, rubric, join | Public |
-| `/gallery/:slug` | Submission gallery, seeded randomized order, search + track filter | Public |
-| `/project/:id` | Project detail with comments and moderation | Public (stage rules) |
+| `/gallery/:slug` | Submission gallery — seeded per-day shuffle before publication, final ranking (pairwise, else normalized z-score) with winner/#N badges after, plus search + track filter | Public |
+| `/project/:id` | Project detail with markdown description, comments and moderation; winner badge once results publish | Public (stage rules) |
 | `/verify`, `/verify/:uuid`, `/verify/judge/:uuid` | Certificate and judge-record verification | Public |
 | `/embed/gallery/:slug` | Embeddable gallery widget (the only iframe-allowed route) | Public |
 | `/help`, `/terms`, `/privacy` | Static pages | Public |
@@ -151,8 +177,9 @@ render errors and offers a reload in the token system instead of a blank page).
 | `/organizer` | Organizer summary: stats, events, activity | Organizer |
 | `/organizer/events` | Event list | Organizer |
 | `/organizer/events/new`, `.../edit` | Event create/edit | Organizer |
-| `/organizer/events/:slug` | Console: Overview, Tracks, Rubric, Judges, Voting, Webhooks, Flagged Comments, Duplicates, Submissions, Results, Audit | Organizer |
-| `/admin`, `/admin/users`, `/admin/events`, `/admin/audit`, `/admin/invites`, `/admin/settings`, `/admin/judging` | Administration | Admin |
+| `/organizer/events/:slug` | Console: Overview, Tracks, Rubric, Judges, Voting, Webhooks, Flagged Comments, Duplicates, Submissions, Results (publication gate + winner override), Audit | Organizer |
+| `/admin`, `/admin/users`, `/admin/events`, `/admin/audit`, `/admin/invites`, `/admin/settings`, `/admin/judging` | Administration (users also carries the audited password reset) | Admin |
+| `/admin/winner-overrides` | Winner-override review queue: pending badge, computed-vs-proposed winner, accept / reject with note | Admin |
 | `/profile`, `/settings`, `/security` | Own profile, preferences, MFA enrollment | Authenticated |
 | `*` | Not found | Public |
 

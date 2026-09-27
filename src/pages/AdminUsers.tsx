@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Navigate } from "react-router-dom";
-import { useQuery, useMutation, useConvexAuth } from "convex/react";
+import { useQuery, useMutation, useAction, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { humanizeConvexError } from "@/lib/errors";
@@ -14,7 +14,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { Search } from "lucide-react";
+import { Search, KeyRound } from "lucide-react";
 
 const ROLE_OPTIONS = [
   { value: "all", label: "All roles" },
@@ -40,12 +40,59 @@ export default function AdminUsers() {
   const enableUser = useMutation(api.users.adminEnable);
   const forceLogout = useMutation(api.users.adminForceLogout);
   const deleteUser = useMutation(api.users.adminDelete);
+  const resetPassword = useAction(api.adminReset.adminResetPassword);
 
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [targetRole, setTargetRole] = useState("participant");
   const [busy, setBusy] = useState(false);
+
+  // Password reset (self-hosted: no mail service, so an admin hands over a
+  // temporary password out of band).
+  const [resetTarget, setResetTarget] = useState<any>(null);
+  const [resetMode, setResetMode] = useState<"generate" | "custom">("generate");
+  const [customPassword, setCustomPassword] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetResult, setResetResult] = useState<{ email: string; tempPassword: string } | null>(null);
+
+  async function handleResetPassword() {
+    if (!resetTarget) return;
+    if (resetMode === "custom" && customPassword.trim().length < 8) {
+      toast.error("Password must be at least 8 characters.");
+      return;
+    }
+    setResetBusy(true);
+    try {
+      const res = await resetPassword({
+        userId: resetTarget._id,
+        ...(resetMode === "custom" ? { newPassword: customPassword.trim() } : {}),
+      });
+      setResetResult({ email: res.email, tempPassword: res.tempPassword });
+      toast.success(`Password reset for ${res.email}. Live sessions were signed out.`);
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setResetBusy(false);
+    }
+  }
+
+  function closeResetModal() {
+    setResetTarget(null);
+    setResetResult(null);
+    setCustomPassword("");
+    setResetMode("generate");
+  }
+
+  async function copyTempPassword() {
+    if (!resetResult) return;
+    try {
+      await navigator.clipboard.writeText(resetResult.tempPassword);
+      toast.success("Temporary password copied.");
+    } catch {
+      toast.error("Copy failed — select the password and copy it manually.");
+    }
+  }
 
   async function handleToggleDisable(u: any) {
     try {
@@ -202,6 +249,18 @@ export default function AdminUsers() {
                     <Button variant="ghost" size="sm" onClick={() => handleForceLogout(user)}>
                       Logout
                     </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        setResetResult(null);
+                        setCustomPassword("");
+                        setResetMode("generate");
+                        setResetTarget(user);
+                      }}
+                    >
+                      Reset password
+                    </Button>
                     <Button variant="danger" size="sm" onClick={() => handleDelete(user)}>
                       Delete
                     </Button>
@@ -212,6 +271,92 @@ export default function AdminUsers() {
           </tbody>
         </Table>
       )}
+
+      {/* Password reset modal */}
+      <Modal
+        isOpen={!!resetTarget}
+        onClose={closeResetModal}
+        title="Reset password"
+        description={
+          resetResult
+            ? `Temporary password for ${resetResult.email}`
+            : `Issue a new password for ${resetTarget?.name || resetTarget?.email}`
+        }
+      >
+        {resetResult ? (
+          <div className="flex flex-col gap-4 mt-2">
+            <div className="flex items-start gap-3 p-3.5 rounded-input bg-surface-2 border border-line">
+              <KeyRound size={16} className="text-accent mt-0.5 shrink-0" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <p className="font-mono text-[15px] text-primary select-all break-all tnum">
+                  {resetResult.tempPassword}
+                </p>
+                <p className="text-[12px] text-muted mt-1.5">
+                  Shown once. Hand it to the user out of band; they can change it at /security.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button variant="secondary" onClick={copyTempPassword}>
+                Copy password
+              </Button>
+              <Button variant="primary" onClick={closeResetModal}>
+                Done
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4 mt-2">
+            <div className="grid grid-cols-2 gap-1 p-1 rounded-btn border border-line bg-surface-1">
+              {(["generate", "custom"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setResetMode(m)}
+                  className={`h-9 text-[13px] font-medium rounded-[4px] transition-colors duration-fast ${
+                    resetMode === m ? "bg-surface-2 text-primary" : "text-secondary hover:text-primary"
+                  }`}
+                >
+                  {m === "generate" ? "Generate one" : "Type one"}
+                </button>
+              ))}
+            </div>
+
+            {resetMode === "custom" && (
+              <Input
+                label="Temporary password"
+                type="text"
+                value={customPassword}
+                onChange={(e) => setCustomPassword(e.target.value)}
+                placeholder="At least 8 characters"
+                autoComplete="new-password"
+              />
+            )}
+
+            <p className="text-[13px] text-secondary leading-relaxed">
+              {resetMode === "generate"
+                ? "A strong temporary password will be generated and shown once."
+                : "The password you type is hashed by the auth provider — it is never stored in plaintext."}{" "}
+              All active sessions for this account are signed out, and the reset is written to the
+              audit log.
+            </p>
+
+            <div className="flex justify-end gap-3">
+              <Button variant="ghost" onClick={closeResetModal}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                isLoading={resetBusy}
+                disabled={resetMode === "custom" && customPassword.trim().length < 8}
+                onClick={handleResetPassword}
+              >
+                Reset password
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Role change modal */}
       <Modal

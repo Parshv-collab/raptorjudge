@@ -70,38 +70,74 @@ describe("findDuplicateMatches", () => {
 
     expect(flagged).toBeDefined();
     expect(flagged?.duplicatesSubmissionId).toBe("prj_07");
-    // Same title AND same repository URL in fixtures.json.
+    // Same team, same title AND same repository URL in fixtures.json.
     expect(flagged?.kind).toBe("title+repository");
+    expect(flagged?.code).toBe("duplicate_title_and_repository");
+    expect(flagged?.severity).toBe("duplicate");
+    expect(flagged?.reason).toContain("duplicate_title");
     // The original must never be reported as its own duplicate.
     expect(matches.some((m) => m.submissionId === "prj_07")).toBe(false);
   });
 
-  it("reports one match per redundant submission in a three-way group", () => {
+  it("treats two projects from one team with one title as duplicates", () => {
+    const matches = findDuplicateMatches([
+      { submissionId: "a", title: "Dry Harbour", repositoryUrl: "https://x/a", teamId: "t1" },
+      { submissionId: "b", title: "dry  harbour!", repositoryUrl: "https://x/b", teamId: "t1" },
+    ]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0].code).toBe("duplicate_title");
+    expect(matches[0].severity).toBe("duplicate");
+    expect(matches[0].duplicatesSubmissionId).toBe("a");
+  });
+
+  it("treats two projects from one team on one repository as duplicates", () => {
+    const matches = findDuplicateMatches([
+      { submissionId: "a", title: "Alpha", repositoryUrl: "https://github.com/acme/one", teamId: "t1" },
+      { submissionId: "b", title: "Beta", repositoryUrl: "git@github.com:acme/one.git", teamId: "t1" },
+    ]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0].code).toBe("duplicate_repository");
+    expect(matches[0].kind).toBe("repository");
+  });
+
+  it("does NOT flag the same title filed by two different teams", () => {
+    // 15k projects on one event: "dogfood" is a title, not plagiarism.
+    const matches = findDuplicateMatches([
+      { submissionId: "a", title: "Dogfood", repositoryUrl: "https://x/a", teamId: "t1" },
+      { submissionId: "b", title: "dogfood", repositoryUrl: "https://x/b", teamId: "t2" },
+      { submissionId: "c", title: "Dog Food", repositoryUrl: "https://x/c", teamId: "t3" },
+    ]);
+    expect(matches).toHaveLength(0);
+  });
+
+  it("flags a repository shared across teams as review-only, not a duplicate", () => {
+    const matches = findDuplicateMatches([
+      { submissionId: "a", title: "Alpha", repositoryUrl: "https://github.com/acme/shared", teamId: "t1" },
+      { submissionId: "b", title: "Beta", repositoryUrl: "https://github.com/acme/shared", teamId: "t2" },
+    ]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0].code).toBe("duplicate_repo_url_cross_team");
+    expect(matches[0].severity).toBe("review");
+    expect(matches[0].kind).toBe("cross_team_repository");
+    expect(matches[0].reason).toContain("duplicate_repo_url_cross_team");
+  });
+
+  it("reports one match per redundant submission in a same-team group", () => {
     const group: SubmissionIdentity[] = [
       { submissionId: "a", title: "Dry Harbour", repositoryUrl: "https://x/y", teamId: "t1" },
-      { submissionId: "b", title: "dry-harbour", repositoryUrl: "https://x/z", teamId: "t2" },
-      { submissionId: "c", title: "Unrelated", repositoryUrl: "https://x/y", teamId: "t3" },
+      { submissionId: "b", title: "dry-harbour", repositoryUrl: "https://x/z", teamId: "t1" },
+      { submissionId: "c", title: "Dry Harbour!", repositoryUrl: "https://x/w", teamId: "t1" },
     ];
     const matches = findDuplicateMatches(group);
     expect(matches).toHaveLength(2);
-    expect(matches.map((m) => m.submissionId).sort()).toEqual(["b", "c"]);
+    expect(matches.map((m) => m.submissionId)).toEqual(["b", "c"]);
     expect(matches.every((m) => m.duplicatesSubmissionId === "a")).toBe(true);
-  });
-
-  it("distinguishes a title-only match from a repository-only match", () => {
-    const matches = findDuplicateMatches([
-      { submissionId: "a", title: "Glass Signal", repositoryUrl: "https://x/a", teamId: "t1" },
-      { submissionId: "b", title: "Glass Signal", repositoryUrl: "https://x/b", teamId: "t2" },
-      { submissionId: "c", title: "Other", repositoryUrl: "https://x/a", teamId: "t3" },
-    ]);
-    expect(matches.find((m) => m.submissionId === "b")?.kind).toBe("title");
-    expect(matches.find((m) => m.submissionId === "c")?.kind).toBe("repository");
   });
 
   it("does not flag blank titles or blank URLs as duplicates of each other", () => {
     const matches = findDuplicateMatches([
       { submissionId: "a", title: "", repositoryUrl: "", teamId: "t1" },
-      { submissionId: "b", title: "", repositoryUrl: "", teamId: "t2" },
+      { submissionId: "b", title: "", repositoryUrl: "", teamId: "t1" },
     ]);
     expect(matches).toHaveLength(0);
   });
@@ -109,5 +145,6 @@ describe("findDuplicateMatches", () => {
   it("finds exactly one duplicate pair across the whole fixture set", () => {
     const matches = findDuplicateMatches(fixtureIdentities());
     expect(matches).toHaveLength(1);
+    expect(matches.filter((m) => m.severity === "review")).toHaveLength(0);
   });
 });

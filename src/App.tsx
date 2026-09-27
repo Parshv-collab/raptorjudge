@@ -1,7 +1,9 @@
 import React from "react";
 import { Routes, Route } from "react-router-dom";
-import { useConvexAuth } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { AppShell } from "@/components/layout/AppShell";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Landing from "@/pages/Landing";
 import Auth from "@/pages/Auth";
 import Terms from "@/pages/Terms";
@@ -35,11 +37,13 @@ import AdminAudit from "@/pages/AdminAudit";
 import AdminInvites from "@/pages/AdminInvites";
 import AdminSettings from "@/pages/AdminSettings";
 import AdminJudging from "@/pages/AdminJudging";
+import AdminWinnerOverrides from "@/pages/AdminWinnerOverrides";
 import InviteAccept from "@/pages/InviteAccept";
 import ParticipantDashboard from "@/pages/ParticipantDashboard";
 import { Link, Navigate, Outlet, useLocation } from "react-router-dom";
 
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { roleHomePath } from "@/lib/roles";
 
 function MinimalLayout() {
   return (
@@ -108,6 +112,30 @@ function Protected({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * `/` is the marketing page — but only for visitors who are signed out.
+ *
+ * An authenticated user is sent straight to their own console, so the landing
+ * page can never appear "inside" a session (clicking the wordmark used to dump
+ * an organizer back on the hero with a live session).
+ */
+function LandingGate() {
+  const { isAuthenticated, isLoading } = useConvexAuth();
+  const me = useQuery(api.users.me, isLoading || !isAuthenticated ? "skip" : {});
+
+  if (isLoading || (isAuthenticated && me === undefined)) {
+    return (
+      <div className="max-w-xl mx-auto py-12">
+        <SkeletonCard lines={4} />
+      </div>
+    );
+  }
+  if (isAuthenticated) {
+    return <Navigate to={roleHomePath(me?.role) ?? "/home"} replace />;
+  }
+  return <Landing />;
+}
+
 export default function App() {
   return (
     <>
@@ -118,40 +146,86 @@ export default function App() {
         </Route>
 
         <Route element={<AppShell />}>
-          <Route path="/" element={<Landing />} />
+          {/* Public — no session required */}
+          <Route path="/" element={<LandingGate />} />
           <Route path="/events" element={<Browse />} />
-          <Route path="/search" element={<Protected><Search /></Protected>} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/help" element={<Help />} />
           <Route path="/e/:slug" element={<EventPublic />} />
           <Route path="/gallery/:slug" element={<Gallery />} />
           <Route path="/project/:id" element={<ProjectDetail />} />
-          <Route path="/home" element={<Protected><RoleHome /></Protected>} />
           <Route path="/verify" element={<Verify />} />
           <Route path="/verify/:uuid" element={<Verify />} />
           <Route path="/verify/judge/:uuid" element={<Verify />} />
-          <Route path="/dashboard" element={<Protected><ParticipantDashboard /></Protected>} />
-          <Route path="/workspace" element={<Protected><ParticipantWorkspace /></Protected>} />
-          <Route path="/workspace/chat" element={<Protected><TeamChat /></Protected>} />
-          <Route path="/judge" element={<Protected><JudgePortal /></Protected>} />
-          <Route path="/judge/score/:id" element={<Protected><JudgeScore /></Protected>} />
-          <Route path="/judge/pairwise" element={<Protected><JudgePairwise /></Protected>} />
-          <Route path="/organizer" element={<Protected><OrganizerDashboard /></Protected>} />
-          <Route path="/organizer/events" element={<Protected><OrganizerEvents /></Protected>} />
-          <Route path="/organizer/events/new" element={<Protected><EventForm /></Protected>} />
-          <Route path="/organizer/events/:slug" element={<Protected><OrganizerEventManagement /></Protected>} />
-          <Route path="/organizer/events/:slug/edit" element={<Protected><EventForm edit /></Protected>} />
-          <Route path="/admin" element={<Protected><AdminDashboard /></Protected>} />
-          <Route path="/admin/users" element={<Protected><AdminUsers /></Protected>} />
-          <Route path="/admin/events" element={<Protected><AdminEvents /></Protected>} />
-          <Route path="/admin/audit" element={<Protected><AdminAudit /></Protected>} />
-          <Route path="/admin/invites" element={<Protected><AdminInvites /></Protected>} />
-          <Route path="/admin/settings" element={<Protected><AdminSettings /></Protected>} />
-          <Route path="/admin/judging" element={<Protected><AdminJudging /></Protected>} />
-          <Route path="/profile" element={<Protected><Profile /></Protected>} />
-          <Route path="/settings" element={<Protected><Settings /></Protected>} />
-          <Route path="/security" element={<Protected><Security /></Protected>} />
+
+          {/* Any signed-in role */}
+          <Route path="/home" element={<Protected><RoleHome /></Protected>} />
+          <Route path="/search" element={<ProtectedRoute><Search /></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+          <Route path="/security" element={<ProtectedRoute><Security /></ProtectedRoute>} />
+
+          {/* Participant */}
+          <Route
+            path="/dashboard"
+            element={<ProtectedRoute requiredRole="participant"><ParticipantDashboard /></ProtectedRoute>}
+          />
+          <Route
+            path="/workspace"
+            element={<ProtectedRoute requiredRole="participant"><ParticipantWorkspace /></ProtectedRoute>}
+          />
+          <Route
+            path="/workspace/chat"
+            element={<ProtectedRoute requiredRole="participant"><TeamChat /></ProtectedRoute>}
+          />
+
+          {/* Judge */}
+          <Route path="/judge" element={<ProtectedRoute requiredRole="judge"><JudgePortal /></ProtectedRoute>} />
+          <Route
+            path="/judge/score/:id"
+            element={<ProtectedRoute requiredRole="judge"><JudgeScore /></ProtectedRoute>}
+          />
+          <Route
+            path="/judge/pairwise"
+            element={<ProtectedRoute requiredRole="judge"><JudgePairwise /></ProtectedRoute>}
+          />
+
+          {/* Organizer (admins may operate any organizer surface) */}
+          <Route
+            path="/organizer"
+            element={<ProtectedRoute requiredRole={["organizer", "admin"]}><OrganizerDashboard /></ProtectedRoute>}
+          />
+          <Route
+            path="/organizer/events"
+            element={<ProtectedRoute requiredRole={["organizer", "admin"]}><OrganizerEvents /></ProtectedRoute>}
+          />
+          <Route
+            path="/organizer/events/new"
+            element={<ProtectedRoute requiredRole={["organizer", "admin"]}><EventForm /></ProtectedRoute>}
+          />
+          <Route
+            path="/organizer/events/:slug"
+            element={<ProtectedRoute requiredRole={["organizer", "admin"]}><OrganizerEventManagement /></ProtectedRoute>}
+          />
+          <Route
+            path="/organizer/events/:slug/edit"
+            element={<ProtectedRoute requiredRole={["organizer", "admin"]}><EventForm edit /></ProtectedRoute>}
+          />
+
+          {/* Admin */}
+          <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminDashboard /></ProtectedRoute>} />
+          <Route path="/admin/users" element={<ProtectedRoute requiredRole="admin"><AdminUsers /></ProtectedRoute>} />
+          <Route path="/admin/events" element={<ProtectedRoute requiredRole="admin"><AdminEvents /></ProtectedRoute>} />
+          <Route path="/admin/audit" element={<ProtectedRoute requiredRole="admin"><AdminAudit /></ProtectedRoute>} />
+          <Route path="/admin/invites" element={<ProtectedRoute requiredRole="admin"><AdminInvites /></ProtectedRoute>} />
+          <Route path="/admin/settings" element={<ProtectedRoute requiredRole="admin"><AdminSettings /></ProtectedRoute>} />
+          <Route path="/admin/judging" element={<ProtectedRoute requiredRole="admin"><AdminJudging /></ProtectedRoute>} />
+          <Route
+            path="/admin/winner-overrides"
+            element={<ProtectedRoute requiredRole="admin"><AdminWinnerOverrides /></ProtectedRoute>}
+          />
+
           <Route path="*" element={<NotFound />} />
         </Route>
         <Route path="/embed/gallery/:slug" element={<EmbedGallery />} />

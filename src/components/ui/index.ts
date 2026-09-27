@@ -8,6 +8,8 @@ export { Card, SectionHeader, type CardProps } from "./Card";
 export { Badge, type BadgeProps } from "./Badge";
 export { Table, THead, TH, TR, TD, type TableProps } from "./Table";
 export { Modal, ConfirmDialog, type ModalProps, type ConfirmDialogProps } from "./Modal";
+export { DangerConfirmModal, type DangerConfirmModalProps } from "./DangerConfirmModal";
+export { Markdown, type MarkdownProps } from "./Markdown";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
 export {
   Skeleton,

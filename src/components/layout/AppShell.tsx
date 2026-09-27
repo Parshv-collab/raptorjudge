@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { Outlet, Link, NavLink, useNavigate, useLocation } from "react-router-dom";
+import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useConvexAuth } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
+import { roleHomePath } from "@/lib/roles";
 
 /** lucide icons, 20px in nav, 16px inline (spec: consistent icon sizing). */
 import {
@@ -28,15 +29,31 @@ import {
   X,
   LogOut,
   Gauge,
+  Crown,
 } from "lucide-react";
 
 interface NavItem {
   label: string;
   href: string;
   icon: React.ReactNode;
+  /**
+   * Predicate for the active state. Defaults to "pathname equals href or is
+   * nested under it", which is wrong for two nav entries that share a path
+   * (Queue vs My Scores) — those declare their own rule.
+   */
+  match?: (pathname: string, search: string) => boolean;
+  /** Optional count badge (e.g. pending winner-override requests). */
+  badge?: number;
 }
 
-/** Role-specific primary navigation (spec: one nav per role). */
+/**
+ * Role navigation — the *only* thing that differs between roles.
+ *
+ * Every role renders the same shell (240px rail, same padding, same active
+ * indicator, same user block), so a participant, a judge, an organizer and an
+ * admin see the same product with different labels. Slugs are the contract:
+ * participant → Dashboard, Gallery, My Team, Chat, Profile.
+ */
 const ROLE_NAV: Record<string, NavItem[]> = {
   participant: [
     { label: "Dashboard", href: "/dashboard", icon: <LayoutDashboard size={20} strokeWidth={1.75} /> },
@@ -46,16 +63,44 @@ const ROLE_NAV: Record<string, NavItem[]> = {
     { label: "Profile", href: "/profile", icon: <UserIcon size={20} strokeWidth={1.75} /> },
   ],
   judge: [
-    { label: "Queue", href: "/judge", icon: <Inbox size={20} strokeWidth={1.75} /> },
-    { label: "Pairwise", href: "/judge/pairwise", icon: <Swords size={20} strokeWidth={1.75} /> },
-    { label: "My Scores", href: "/judge", icon: <Star size={20} strokeWidth={1.75} /> },
+    {
+      label: "Queue",
+      href: "/judge",
+      icon: <Inbox size={20} strokeWidth={1.75} />,
+      match: (pathname, search) => pathname === "/judge" && !search.includes("view=scores"),
+    },
+    {
+      label: "Pairwise",
+      href: "/judge/pairwise",
+      icon: <Swords size={20} strokeWidth={1.75} />,
+    },
+    {
+      label: "My Scores",
+      href: "/judge?view=scores",
+      icon: <Star size={20} strokeWidth={1.75} />,
+      match: (pathname, search) => pathname === "/judge" && search.includes("view=scores"),
+    },
+    { label: "Profile", href: "/profile", icon: <UserIcon size={20} strokeWidth={1.75} /> },
   ],
   organizer: [
     { label: "Overview", href: "/organizer", icon: <Gauge size={20} strokeWidth={1.75} /> },
     { label: "Events", href: "/organizer/events", icon: <CalendarDays size={20} strokeWidth={1.75} /> },
-    { label: "Judges", href: "/admin/users", icon: <Users size={20} strokeWidth={1.75} /> },
+    {
+      // Judge assignment lives inside an event console, so this is a shortcut to
+      // the event list rather than a separate screen — it never claims the
+      // active state that "Events" owns.
+      label: "Judges",
+      href: "/organizer/events",
+      icon: <Users size={20} strokeWidth={1.75} />,
+      match: () => false,
+    },
     { label: "Submissions", href: "/events", icon: <ClipboardList size={20} strokeWidth={1.75} /> },
-    { label: "Results", href: "/events", icon: <Scale size={20} strokeWidth={1.75} /> },
+    {
+      label: "Results",
+      href: "/organizer/events",
+      icon: <Scale size={20} strokeWidth={1.75} />,
+      match: () => false,
+    },
     { label: "Profile", href: "/profile", icon: <UserIcon size={20} strokeWidth={1.75} /> },
   ],
   admin: [
@@ -63,6 +108,11 @@ const ROLE_NAV: Record<string, NavItem[]> = {
     { label: "Users", href: "/admin/users", icon: <Users size={20} strokeWidth={1.75} /> },
     { label: "Events", href: "/admin/events", icon: <CalendarDays size={20} strokeWidth={1.75} /> },
     { label: "Judging", href: "/admin/judging", icon: <Scale size={20} strokeWidth={1.75} /> },
+    {
+      label: "Overrides",
+      href: "/admin/winner-overrides",
+      icon: <Crown size={20} strokeWidth={1.75} />,
+    },
     { label: "Invites", href: "/admin/invites", icon: <Mail size={20} strokeWidth={1.75} /> },
     { label: "Settings", href: "/admin/settings", icon: <Settings size={20} strokeWidth={1.75} /> },
     { label: "Audit", href: "/admin/audit", icon: <ScrollText size={20} strokeWidth={1.75} /> },
@@ -77,11 +127,60 @@ const ACCOUNT_NAV: NavItem[] = [
   { label: "Help", href: "/help", icon: <ClipboardList size={20} strokeWidth={1.75} /> },
 ];
 
+/** Default active rule: exact path, or nested under it. */
+function defaultMatch(href: string) {
+  const base = href.split("?")[0];
+  return (pathname: string) => pathname === base || pathname.startsWith(`${base}/`);
+}
+
+/**
+ * Nav row. Identical geometry for every role and in every state: 40px tall,
+ * 20px icon, 13px medium label, 2px accent bar when active, same hover fill.
+ *
+ * Label visibility is responsive rather than prop-driven so the rail stays
+ * icon-only between 768px and 1024px without a second component:
+ *   <768px (drawer, full width) → label visible
+ *   768–1023px (icon rail)      → label hidden, tooltip instead
+ *   ≥1024px (240px rail)        → label visible
+ */
+const NavRow: React.FC<{ item: NavItem; active: boolean }> = ({ item, active }) => (
+  <Link
+    to={item.href}
+    aria-current={active ? "page" : undefined}
+    title={item.label}
+    className={`
+      group relative flex items-center justify-start md:justify-center lg:justify-start
+      gap-3 rounded-btn px-3 py-2.5 text-[13px] font-medium
+      transition-colors duration-fast
+      ${active ? "text-primary bg-surface-2" : "text-secondary hover:text-primary hover:bg-surface-2"}
+    `}
+  >
+    <span
+      aria-hidden="true"
+      className={`absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-pill bg-accent transition-opacity duration-fast ${
+        active ? "opacity-100" : "opacity-0"
+      }`}
+    />
+    <span className="shrink-0">{item.icon}</span>
+    <span className="truncate md:hidden lg:inline">{item.label}</span>
+    {item.badge !== undefined && item.badge > 0 && (
+      <span className="ml-auto md:absolute md:right-1 md:top-1 lg:static lg:ml-auto tnum text-[11px] font-semibold rounded-pill bg-accent text-white px-1.5 py-0.5">
+        {item.badge}
+      </span>
+    )}
+  </Link>
+);
+
 export function AppShell() {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const { signOut } = useAuthActions();
   const skip = isLoading || !isAuthenticated;
   const me = useQuery(api.users.me, skip ? "skip" : {}) ?? null;
+  const isAdmin = me?.role === "admin";
+  const pendingOverrides = useQuery(
+    api.winnerOverrides.pendingCount,
+    skip || !isAdmin ? "skip" : {},
+  );
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -93,7 +192,10 @@ export function AppShell() {
   }, [location.pathname]);
 
   const role = me?.role ?? "participant";
-  const navLinks = ROLE_NAV[role] ?? ROLE_NAV.participant;
+  const homeHref = roleHomePath(role) ?? "/home";
+  const navLinks = (ROLE_NAV[role] ?? ROLE_NAV.participant).map((item) =>
+    item.label === "Overrides" ? { ...item, badge: pendingOverrides ?? 0 } : item,
+  );
 
   useEffect(() => {
     document.title = "RaptorJudge";
@@ -159,9 +261,9 @@ export function AppShell() {
   return (
     <div className="min-h-screen bg-canvas text-primary">
       {/* Mobile top bar with hamburger (<768px) */}
-      <div className="lg:hidden sticky top-0 z-40 bg-canvas/90 backdrop-blur border-b border-line">
+      <div className="md:hidden sticky top-0 z-40 bg-canvas/90 backdrop-blur border-b border-line">
         <div className="h-14 px-4 flex items-center justify-between">
-          <Link to="/home" className="flex items-center gap-2" aria-label="RaptorJudge home">
+          <Link to={homeHref} className="flex items-center gap-2" aria-label="RaptorJudge home">
             <span className="w-6 h-6 rounded-btn bg-accent text-white flex items-center justify-center text-[11px] font-bold">
               R
             </span>
@@ -180,75 +282,68 @@ export function AppShell() {
       </div>
 
       <div className="flex">
-        {/* Sidebar: 240px fixed left rail */}
+        {/*
+          Sidebar: one component for all four roles.
+            ≥1024px  full 240px rail with labels
+            768–1023px icon-only rail (labels hidden, tooltips on hover)
+            <768px   off-canvas drawer opened from the hamburger
+          The rail keeps the same borders, padding and active indicator in all
+          three modes — only the label visibility changes.
+        */}
         <aside
           className={`
-            fixed lg:sticky top-0 z-40 h-screen shrink-0 flex flex-col bg-canvas border-r border-line
+            fixed md:sticky top-0 z-40 h-screen shrink-0 flex flex-col bg-canvas border-r border-line
             transition-transform duration-state ease-out
-            ${mobileOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0
-            w-sidebar
+            ${mobileOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0
+            w-sidebar md:w-16 lg:w-sidebar
           `}
           aria-label="Primary"
         >
-          {/* Wordmark */}
-          <div className="h-16 flex items-center px-4 border-b border-line shrink-0">
-            <Link to="/home" className="flex items-center gap-2.5 min-w-0" aria-label="RaptorJudge home">
+          {/* Wordmark — links to this role's own console, never the landing page */}
+          <div className="h-16 flex items-center px-4 md:px-0 lg:px-4 border-b border-line shrink-0 justify-start md:justify-center lg:justify-start">
+            <Link
+              to={homeHref}
+              className="flex items-center gap-2.5 min-w-0"
+              aria-label="Go to my dashboard"
+              title="Go to my dashboard"
+            >
               <span className="w-7 h-7 rounded-btn bg-accent text-white flex items-center justify-center text-[13px] font-bold shrink-0">
                 R
               </span>
-              <span className="wordmark text-[17px] truncate">RaptorJudge</span>
+              <span className="wordmark text-[17px] truncate md:hidden lg:inline">RaptorJudge</span>
             </Link>
           </div>
 
-          {/* Role nav */}
+          {/* Role nav + account nav */}
           <nav className="flex-1 overflow-y-auto py-4 px-3 flex flex-col gap-0.5">
             {navLinks.map((item) => (
-              <NavLink
+              <NavRow
                 key={item.label + item.href}
-                to={item.href}
-                className={({ isActive }) => `
-                  group relative flex items-center gap-3 rounded-btn px-3 py-2.5 text-[13px] font-medium transition-colors duration-fast
-                  ${isActive ? "text-primary bg-surface-2" : "text-secondary hover:text-primary hover:bg-surface-2"}
-                `}
-              >
-                {({ isActive }) => (
-                  <>
-                    {/* Active accent left border (2px) */}
-                    <span
-                      aria-hidden="true"
-                      className={`absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-pill bg-accent transition-opacity duration-fast ${
-                        isActive ? "opacity-100" : "opacity-0"
-                      }`}
-                    />
-                    <span className="shrink-0">{item.icon}</span>
-                    <span className="truncate">{item.label}</span>
-                  </>
-                )}
-              </NavLink>
+                item={item}
+                active={
+                  item.match
+                    ? item.match(location.pathname, location.search)
+                    : defaultMatch(item.href)(location.pathname)
+                }
+              />
             ))}
 
             <div className="my-3 border-t border-line" aria-hidden="true" />
 
             {ACCOUNT_NAV.map((item) => (
-              <NavLink
+              <NavRow
                 key={item.label}
-                to={item.href}
-                className={({ isActive }) => `
-                  flex items-center gap-3 rounded-btn px-3 py-2.5 text-[13px] font-medium transition-colors duration-fast
-                  ${isActive ? "text-primary bg-surface-2" : "text-secondary hover:text-primary hover:bg-surface-2"}
-                `}
-              >
-                <span className="shrink-0">{item.icon}</span>
-                <span className="truncate">{item.label}</span>
-              </NavLink>
+                item={item}
+                active={defaultMatch(item.href)(location.pathname)}
+              />
             ))}
           </nav>
 
           {/* User footer */}
           <div className="border-t border-line p-3 shrink-0">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 md:justify-center lg:justify-start">
               <Avatar name={me?.name || me?.email || "User"} size="sm" />
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 md:hidden lg:block">
                 <p className="text-[13px] font-medium text-primary truncate">{me?.name || me?.email}</p>
                 <Badge variant={role === "admin" ? "accent" : "default"} className="mt-1">
                   {role}
@@ -258,7 +353,8 @@ export function AppShell() {
                 type="button"
                 onClick={handleSignOut}
                 aria-label="Sign out"
-                className="ml-auto p-2 rounded-btn text-muted hover:text-danger hover:bg-danger/10 transition-colors duration-fast"
+                title="Sign out"
+                className="ml-auto md:ml-0 lg:ml-auto p-2 rounded-btn text-muted hover:text-danger hover:bg-danger/10 transition-colors duration-fast"
               >
                 <LogOut size={16} />
               </button>
@@ -269,7 +365,7 @@ export function AppShell() {
         {/* Drawer backdrop (mobile) */}
         {mobileOpen && (
           <div
-            className="fixed inset-0 z-30 bg-backdrop backdrop-blur-[4px] lg:hidden"
+            className="fixed inset-0 z-30 bg-backdrop backdrop-blur-[4px] md:hidden"
             onClick={() => setMobileOpen(false)}
           />
         )}

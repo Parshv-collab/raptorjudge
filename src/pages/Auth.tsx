@@ -1,6 +1,8 @@
-import { useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useAuthActions } from "@convex-dev/auth/react";
+import { useConvex, useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -9,8 +11,12 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { ChipGroup } from "@/components/ui/ChipGroup";
 import { Alert } from "@/components/ui/Alert";
+import { Modal } from "@/components/ui/Modal";
+import { HeroCarousel } from "@/components/auth/HeroCarousel";
 import { resolveReturnTo } from "@/lib/safeRedirect";
 import { humanizeConvexError } from "@/lib/errors";
+import { roleHomePath } from "@/lib/roles";
+import { describeSignInFailureForUser } from "@/convex/lib/signInErrors";
 
 const PROFESSIONS = [
   { value: "developer", label: "Software Developer / Engineer" },
@@ -38,8 +44,12 @@ const EXPERIENCE_LEVELS = [
   { value: "advanced", label: "Advanced (5+ years)" },
 ];
 
+/** How many times we re-ask for the role before showing the waiting screen. */
+const ROLE_LOOKUP_ATTEMPTS = 4;
+
 export default function Auth() {
   const { signIn } = useAuthActions();
+  const convex = useConvex();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -75,6 +85,59 @@ export default function Auth() {
   // UI state
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  /**
+   * Set when the credentials were accepted but the role has not arrived yet.
+   * We wait for `users.me` rather than defaulting to a participant dashboard,
+   * because defaulting is exactly what sends a judge to the wrong console.
+   */
+  const [awaitingRole, setAwaitingRole] = useState(false);
+
+  const liveMe = useQuery(api.users.me, awaitingRole ? {} : "skip");
+
+  useEffect(() => {
+    if (!awaitingRole) return;
+    const home = roleHomePath(liveMe?.role);
+    if (home) {
+      const dest = returnTo && returnTo !== "/home" ? returnTo : home;
+      navigate(dest, { replace: true });
+      toast.success("Welcome back!");
+    }
+  }, [awaitingRole, liveMe, navigate, returnTo]);
+
+  /** Ask `users.me` for the freshly-minted session's role. */
+  async function lookupRole(): Promise<string | null> {
+    for (let attempt = 0; attempt < ROLE_LOOKUP_ATTEMPTS; attempt++) {
+      try {
+        const me = await convex.query(api.users.me, {});
+        if (me?.role) return me.role;
+      } catch {
+        // Session not visible to the client yet — retry below.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    return null;
+  }
+
+  /**
+   * Land immediately on the right console.
+   *
+   * This runs inside the success branch of the sign-in/sign-up call (not from
+   * an effect that watches `isAuthenticated`), so `/auth` is left behind the
+   * moment the credentials are accepted. If the role cannot be read yet we show
+   * the waiting screen and let the `users.me` subscription finish the job.
+   */
+  async function landAfterAuth(successMessage: string) {
+    toast.success(successMessage);
+    const role = await lookupRole();
+    const home = roleHomePath(role);
+    if (!home) {
+      setAwaitingRole(true);
+      return;
+    }
+    const dest = returnTo && returnTo !== "/home" ? returnTo : home;
+    navigate(dest, { replace: true });
+  }
 
   async function handleSignInSubmit(e: FormEvent) {
     e.preventDefault();
@@ -87,27 +150,22 @@ export default function Auth() {
         flow: "signIn",
         ...(needsCode && code ? { totp: code } : {}),
       });
-      toast.success("Welcome back!");
-      navigate(returnTo, { replace: true });
+      await landAfterAuth("Welcome back!");
     } catch (err: any) {
-      const raw = String(err?.message ?? "");
-      if (raw.includes("ACCOUNT_DISABLED")) {
+      // One funnel for every failure: strip transport noise, then translate to
+      // finished copy. Raw library text never reaches the screen.
+      const cleaned = humanizeConvexError(err);
+      if (cleaned.includes("ACCOUNT_DISABLED")) {
         setDisabledState(true);
-        return;
-      } else if (raw.includes("TOTP_REQUIRED")) {
+      } else if (cleaned.includes("TOTP_REQUIRED")) {
         setNeedsCode(true);
         setError(null);
-      } else if (raw.includes("INVALID_TOTP_CODE")) {
+      } else if (cleaned.includes("INVALID_TOTP_CODE") || cleaned.includes("TOTP_LOCKED")) {
         setNeedsCode(true);
         setCode("");
-        setError("Invalid two-factor code. Please try again.");
-      } else if (raw.includes("TOTP_LOCKED")) {
-        setNeedsCode(true);
-        setError("Too many wrong codes. Factor locked temporarily.");
-      } else if (/TOO_MANY_ATTEMPTS/.test(raw)) {
-        setError("Too many attempts for this email. Wait a few minutes and try again.");
+        setError(describeSignInFailureForUser(cleaned));
       } else {
-        setError(humanizeConvexError(err));
+        setError(describeSignInFailureForUser(cleaned));
       }
     } finally {
       setBusy(false);
@@ -140,13 +198,26 @@ export default function Auth() {
         name,
         flow: "signUp",
       });
-      toast.success("Account created successfully!");
-      navigate(returnTo, { replace: true });
+      await landAfterAuth("Account created successfully!");
     } catch (err: any) {
-      setError(humanizeConvexError(err));
+      setError(describeSignInFailureForUser(humanizeConvexError(err)));
     } finally {
       setBusy(false);
     }
+  }
+
+  if (awaitingRole) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center px-4">
+        <div className="w-full max-w-md bg-surface-1 border border-line rounded-card p-8 flex flex-col items-center text-center gap-4">
+          <div className="w-10 h-10 rounded-pill border-2 border-line border-t-accent animate-spin" aria-hidden="true" />
+          <h1 className="text-h3 text-primary">Preparing your workspace</h1>
+          <p className="text-[13px] text-secondary leading-relaxed">
+            Signed in. Resolving your role so you land in the right console…
+          </p>
+        </div>
+      </div>
+    );
   }
 
   if (disabledState) {
@@ -231,14 +302,23 @@ export default function Auth() {
               placeholder="you@domain.com"
             />
 
-            <PasswordInput
-              label="Password"
-              required
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Your password"
-            />
+            <div className="flex flex-col gap-2">
+              <PasswordInput
+                label="Password"
+                required
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Your password"
+              />
+              <button
+                type="button"
+                onClick={() => setForgotOpen(true)}
+                className="self-start text-[13px] text-accent hover:text-accent-hover transition-colors duration-fast"
+              >
+                Forgot password?
+              </button>
+            </div>
 
             {needsCode && (
               <div className="flex flex-col gap-1.5">
@@ -307,16 +387,16 @@ export default function Auth() {
                 <PasswordInput
                   label="Password"
                   required
-                  minLength={6}
+                  minLength={8}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="At least 6 characters"
+                  placeholder="At least 8 characters"
                 />
 
                 <PasswordInput
                   label="Confirm password"
                   required
-                  minLength={6}
+                  minLength={8}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Re-enter password"
@@ -387,31 +467,34 @@ export default function Auth() {
         )}
       </div>
 
-      {/* Right: typographic panel (hidden below lg) */}
-      <aside className="hidden lg:flex w-full max-w-[440px] border-l border-line pl-16 flex-col justify-center gap-8">
-        <p className="font-mono text-[13px] text-muted">RaptorJudge / DOGFOOD 2026</p>
-        <blockquote className="text-h2 text-primary leading-snug">
-          &ldquo;A harsh panel and a generous panel should produce the same ranking.&rdquo;
-        </blockquote>
-        <div className="flex flex-col gap-4 text-sm text-secondary">
-          <div className="flex gap-3">
-            <span className="font-mono text-accent text-[13px] shrink-0 w-8">01</span>
-            <span>Weighted rubrics that lock when judging starts.</span>
-          </div>
-          <div className="flex gap-3">
-            <span className="font-mono text-accent text-[13px] shrink-0 w-8">02</span>
-            <span>Per-judge z-score normalisation on a 0–10 scale.</span>
-          </div>
-          <div className="flex gap-3">
-            <span className="font-mono text-accent text-[13px] shrink-0 w-8">03</span>
-            <span>Bradley–Terry pairwise ranking, separate from raw averages.</span>
-          </div>
-          <div className="flex gap-3">
-            <span className="font-mono text-accent text-[13px] shrink-0 w-8">04</span>
-            <span>A hash-chained audit log behind every privileged write.</span>
+      {/* Right: rotating typographic panel (hidden below lg) */}
+      <HeroCarousel className="hidden lg:flex w-full max-w-[440px] border-l border-line pl-16 flex-col justify-center" />
+
+      {/* Forgot password — self-hosted, so the honest answer is "ask a human" */}
+      <Modal
+        isOpen={forgotOpen}
+        onClose={() => setForgotOpen(false)}
+        title="Password reset"
+        maxWidth="md"
+      >
+        <div className="flex flex-col gap-5">
+          <p className="text-[13px] text-secondary leading-relaxed">
+            This is a self-hosted deployment with no external email service, so there is no
+            automatic reset link. Contact your event organizer or administrator — they can issue a
+            temporary password from the admin console, which you then change from{" "}
+            <span className="font-mono text-primary">/security</span>.
+          </p>
+          <p className="text-[13px] text-muted leading-relaxed">
+            If you are the administrator, the reset action lives on{" "}
+            <span className="font-mono text-primary">/admin/users</span> next to each account.
+          </p>
+          <div className="flex justify-end">
+            <Button variant="secondary" onClick={() => setForgotOpen(false)}>
+              Close
+            </Button>
           </div>
         </div>
-      </aside>
+      </Modal>
     </div>
   );
 }

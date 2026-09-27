@@ -14,7 +14,9 @@ import { humanizeConvexError } from "@/lib/errors";
 import { downloadRawCsv } from "@/lib/csv";
 import { RubricTab } from "@/pages/organizer/RubricTab";
 import { JudgesTab } from "@/pages/organizer/JudgesTab";
-import { ShieldCheck, ShieldAlert } from "lucide-react";
+import { WinnerOverridePanel } from "@/pages/organizer/WinnerOverridePanel";
+import { Markdown } from "@/components/ui/Markdown";
+import { ShieldCheck, ShieldAlert, Trophy } from "lucide-react";
 
 export function OrganizerEventManage() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -125,6 +127,24 @@ export function OrganizerEventManage() {
       const nextStage = event.status === "draft" ? "registration" : "draft";
       await setStage({ eventId: event._id, stage: nextStage });
       toast.success(`Event ${nextStage === "draft" ? "unpublished" : "published"}.`);
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Stage transitions used by the results tab (publish / unpublish results). */
+  async function handleSetStage(stage: string) {
+    if (!event) return;
+    setBusy(true);
+    try {
+      await setStage({ eventId: event._id, stage });
+      toast.success(
+        stage === "published"
+          ? "Results published — the gallery is now ordered by the final ranking."
+          : `Event moved back to ${stage}.`,
+      );
     } catch (e: any) {
       toast.error(humanizeConvexError(e));
     } finally {
@@ -415,9 +435,9 @@ export function OrganizerEventManage() {
                     {new Date(c.createdAt).toLocaleString()}
                   </span>
                 </div>
-                <p className="text-primary leading-relaxed bg-warning/5 border border-warning/30 rounded-input p-2.5">
-                  {c.body || c.content}
-                </p>
+                <div className="text-primary leading-relaxed bg-warning/5 border border-warning/30 rounded-input p-2.5">
+                  <Markdown content={c.body || c.content} className="text-[13px]" />
+                </div>
                 <div className="flex justify-end">
                   <Button
                     variant="danger"
@@ -446,8 +466,9 @@ export function OrganizerEventManage() {
             <div>
               <h3 className="text-h3 text-primary">Flagged duplicate submissions</h3>
               <p className="text-[13px] text-secondary mt-0.5">
-                Duplicate detection matches normalized titles <em>or</em> repository URLs within this
-                event. The later submission is flagged.
+                Duplicate detection matches within a team only: same normalized title, same repository
+                URL, or both. A repository shared <em>across</em> two teams is flagged for review
+                instead — a shared starter template is not plagiarism.
               </p>
             </div>
             <Button
@@ -474,7 +495,12 @@ export function OrganizerEventManage() {
                     </Link>
                     <span className="text-muted ml-2">Team: {f.teamName}</span>
                   </div>
-                  <Badge variant={f.status === "flagged" ? "warning" : "default"}>{f.status}</Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={f.severity === "review" ? "default" : "danger"}>
+                      {f.severity === "review" ? "Review" : "Duplicate"}
+                    </Badge>
+                    <Badge variant={f.status === "flagged" ? "warning" : "default"}>{f.status}</Badge>
+                  </div>
                 </div>
 
                 <p className="text-warning font-mono text-[12px] bg-warning/5 border border-warning/30 p-2.5 rounded-input">
@@ -550,7 +576,14 @@ export function OrganizerEventManage() {
                   </Link>
                   <p className="text-muted">Team: {s.teamName}</p>
                 </div>
-                <Badge variant="success">{s.status}</Badge>
+                <div className="flex items-center gap-2 shrink-0">
+                  {s.duplicate && (
+                    <Badge variant={s.duplicate.severity === "review" ? "default" : "danger"}>
+                      {s.duplicate.severity === "review" ? "Review: shared repo" : "Duplicate"}
+                    </Badge>
+                  )}
+                  <Badge variant="success">{s.status}</Badge>
+                </div>
               </div>
             ))}
             {(!submissions || submissions.length === 0) && (
@@ -715,6 +748,47 @@ export function OrganizerEventManage() {
 
       {activeTab === "results" && (
         <div className="flex flex-col gap-6">
+          {/* Publication gate: nothing in the gallery is ordered until this flips */}
+          <div className="bg-surface-1 border border-line rounded-card p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="min-w-0">
+              <h3 className="text-h3 text-primary flex items-center gap-2">
+                <Trophy size={16} className="text-accent" aria-hidden="true" />
+                Publication
+              </h3>
+              <p className="text-[13px] text-secondary mt-0.5">
+                Before publication the public gallery shows a seeded, merit-free order with no scores.
+                Publishing re-sorts it by the final ranking and unlocks the winner badge.
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <Badge variant={event.status === "published" ? "success" : "default"}>{event.status}</Badge>
+                {event.status === "published" && <span className="text-[12px] text-muted">results live</span>}
+              </div>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              {event.status !== "judging" && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  isLoading={busy}
+                  onClick={() => handleSetStage("judging")}
+                >
+                  Back to judging
+                </Button>
+              )}
+              {event.status !== "published" && (
+                <Button variant="primary" size="sm" isLoading={busy} onClick={() => handleSetStage("published")}>
+                  Publish results
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <WinnerOverridePanel
+            eventId={event._id}
+            submissions={(submissions ?? []) as any[]}
+            isAdmin={me?.role === "admin"}
+          />
+
           <div className="bg-surface-1 border border-line rounded-card p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
               <h3 className="text-h3 text-primary">Results & rankings</h3>

@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/Button";
@@ -15,6 +15,10 @@ export default function JudgePortal() {
   const skip = authLoading || !isAuthenticated;
 
   const [selectedEventId, setSelectedEventId] = React.useState("all");
+  const [searchParams] = useSearchParams();
+  // The sidebar's "My Scores" entry links here with ?view=scores: the same
+  // queue, filtered to the assignments this judge has already submitted.
+  const scoresOnly = searchParams.get("view") === "scores";
 
   const queue = useQuery(api.judging.myQueue, skip ? "skip" : {});
 
@@ -56,7 +60,9 @@ export default function JudgePortal() {
     })),
   ];
 
-  const items = selectedEventId === "all" ? allItems : allItems.filter((i: any) => i.eventId === selectedEventId);
+  const items = (selectedEventId === "all" ? allItems : allItems.filter((i: any) => i.eventId === selectedEventId)).filter(
+    (i: any) => (scoresOnly ? i.status === "completed" : true),
+  );
 
   const completed = items.filter((i: any) => i.status === "completed").length;
   const total = items.length;
@@ -67,8 +73,12 @@ export default function JudgePortal() {
   return (
     <div className="flex flex-col gap-10">
       <PageHeader
-        title="Judging queue"
-        description="Assigned projects, sorted by event. Score each one on the event rubric."
+        title={scoresOnly ? "My scores" : "Judging queue"}
+        description={
+          scoresOnly
+            ? "Every assignment you have already scored, with the score you submitted."
+            : "Assigned projects, sorted by event. Score each one on the event rubric."
+        }
         actions={
           <div className="flex items-center gap-3">
             {eventFilterOptions.length > 2 && (
@@ -76,11 +86,19 @@ export default function JudgePortal() {
                 <Dropdown options={eventFilterOptions} value={selectedEventId} onChange={(v) => setSelectedEventId(v)} />
               </div>
             )}
-            <Link to="/judge/pairwise">
-              <Button variant="secondary" size="sm">
-                Pairwise →
-              </Button>
-            </Link>
+            {scoresOnly ? (
+              <Link to="/judge">
+                <Button variant="secondary" size="sm">
+                  Open queue →
+                </Button>
+              </Link>
+            ) : (
+              <Link to="/judge/pairwise">
+                <Button variant="secondary" size="sm">
+                  Pairwise →
+                </Button>
+              </Link>
+            )}
           </div>
         }
       />
@@ -92,12 +110,16 @@ export default function JudgePortal() {
 
       {/* Assigned queue */}
       <section className="flex flex-col gap-4">
-        <h2 className="text-h3 text-primary">Assigned projects</h2>
+        <h2 className="text-h3 text-primary">{scoresOnly ? "Submitted scores" : "Assigned projects"}</h2>
 
         {items.length === 0 ? (
           <EmptyState
-            title="No assigned projects yet"
-            description="An organizer will assign projects to you. Check back once assignments are published."
+            title={scoresOnly ? "No scores submitted yet" : "No assigned projects yet"}
+            description={
+              scoresOnly
+                ? "Once you submit a score it appears here, and stays readable for the rest of the event."
+                : "An organizer will assign projects to you. Check back once assignments are published."
+            }
           />
         ) : (
           <div className="flex flex-col gap-8">

@@ -7,13 +7,14 @@ import { humanizeConvexError } from "@/lib/errors";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SkeletonTable } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
 import { Modal } from "@/components/ui/Modal";
 import { Textarea } from "@/components/ui/Textarea";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, Columns3, Plus, Search, SlidersHorizontal } from "lucide-react";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All statuses" },
@@ -30,6 +31,25 @@ const STATUS_BADGE: Record<string, "default" | "success" | "warning"> = {
   archived: "warning",
 };
 
+/**
+ * Toolbar filters are declared as data: with more than three of them the bar
+ * collapses them behind a single "Filters" control instead of stretching across
+ * the row (see `COLLAPSED_FILTER_LIMIT`).
+ */
+const FILTERS = [{ id: "status", label: "Status", options: STATUS_OPTIONS }];
+const COLLAPSED_FILTER_LIMIT = 3;
+
+/** Table columns, declared as data so the picker knows what it can hide. */
+const COLUMNS = [
+  { id: "event", label: "Event", critical: true },
+  { id: "status", label: "Status", critical: false },
+  { id: "slug", label: "Slug", critical: false },
+  { id: "deadline", label: "Deadline", critical: false },
+  { id: "actions", label: "Actions", critical: true },
+];
+/** Above this many columns the non-critical ones move behind a picker. */
+const COLUMN_PICKER_THRESHOLD = 5;
+
 export default function AdminEvents() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const skip = authLoading || !isAuthenticated;
@@ -42,12 +62,20 @@ export default function AdminEvents() {
   const transferOwnership = useMutation(api.events.adminTransferOwnership);
   const importEventFromJson = useMutation((api as any).imports.eventFromJson);
 
+  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [columnsOpen, setColumnsOpen] = useState(false);
   const [transferTargetEvent, setTransferTargetEvent] = useState<any>(null);
   const [selectedOrganizer, setSelectedOrganizer] = useState("");
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importJsonText, setImportJsonText] = useState("");
   const [importBusy, setImportBusy] = useState(false);
+
+  const showColumnPicker = COLUMNS.length > COLUMN_PICKER_THRESHOLD;
+  const collapseFilters = FILTERS.length > COLLAPSED_FILTER_LIMIT;
+  const columnVisible = (id: string) => !hiddenColumns.includes(id);
 
   async function handleImportJson() {
     if (!importJsonText.trim()) return;
@@ -84,10 +112,14 @@ export default function AdminEvents() {
   }, [users]);
 
   const filteredEvents = useMemo(() => {
-    return (events || []).filter(
-      (e: any) => statusFilter === "all" || e.status === statusFilter
-    );
-  }, [events, statusFilter]);
+    const q = search.trim().toLowerCase();
+    return (events || []).filter((e: any) => {
+      const matchStatus = statusFilter === "all" || e.status === statusFilter;
+      const matchSearch =
+        !q || e.title?.toLowerCase().includes(q) || e.slug?.toLowerCase().includes(q);
+      return matchStatus && matchSearch;
+    });
+  }, [events, statusFilter, search]);
 
   async function handleTogglePublish(e: any) {
     try {
@@ -139,24 +171,116 @@ export default function AdminEvents() {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Row 1 — page title + the single primary action */}
       <PageHeader
         title="All system events"
         description="Every event on the platform, regardless of owner or lifecycle stage."
         actions={
-          <Button variant="primary" onClick={() => setImportModalOpen(true)}>
-            Import JSON
-          </Button>
+          <Link to="/organizer/events/new">
+            <Button variant="primary">
+              <Plus size={16} aria-hidden="true" />
+              New Event
+            </Button>
+          </Link>
         }
       />
 
-      {/* Filter bar */}
-      <div className="bg-surface-1 border border-line rounded-card p-4 flex items-center justify-between gap-4">
-        <div className="w-56">
-          <Dropdown options={STATUS_OPTIONS} value={statusFilter} onChange={(val) => setStatusFilter(val)} />
+      {/* Row 2 — toolbar: search · filters · secondary actions (16px gaps) */}
+      <div className="bg-surface-1 border border-line rounded-card p-4 flex flex-col lg:flex-row lg:items-center gap-4">
+        <div className="w-full lg:flex-1 lg:max-w-sm">
+          <Input
+            aria-label="Search events"
+            placeholder="Search by title or slug…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
-        <span className="text-[13px] text-muted tnum">
-          {filteredEvents.length} event{filteredEvents.length === 1 ? "" : "s"}
-        </span>
+
+        <div className="flex flex-wrap items-center gap-4 lg:justify-center lg:flex-1">
+          {collapseFilters ? (
+            <div className="relative">
+              <Button
+                variant="secondary"
+                size="sm"
+                aria-expanded={filtersOpen}
+                onClick={() => setFiltersOpen((prev) => !prev)}
+              >
+                <SlidersHorizontal size={16} aria-hidden="true" />
+                Filters
+              </Button>
+              {filtersOpen && (
+                <div className="absolute z-20 mt-2 w-64 bg-surface-1 border border-line rounded-card p-4 shadow-modal flex flex-col gap-4">
+                  {FILTERS.map((filter) => (
+                    <Dropdown
+                      key={filter.id}
+                      label={filter.label}
+                      options={filter.options}
+                      value={statusFilter}
+                      onChange={(v) => setStatusFilter(v)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            FILTERS.map((filter) => (
+              <div key={filter.id} className="w-full sm:w-48">
+                <Dropdown
+                  options={filter.options}
+                  value={statusFilter}
+                  onChange={(v) => setStatusFilter(v)}
+                />
+              </div>
+            ))
+          )}
+
+          <span className="text-[13px] text-muted tnum shrink-0">
+            {filteredEvents.length} event{filteredEvents.length === 1 ? "" : "s"}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-4 lg:justify-end">
+          {showColumnPicker && (
+            <div className="relative">
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-expanded={columnsOpen}
+                onClick={() => setColumnsOpen((prev) => !prev)}
+              >
+                <Columns3 size={16} aria-hidden="true" />
+                Columns
+              </Button>
+              {columnsOpen && (
+                <div className="absolute right-0 z-20 mt-2 w-52 bg-surface-1 border border-line rounded-card p-3 shadow-modal flex flex-col gap-1">
+                  {COLUMNS.filter((c) => !c.critical).map((column) => (
+                    <label
+                      key={column.id}
+                      className="flex items-center gap-2.5 px-2 py-1.5 rounded-btn text-[13px] text-secondary hover:bg-surface-2 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={columnVisible(column.id)}
+                        onChange={(e) =>
+                          setHiddenColumns((prev) =>
+                            e.target.checked
+                              ? prev.filter((id) => id !== column.id)
+                              : [...prev, column.id],
+                          )
+                        }
+                      />
+                      {column.label}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <Button variant="secondary" onClick={() => setImportModalOpen(true)}>
+            Import JSON
+          </Button>
+        </div>
       </div>
 
       {/* Events table */}
@@ -165,69 +289,84 @@ export default function AdminEvents() {
       ) : filteredEvents.length === 0 ? (
         <EmptyState
           icon={<CalendarDays />}
-          title="No events found"
+          title={events.length === 0 ? "No events found" : "No events match these filters"}
           description={
             events.length === 0
               ? "No events exist yet. Organizers create them from their console."
-              : "No events match the current status filter."
+              : search.trim()
+                ? "Nothing matches that search. Clear it or pick a different status."
+                : "No events match the current status filter."
           }
         />
       ) : (
         <Table caption="All events">
           <THead>
             <tr>
-              <TH>Event</TH>
-              <TH>Status</TH>
-              <TH>Slug</TH>
-              <TH>Deadline</TH>
-              <TH numeric>Actions</TH>
+              {columnVisible("event") && <TH>Event</TH>}
+              {columnVisible("status") && <TH>Status</TH>}
+              {columnVisible("slug") && <TH>Slug</TH>}
+              {columnVisible("deadline") && <TH>Deadline</TH>}
+              {columnVisible("actions") && <TH numeric>Actions</TH>}
             </tr>
           </THead>
           <tbody>
             {filteredEvents.map((e: any) => (
               <TR key={e._id}>
-                <TD>
-                  <Link
-                    to={`/organizer/events/${e.slug}`}
-                    className="font-medium hover:text-accent transition-colors duration-fast"
-                  >
-                    {e.title}
-                  </Link>
-                </TD>
-                <TD>
-                  <Badge variant={STATUS_BADGE[e.status] ?? "default"}>{e.status}</Badge>
-                </TD>
-                <TD mono>/{e.slug}</TD>
-                <TD>
-                  <span className="tnum text-secondary">
-                    {new Date(e.submissionDeadline).toLocaleDateString()}
-                  </span>
-                </TD>
-                <TD numeric>
-                  <div className="flex gap-1.5 justify-end">
-                    <Link to={`/organizer/events/${e.slug}/edit`}>
-                      <Button variant="secondary" size="sm">
-                        Edit
-                      </Button>
+                {columnVisible("event") && (
+                  <TD>
+                    <Link
+                      to={`/organizer/events/${e.slug}`}
+                      className="font-medium hover:text-accent transition-colors duration-fast"
+                    >
+                      {e.title}
                     </Link>
-                    <Button variant="ghost" size="sm" onClick={() => handleTogglePublish(e)}>
-                      {e.status === "draft" ? "Publish" : "Unpublish"}
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setTransferTargetEvent(e)}>
-                      Transfer
-                    </Button>
-                    {e.status === "draft" && (
-                      <Button variant="danger" size="sm" onClick={() => handleDelete(e)}>
-                        Delete
+                  </TD>
+                )}
+                {columnVisible("status") && (
+                  <TD>
+                    <Badge variant={STATUS_BADGE[e.status] ?? "default"}>{e.status}</Badge>
+                  </TD>
+                )}
+                {columnVisible("slug") && <TD mono>/{e.slug}</TD>}
+                {columnVisible("deadline") && (
+                  <TD>
+                    <span className="tnum text-secondary">
+                      {new Date(e.submissionDeadline).toLocaleDateString()}
+                    </span>
+                  </TD>
+                )}
+                {columnVisible("actions") && (
+                  <TD numeric>
+                    <div className="flex gap-1.5 justify-end">
+                      <Link to={`/organizer/events/${e.slug}/edit`}>
+                        <Button variant="secondary" size="sm">
+                          Edit
+                        </Button>
+                      </Link>
+                      <Button variant="ghost" size="sm" onClick={() => handleTogglePublish(e)}>
+                        {e.status === "draft" ? "Publish" : "Unpublish"}
                       </Button>
-                    )}
-                  </div>
-                </TD>
+                      <Button variant="ghost" size="sm" onClick={() => setTransferTargetEvent(e)}>
+                        Transfer
+                      </Button>
+                      {e.status === "draft" && (
+                        <Button variant="danger" size="sm" onClick={() => handleDelete(e)}>
+                          Delete
+                        </Button>
+                      )}
+                    </div>
+                  </TD>
+                )}
               </TR>
             ))}
           </tbody>
         </Table>
       )}
+
+      <p className="flex items-center gap-2 text-[12px] text-muted">
+        <Search size={14} aria-hidden="true" />
+        Staff-only screen — every publish, transfer and delete is recorded in the audit log.
+      </p>
 
       {/* Bulk import modal */}
       <Modal

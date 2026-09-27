@@ -16,6 +16,16 @@ const SORT_OPTIONS = [
   { value: "title_desc", label: "Title (Z-A)" },
 ];
 
+/**
+ * Ordering rules (they live on the server, this screen just renders them):
+ *  - before publication the query returns a deterministic per-day shuffle, so
+ *    the grid carries no information about merit and `rank` is absent;
+ *  - after publication it returns the final ranking (Bradley–Terry if the event
+ *    ran pairwise comparisons, else the normalized z-score) with `rank` on every
+ *    card and `isWinner` on #1.
+ */
+const RESULTS_PUBLISHED_STATUSES = ["published", "archived"];
+
 export default function Gallery() {
   const { slug } = useParams<{ slug: string }>();
   const event = useQuery(api.events.getBySlug, slug ? { slug } : "skip");
@@ -45,6 +55,7 @@ export default function Gallery() {
   }, [cards, selectedTrack, sortBy]);
 
   const galleryClosed = event && ["draft", "registration", "hacking"].includes(event.status);
+  const resultsPublished = Boolean(event && RESULTS_PUBLISHED_STATUSES.includes(event.status));
 
   return (
     <div className="flex flex-col gap-8">
@@ -53,7 +64,9 @@ export default function Gallery() {
         description={
           galleryClosed
             ? "Gallery submissions will be visible once hacking concludes."
-            : `Browsing ${visibleProjects.length} project submission${visibleProjects.length === 1 ? "" : "s"}`
+            : resultsPublished
+              ? `${visibleProjects.length} project${visibleProjects.length === 1 ? "" : "s"}, ranked by the final results`
+              : `Browsing ${visibleProjects.length} project submission${visibleProjects.length === 1 ? "" : "s"} — order is randomised until results are announced`
         }
         actions={
           <Link
@@ -141,7 +154,14 @@ export default function Gallery() {
 
                 <div className="p-5 flex flex-col flex-1">
                   <div className="flex items-center justify-between gap-2 mb-2">
-                    <Badge variant="accent">{project.trackName || "General Track"}</Badge>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Badge variant="accent">{project.trackName || "General Track"}</Badge>
+                      {project.isWinner ? (
+                        <Badge variant="success">🏆 Winner</Badge>
+                      ) : project.rank ? (
+                        <Badge variant="default">#{project.rank}</Badge>
+                      ) : null}
+                    </div>
                     <span className="text-[13px] text-muted truncate">{project.teamName}</span>
                   </div>
 

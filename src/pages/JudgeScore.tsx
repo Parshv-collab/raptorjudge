@@ -10,6 +10,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Alert } from "@/components/ui/Alert";
 import { Textarea } from "@/components/ui/Textarea";
+import { Markdown } from "@/components/ui/Markdown";
 
 /** Draft autosave lives in localStorage, namespaced per assignment. */
 const DRAFT_PREFIX = "raptorjudge:judge-draft:";
@@ -224,9 +225,7 @@ export default function JudgeScore() {
       {/* Description */}
       <section className="border-t border-line pt-8">
         <h2 className="text-h3 text-primary mb-3">Project overview</h2>
-        <p className="text-sm text-secondary leading-relaxed whitespace-pre-line">
-          {selectedItem.submission.description}
-        </p>
+        <Markdown content={selectedItem.submission.description ?? ""} />
       </section>
 
       {/* Rubric scoring form */}

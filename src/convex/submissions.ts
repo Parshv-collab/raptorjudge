@@ -9,7 +9,8 @@ import {
 import { assertWithinWindow } from "./lib/timeWindows";
 import { appendAudit } from "./lib/audit";
 import { seededShuffle, seedFromString } from "./crypto";
-import { findDuplicateMatches, type SubmissionIdentity } from "../lib/algorithms/duplicates";
+import { findDuplicateMatches, type DuplicateSeverity, type SubmissionIdentity } from "../lib/algorithms/duplicates";
+import { gallerySeedKey, isResultsPublished, rankEventProjects, rankMap } from "./lib/results";
 import {
   MAX_DESCRIPTION_LENGTH,
   MAX_TAGLINE_LENGTH,
@@ -56,9 +57,25 @@ interface GalleryCard {
   demoUrl: string;
   submittedAt: number;
   likesHidden: boolean;
+  /** 1-based final rank — only present once the event publishes results. */
+  rank?: number;
+  /** True for the (possibly overridden) #1 — only once results are published. */
+  isWinner?: boolean;
 }
 
-/** Public gallery (no auth): submitted projects only, searchable, seeded-randomizable. */
+/**
+ * Public gallery (no auth): submitted projects only, searchable.
+ *
+ * Ordering is stage-dependent (T3 seeded-random gallery, T2 published results):
+ *  - **before publication** the order is a deterministic per-day shuffle
+ *    (`slug + date`), so the display order carries no information about merit
+ *    and no card exposes a score, rank or badge;
+ *  - **after publication** cards are ordered by the final ranking — pairwise
+ *    Bradley–Terry when the event ran pairwise comparisons, otherwise the
+ *    per-judge z-score normalized score — and the top card is flagged as the
+ *    winner. A winner override is applied here too, so the gallery and the
+ *    override audit log can never disagree.
+ */
 export const publicGallery = query({
   args: {
     eventId: v.id("events"),
@@ -97,6 +114,7 @@ export const publicGallery = query({
         likesHidden: true, // vote counts never ship from the API until results publish
       });
     }
+    const resultsPublished = isResultsPublished(event);
     if (!visible) cards = [];
     const q = (args.search ?? "").trim().toLowerCase();
     if (q) {
@@ -115,8 +133,23 @@ export const publicGallery = query({
       const names = all.filter((t) => String(t._id) === String(args.trackId)).map((t) => t.name);
       cards = cards.filter((c) => names.includes(c.trackName));
     }
-    if (args.randomize) {
-      const seed = args.seed ?? seedFromString(String(args.eventId));
+    if (resultsPublished) {
+      // Published: merit order, winner first. `randomize` is ignored on purpose
+      // — a published ranking is the answer, not a suggestion.
+      const { ranking } = await rankEventProjects(ctx, args.eventId);
+      const ranks = rankMap(ranking);
+      cards = cards
+        .map((card) => ({
+          ...card,
+          rank: ranks.get(card.id),
+          isWinner: ranks.get(card.id) === 1,
+        }))
+        .sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER) || a.title.localeCompare(b.title));
+    } else {
+      // Unpublished: seeded shuffle by slug + day. Deterministic within a day so
+      // the grid does not reshuffle on every keystroke, unbiased across days and
+      // never correlated with merit.
+      const seed = args.seed ?? seedFromString(gallerySeedKey(event));
       cards = seededShuffle(cards, seed);
     }
     return cards;
@@ -138,14 +171,27 @@ export const byEvent = query({
       .query("submissions")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
       .collect();
+    const flags = await ctx.db
+      .query("flags")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
     const out = [];
     for (const s of subs) {
       const team = await ctx.db.get(s.teamId);
       const track = s.trackId ? await ctx.db.get(s.trackId) : null;
+      const flag = flags.find((f) => String(f.submissionId) === String(s._id) && f.status === "flagged");
       out.push({
         ...s,
         teamName: team?.name ?? "—",
         trackName: track?.name ?? "Open",
+        // Duplicate review state, so the organizer submissions list can badge a
+        // flagged project without a second query.
+        duplicate: flag
+          ? {
+              reason: flag.reason,
+              severity: (flag.severity as DuplicateSeverity | undefined) ?? "duplicate",
+            }
+          : null,
       });
     }
     return out;
@@ -203,6 +249,20 @@ export const detail = query({
     }
     const isPublic = sub.status === "submitted" && event && event.status !== "draft";
     if (!isPublic && !canEdit) throw new Error("Not available");
+
+    // Final standing, but only once the event announced results — before that
+    // there is nothing to show and nothing to leak.
+    const resultsPublished = Boolean(event && isResultsPublished(event));
+    let rank: number | null = null;
+    let isWinner = false;
+    let winnerIsOverridden = false;
+    if (resultsPublished) {
+      const { ranking, overridden } = await rankEventProjects(ctx, sub.eventId);
+      rank = rankMap(ranking).get(String(sub._id)) ?? null;
+      isWinner = rank === 1;
+      winnerIsOverridden = overridden;
+    }
+
     return {
       ...sub,
       teamName: team?.name ?? "—",
@@ -212,6 +272,10 @@ export const detail = query({
       eventTitle: event?.title ?? null,
       eventStatus: event?.status ?? null,
       canEdit,
+      resultsPublished,
+      rank,
+      isWinner,
+      winnerIsOverridden,
     };
   },
 });
@@ -458,13 +522,16 @@ async function detectAndRecordDuplicates(
       (f: any) => String(f.submissionId) === match.submissionId && f.status === "flagged",
     );
     if (prior) {
-      if (prior.reason !== match.reason) await ctx.db.patch(prior._id, { reason: match.reason });
+      if (prior.reason !== match.reason || prior.severity !== match.severity) {
+        await ctx.db.patch(prior._id, { reason: match.reason, severity: match.severity });
+      }
       continue;
     }
     await ctx.db.insert("flags", {
       submissionId: match.submissionId as never,
       eventId,
       reason: match.reason,
+      severity: match.severity,
       status: "flagged",
       createdAt: now,
     });
@@ -551,6 +618,7 @@ export const listFlags = query({
         submissionStatus: sub?.status ?? "unknown",
         teamName: team?.name ?? "—",
         reason: f.reason,
+        severity: f.severity ?? "duplicate",
         status: f.status,
         createdAt: f.createdAt,
         reviewedAt: f.reviewedAt ?? null,

@@ -11,6 +11,7 @@ import { appendAudit } from "./lib/audit";
 import { planJudgeAssignments, type AssignmentPlan } from "../lib/algorithms/assignment";
 import { DEFAULT_RUBRIC } from "./lib/defaultRubric";
 import { hmacSha256Hex } from "./crypto";
+import { isResultsPublished, rankEventProjects } from "./lib/results";
 
 async function getCertSecretReadOnly(ctx: any): Promise<string> {
   const row = await ctx.db
@@ -1013,6 +1014,42 @@ export const judgeRecord = query({
 });
 
 /** All scores for an event (organizer/admin only — feeds normalization + exports). */
+/**
+ * Final leaderboard (T2 results).
+ *
+ * Same rule as `normalization.analyze` and `pairwise.leaderboard`: staff may
+ * preview it while judging runs, everyone else only after the event publishes.
+ * The ordering and the #1 winner come from `lib/results`, so the gallery, this
+ * endpoint and the winner-override system all report the same name.
+ */
+export const leaderboard = query({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    const user = await requireUser(ctx);
+    const event = await ctx.db.get(args.eventId);
+    if (!event) throw new Error("Event not found");
+    const published = isResultsPublished(event);
+    const isStaff = user.role === "judge" || user.role === "organizer" || user.role === "admin";
+    if (!published && !isStaff) throw new Error("Results are not published yet");
+
+    const { method, ranking, overridden } = await rankEventProjects(ctx, args.eventId);
+    const subs = await ctx.db
+      .query("submissions")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    return {
+      published,
+      method,
+      overridden,
+      winnerId: ranking[0]?.submissionId ?? null,
+      ranking: ranking.map((row) => ({
+        ...row,
+        title: row.title ?? subs.find((s) => String(s._id) === row.submissionId)?.title ?? "—",
+      })),
+    };
+  },
+});
+
 export const allScores = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
