@@ -7,25 +7,25 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { DEFAULT_EVENT_SLUG } from "@/lib/featuredEvent";
+import { usePrimaryEvent } from "@/lib/featuredEvent";
 
 export default function ParticipantDashboard() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const skip = authLoading || !isAuthenticated;
 
   const me = useQuery(api.users.me, skip ? "skip" : {});
-  const publicEvents = useQuery(api.events.listPublic, skip ? "skip" : {});
   // Server-side scoping: `events.enrolled` walks this user's team memberships
   // and returns the matching events (with `participantCount`) in one read,
   // instead of filtering the public list against a separately fetched roster.
   const enrolled = useQuery(api.events.enrolled, skip ? "skip" : {});
+  // Issue 29: the featured slot never heroes a closed event — open first,
+  // then upcoming, then most recently published with the "Results are in" tag.
+  const primaryEvent = usePrimaryEvent();
 
   const featured = useMemo(() => {
-    if (!publicEvents) return undefined;
-    return publicEvents
-      .filter((e: any) => ["registration", "hacking", "judging", "voting", "published"].includes(e.status))
-      .slice(0, 4);
-  }, [publicEvents]);
+    if (primaryEvent.isLoading) return undefined;
+    return primaryEvent.event ? [primaryEvent.event] : [];
+  }, [primaryEvent.isLoading, primaryEvent.event]);
 
   if (authLoading) {
     return (
@@ -144,8 +144,8 @@ export default function ParticipantDashboard() {
                 className="bg-surface-1 border border-line rounded-card p-5 flex flex-col justify-between transition-colors duration-fast hover:border-line-strong"
               >
                 <div>
-                  <Badge variant="default" className="mb-2">
-                    {event.status}
+                  <Badge variant={primaryEvent.phase === "results" ? "accent" : "default"} className="mb-2">
+                    {primaryEvent.phase === "results" ? "Results are in" : event.status}
                   </Badge>
                   <h3 className="text-[15px] font-semibold text-primary line-clamp-1">{event.title}</h3>
                   <p className="text-[13px] text-secondary line-clamp-2 mt-1 mb-3">

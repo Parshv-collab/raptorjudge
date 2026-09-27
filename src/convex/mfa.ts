@@ -53,6 +53,22 @@ const MFA_ROLES = ["admin", "organizer"] as const;
 /** The deployment's data key for sealed secrets (created on first enrolment). */
 const MASTER_KEY_ROW = "totp_master_key";
 
+/**
+ * Issue 28: the failure mode behind every "That code is not valid" at confirm
+ * time when the real problem is the stored secret being unreadable (lost or
+ * rotated data key, corrupted payload). Fail loudly with the dedicated marker
+ * instead of lying to the user that their authenticator app is wrong.
+ */
+async function openSecretOrThrow(ctx: { db: any }, sealed: string): Promise<string> {
+  const key = await existingMasterKey(ctx);
+  if (!key) throw new Error(TOTP_UNAVAILABLE);
+  try {
+    return await openSecret(key, sealed);
+  } catch {
+    throw new Error(TOTP_UNAVAILABLE);
+  }
+}
+
 async function masterKey(ctx: { db: any }): Promise<string> {
   const row = await ctx.db
     .query("platform")
@@ -149,10 +165,21 @@ export const enroll = mutation({
     if (user.totpEnabled) {
       throw new Error("A second factor is already enabled — disable it first");
     }
+    // Issue 28: the secret returned here is the ONLY source of truth for what
+    // lands in the authenticator app. It is minted, immediately sealed with the
+    // same master key confirm() will later read, persisted verbatim, and only
+    // then handed back — so the persisted secret can never drift from the one
+    // shown/QR'd to the user.
     const secret = generateTotpSecret();
     const key = await masterKey(ctx);
+    const sealed = await sealSecret(key, secret);
+    if ((await openSecret(key, sealed)) !== secret) {
+      // Fail closed *before* anything is stored or shown: a round-trip mismatch
+      // here would hand the user a key that can never verify.
+      throw new Error(TOTP_UNAVAILABLE);
+    }
     await ctx.db.patch(user._id, {
-      totpSecret: await sealSecret(key, secret),
+      totpSecret: sealed,
       totpEnabled: false,
     });
     await appendAudit(ctx, {
@@ -164,6 +191,8 @@ export const enroll = mutation({
     return {
       otpauthUri: buildOtpauthUri({ secret, accountName: user.email }),
       secretForManualEntry: formatSecretForDisplay(secret),
+      /** Raw unpadded base32, for QR libraries that want the bare key. */
+      secretRaw: secret,
       digits: TOTP_DIGITS,
       stepSeconds: 30,
     };
@@ -178,9 +207,10 @@ export const confirm = mutation({
     if (!user.totpSecret) throw new Error("Start enrolment first");
     if (user.totpEnabled) throw new Error("A second factor is already enabled");
 
-    const key = await existingMasterKey(ctx);
-    if (!key) throw new Error("Start enrolment first");
-    const secret = await openSecret(key, user.totpSecret);
+    // Issue 28: an unreadable stored secret is a server-side fault (data key
+    // lost/rotated), not a user typo. Say so instead of "That code is not
+    // valid", which sent every affected user into an endless retype loop.
+    const secret = await openSecretOrThrow(ctx, user.totpSecret);
     if (!(await verifyTotp(secret, args.code))) {
       throw new Error("That code is not valid — check your authenticator app");
     }
@@ -205,9 +235,7 @@ export const disable = mutation({
     if (!user.totpEnabled || !user.totpSecret) {
       throw new Error("No second factor is enabled");
     }
-    const key = await existingMasterKey(ctx);
-    if (!key) throw new Error("No second factor is enabled");
-    const secret = await openSecret(key, user.totpSecret);
+    const secret = await openSecretOrThrow(ctx, user.totpSecret);
     if (!(await verifyTotp(secret, args.code))) {
       throw new Error("That code is not valid — check your authenticator app");
     }

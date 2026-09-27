@@ -152,12 +152,31 @@ export const setStage = mutation({ args: { eventId: v.id("events"), stage: v.str
   const stages = ["draft", "registration", "hacking", "judging", "voting", "published", "archived"]; if (!stages.includes(args.stage)) throw new Error("Invalid stage");
   await ctx.db.patch(args.eventId, { status: args.stage }); await appendAudit(ctx, { eventId: args.eventId, actorId: actor._id, action: "event.stage_change", targetType: "event", targetId: String(args.eventId), beforeState: event.status, afterState: args.stage });
   // Announcing results is the one transition subscribers act on: it changes the
-  // public gallery for everyone, so it gets a webhook of its own.
+  // public gallery for everyone, so it gets a webhook of its own — and it now
+  // also notifies the participants (issue 23.3).
   if (args.stage === "published" && event.status !== "published") {
     await ctx.scheduler.runAfter(0, internal.webhooks.dispatch, {
       eventId: args.eventId,
       eventType: "results.published",
       payload: JSON.stringify({ eventId: String(args.eventId), slug: event.slug, title: event.title, publishedAt: Date.now() }),
+    });
+    // Resolve the participant list inline (mutations cannot call runQuery) so
+    // the scheduled fan-out has concrete recipients.
+    const eventTeams = await ctx.db
+      .query("teams")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    const eventTeamIds = new Set(eventTeams.map((t) => t._id));
+    const allMembers = await ctx.db.query("teamMembers").collect();
+    const participantIds = Array.from(
+      new Set(allMembers.filter((m) => eventTeamIds.has(m.teamId)).map((m) => String(m.userId))),
+    ) as never[];
+    await ctx.scheduler.runAfter(0, internal.notifications.createManyInternal, {
+      eventId: args.eventId,
+      userIds: participantIds,
+      type: "results_published",
+      message: `Results published for ${event.title}`,
+      linkUrl: `/results/${event.slug}`,
     });
   }
   return { ok: true };
@@ -220,3 +239,64 @@ export const featured = query({ args: {}, handler: async (ctx) => {
     }).length,
   })).sort((a, b) => b.participantCount - a.participantCount).slice(0, 4);
 } });
+
+/**
+ * True while at least one event is still accepting judging-side writes
+ * (anything before publication). Issue 21+25: drives the judge shell's
+ * decision to show the Pairwise entry at all — once every event has published
+ * there is nothing left to compare.
+ */
+export const anyOpenForJudging = query({
+  args: {},
+  handler: async (ctx) => {
+    const events = await ctx.db.query("events").collect();
+    return events.some((e) => !["published", "archived", "closed"].includes(e.status));
+  },
+});
+
+/**
+ * The event a public surface should hero (issue 29).
+ *
+ * A closed event must never be the featured one while anything better exists,
+ * so the priority is:
+ *   1. an open event (registration / hacking / judging / voting),
+ *   2. the next upcoming event (registration in the future),
+ *   3. the most recently published event ("Results are in").
+ * `null` when nothing qualifies — callers render their empty state.
+ */
+export const featuredForVisitors = query({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const all = (await ctx.db.query("events").collect()).filter((e) => e.status !== "draft");
+    const withCounts = await Promise.all(
+      all.map(async (event) => {
+        const teams = await ctx.db
+          .query("teams")
+          .withIndex("by_event", (q) => q.eq("eventId", event._id))
+          .collect();
+        const members = await ctx.db.query("teamMembers").collect();
+        const teamIds = new Set(teams.map((t) => t._id));
+        const participantCount = members.filter((m) => teamIds.has(m.teamId)).length;
+        return { event, participantCount };
+      }),
+    );
+
+    const open = withCounts
+      .filter(({ event }) => ["registration", "hacking", "judging", "voting"].includes(event.status))
+      .sort((a, b) => b.participantCount - a.participantCount);
+    if (open.length > 0) return { ...open[0].event, participantCount: open[0].participantCount, phase: "open" as const };
+
+    const upcoming = withCounts
+      .filter(({ event }) => event.registrationStart > now)
+      .sort((a, b) => a.event.registrationStart - b.event.registrationStart);
+    if (upcoming.length > 0) return { ...upcoming[0].event, participantCount: upcoming[0].participantCount, phase: "upcoming" as const };
+
+    const published = withCounts
+      .filter(({ event }) => ["published", "archived"].includes(event.status))
+      .sort((a, b) => (b.event.publishedAt ?? 0) - (a.event.publishedAt ?? 0));
+    if (published.length > 0) return { ...published[0].event, participantCount: published[0].participantCount, phase: "results" as const };
+
+    return null;
+  },
+});

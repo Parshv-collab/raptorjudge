@@ -4,7 +4,6 @@ import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/Button";
-import { Tabs } from "@/components/ui/Tabs";
 import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { ConfirmDialog } from "@/components/ui/Modal";
@@ -127,6 +126,10 @@ export function OrganizerEventManage() {
       />
     );
   }
+
+  // Issue 21+25: once results are out, judging-side writes are refused
+  // server-side; the UI mirrors that by hiding the controls that would fail.
+  const isPublished = ["published", "archived", "closed"].includes(event.status);
 
   async function togglePublish() {
     if (!event) return;
@@ -306,22 +309,87 @@ export function OrganizerEventManage() {
     }
   }
 
-  const tabItems = [
-    { id: "overview", label: "Overview" },
-    { id: "tracks", label: "Tracks & Prizes", badge: tracks?.length },
-    { id: "rubric", label: "Rubric", badge: rubricData?.criteria?.length },
-    { id: "judges", label: "Judges" },
-    { id: "voting", label: "Community Voting", badge: voteStatusData?.totalVotes },
-    { id: "webhooks", label: "Webhooks", badge: webhooks?.length },
-    { id: "comments", label: "Flagged Comments", badge: flaggedComments?.length },
-    { id: "duplicates", label: "Duplicate Flags", badge: flagsData?.filter((f: any) => f.status === "flagged")?.length },
-    { id: "submissions", label: "Submissions", badge: submissions?.length },
-    { id: "results", label: "Results" },
-    { id: "audit", label: "Audit" },
+  /**
+   * Issue 20: the eleven flat tabs became three grouped sections in a left
+   * rail, matching the app sidebar's visual language (pink active bar, brighter
+   * background, right-aligned count badges).
+   */
+  const navGroups: { group: string; items: { id: string; label: string; badge?: number }[] }[] = [
+    {
+      group: "Setup",
+      items: [
+        { id: "overview", label: "Overview" },
+        { id: "tracks", label: "Tracks & Prizes", badge: tracks?.length },
+        { id: "rubric", label: "Rubric", badge: rubricData?.criteria?.length },
+        { id: "judges", label: "Judges" },
+      ],
+    },
+    {
+      group: "Activity",
+      items: [
+        { id: "voting", label: "Community Voting", badge: voteStatusData?.totalVotes },
+        { id: "webhooks", label: "Webhooks", badge: webhooks?.length },
+        { id: "comments", label: "Flagged Comments", badge: flaggedComments?.length },
+        { id: "duplicates", label: "Duplicate Flags", badge: flagsData?.filter((f: any) => f.status === "flagged")?.length },
+      ],
+    },
+    {
+      group: "Results",
+      items: [
+        { id: "submissions", label: "Submissions", badge: submissions?.length },
+        { id: "results", label: "Results" },
+        { id: "audit", label: "Audit" },
+      ],
+    },
   ];
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col lg:flex-row gap-8">
+      {/* Secondary sidebar (issue 20) */}
+      <aside
+        aria-label="Event sections"
+        className="lg:w-56 shrink-0 flex flex-col gap-5 self-start lg:sticky lg:top-8"
+      >
+        {navGroups.map(({ group, items }) => (
+          <div key={group} className="flex flex-col gap-1">
+            <span className="px-3 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
+              {group}
+            </span>
+            {items.map((item) => {
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`
+                    relative flex items-center justify-between gap-2 rounded-btn px-3 py-2 text-[13px] font-medium text-left
+                    transition-colors duration-fast
+                    ${isActive ? "text-primary bg-surface-2" : "text-secondary hover:text-primary hover:bg-surface-2"}
+                  `}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-pill bg-accent transition-opacity duration-fast ${
+                      isActive ? "opacity-100" : "opacity-0"
+                    }`}
+                  />
+                  <span className="truncate">{item.label}</span>
+                  {item.badge !== undefined && item.badge > 0 && (
+                    <span className="ml-auto tnum text-[11px] font-semibold rounded-pill bg-surface-2 text-muted px-1.5 py-0.5">
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </aside>
+
+      <div className="flex-1 min-w-0 flex flex-col gap-6">
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-line">
         <div className="min-w-0">
@@ -351,9 +419,6 @@ export function OrganizerEventManage() {
           </Button>
         </div>
       </div>
-
-      {/* Tabs */}
-      <Tabs tabs={tabItems} activeTab={activeTab} onChange={(id) => setActiveTab(id)} />
 
       {activeTab === "overview" && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -485,7 +550,7 @@ export function OrganizerEventManage() {
         />
       )}
 
-      {activeTab === "judges" && <JudgesTab eventId={event._id} />}
+      {activeTab === "judges" && <JudgesTab eventId={event._id} judgingLocked={isPublished} />}
 
       {activeTab === "comments" && (
         <div className="bg-surface-1 border border-line rounded-card p-6">
@@ -1214,6 +1279,7 @@ export function OrganizerEventManage() {
         destructive
         isLoading={busy}
       />
+      </div>
     </div>
   );
 }

@@ -12,7 +12,7 @@ import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { humanizeConvexError } from "@/lib/errors";
 
-export function JudgesTab({ eventId }: { eventId: any }) {
+export function JudgesTab({ eventId, judgingLocked = false }: { eventId: any; judgingLocked?: boolean }) {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const skip = authLoading || !isAuthenticated;
 
@@ -186,12 +186,18 @@ export function JudgesTab({ eventId }: { eventId: any }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <Button variant="secondary" size="sm" onClick={() => setInviteModalOpen(true)}>
-            Invite judge
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => setAssignModalOpen(true)}>
-            Manual assign
-          </Button>
+          {/* Issue 21+25: hidden once results are published — the server refuses
+              these writes, so the buttons must not imply they would work. */}
+          {!judgingLocked && (
+            <>
+              <Button variant="secondary" size="sm" onClick={() => setInviteModalOpen(true)}>
+                Invite judge
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => setAssignModalOpen(true)}>
+                Manual assign
+              </Button>
+            </>
+          )}
 
           <label className="flex items-center gap-1.5 text-[13px] text-secondary ml-1">
             <span>k =</span>
@@ -219,12 +225,16 @@ export function JudgesTab({ eventId }: { eventId: any }) {
             />
           </label>
 
-          <Button variant="secondary" size="sm" onClick={() => setPreviewModalOpen(true)}>
-            Preview
-          </Button>
-          <Button variant="primary" size="sm" isLoading={busy} onClick={handleAlgorithmicAssign}>
-            Distribute fairly
-          </Button>
+          {!judgingLocked && (
+            <>
+              <Button variant="secondary" size="sm" onClick={() => setPreviewModalOpen(true)}>
+                Preview
+              </Button>
+              <Button variant="primary" size="sm" isLoading={busy} onClick={handleAlgorithmicAssign}>
+                Distribute fairly
+              </Button>
+            </>
+          )}
         </div>
       </div>
 

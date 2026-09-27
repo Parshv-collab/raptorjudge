@@ -16,6 +16,7 @@ import { HeroCarousel } from "@/components/auth/HeroCarousel";
 import { resolveReturnTo } from "@/lib/safeRedirect";
 import { humanizeConvexError } from "@/lib/errors";
 import { roleHomePath } from "@/lib/roles";
+import { clearConvexAuthSessionKeys } from "@/lib/sessionCleanup";
 import { describeSignInFailureForUser } from "@/convex/lib/signInErrors";
 
 const PROFESSIONS = [
@@ -47,8 +48,13 @@ const EXPERIENCE_LEVELS = [
 /** How many times we re-ask for the role before showing the waiting screen. */
 const ROLE_LOOKUP_ATTEMPTS = 4;
 
+/** Issue 17: wipe any stale Convex Auth tokens before a new sign-in starts. */
+if (typeof window !== "undefined") {
+  clearConvexAuthSessionKeys();
+}
+
 export default function Auth() {
-  const { signIn } = useAuthActions();
+  const { signIn, signOut } = useAuthActions();
   const convex = useConvex();
   const navigate = useNavigate();
   const location = useLocation();
@@ -92,6 +98,8 @@ export default function Auth() {
    * because defaulting is exactly what sends a judge to the wrong console.
    */
   const [awaitingRole, setAwaitingRole] = useState(false);
+  /** Issue 17: flips after ROLE_TIMEOUT_MS on the waiting screen. */
+  const [staleTimer, setStaleTimer] = useState(false);
 
   const liveMe = useQuery(api.users.me, awaitingRole ? {} : "skip");
 
@@ -104,6 +112,29 @@ export default function Auth() {
       toast.success("Welcome back!");
     }
   }, [awaitingRole, liveMe, navigate, returnTo]);
+
+  // Issue 17: bound the wait. If the role query has not settled within 5s,
+  // surface the stale-session screen instead of spinning forever.
+  useEffect(() => {
+    if (!awaitingRole) {
+      setStaleTimer(false);
+      return;
+    }
+    const timer = setTimeout(() => setStaleTimer(true), 5000);
+    return () => clearTimeout(timer);
+  }, [awaitingRole]);
+
+  /** Issue 17: sign-out from the waiting screen must kill the stale tokens. */
+  async function handleSignOutFromHere() {
+    clearConvexAuthSessionKeys();
+    try {
+      await signOut();
+    } catch {
+      // The session may already be unusable — the manual wipe above is the
+      // part that matters for the next sign-in.
+    }
+    navigate("/auth", { replace: true });
+  }
 
   /** Ask `users.me` for the freshly-minted session's role. */
   async function lookupRole(): Promise<string | null> {
@@ -207,6 +238,53 @@ export default function Auth() {
   }
 
   if (awaitingRole) {
+    // Issue 17: the role has not arrived. Two distinct reasons, two screens:
+    //   • the account genuinely has no role (fresh self-signup) → explain and
+    //     offer sign-out; waiting longer will never change anything.
+    //   • the role query is still resolving (or the session is stale) → give
+    //     it a few seconds, then offer sign-out with the stale-session hint.
+    // A third timer (below) keeps the spinner from running forever when the
+    // query itself never settles.
+    const me = liveMe;
+    const timedOut = staleTimer;
+    if (me !== undefined) {
+      return (
+        <div className="min-h-[70vh] flex items-center justify-center px-4">
+          <div className="w-full max-w-md bg-surface-1 border border-line rounded-card p-8 flex flex-col items-center text-center gap-4">
+            <div className="w-12 h-12 rounded-full border border-warning/40 bg-warning/10 text-warning flex items-center justify-center">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h1 className="text-h3 text-primary">Your account isn&apos;t assigned a role yet</h1>
+            <p className="text-[13px] text-secondary leading-relaxed">
+              Ask your organizer to invite you, or sign up via an invite link. Your account was
+              created successfully — it just doesn&apos;t have a role attached yet.
+            </p>
+            <Button variant="secondary" onClick={handleSignOutFromHere} className="mt-2">
+              Sign out
+            </Button>
+          </div>
+        </div>
+      );
+    }
+    if (timedOut) {
+      return (
+        <div className="min-h-[70vh] flex items-center justify-center px-4">
+          <div className="w-full max-w-md bg-surface-1 border border-line rounded-card p-8 flex flex-col items-center text-center gap-4">
+            <div className="w-10 h-10 rounded-pill border-2 border-line border-t-accent animate-spin" aria-hidden="true" />
+            <h1 className="text-h3 text-primary">Session may be stale</h1>
+            <p className="text-[13px] text-secondary leading-relaxed">
+              Your workspace is taking unusually long to load. Sign out and back in to refresh your
+              session.
+            </p>
+            <Button variant="secondary" onClick={handleSignOutFromHere} className="mt-2">
+              Sign out
+            </Button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="min-h-[70vh] flex items-center justify-center px-4">
         <div className="w-full max-w-md bg-surface-1 border border-line rounded-card p-8 flex flex-col items-center text-center gap-4">

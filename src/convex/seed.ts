@@ -314,6 +314,11 @@ export const seed = action({
       `duplicate scan: ${duplicateScan.matches} match(es), ${duplicateScan.newlyFlagged} flag(s)`,
     );
 
+    // 9b. Seed the five default help-center entries (issue 27) — idempotent,
+    //     guarded by a platform flag inside the mutation itself.
+    const helpSeed = await ctx.runMutation(internal.help.seedDefaultsInternal, {});
+    if (helpSeed.seeded > 0) console.log(`help content: ${helpSeed.seeded} entry(ies) seeded`);
+
     // 10. Community voting demo (T3.1): quadratic votes whose tallies stay
     //     hidden until the event reaches `published`.
     const participantIds = [...userMapByEmail.values()];

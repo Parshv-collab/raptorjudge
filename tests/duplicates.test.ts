@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  DUPLICATE_REJECT_MESSAGE,
+  decideDuplicateWrite,
   findDuplicateMatches,
   normalizeRepositoryUrl,
   normalizeTitle,
@@ -146,5 +148,51 @@ describe("findDuplicateMatches", () => {
     const matches = findDuplicateMatches(fixtureIdentities());
     expect(matches).toHaveLength(1);
     expect(matches.filter((m) => m.severity === "review")).toHaveLength(0);
+  });
+});
+
+describe("decideDuplicateWrite (issue 18 write-path rules)", () => {
+  it("rejects a 3-of-3 match (team + title + repo)", () => {
+    const decision = decideDuplicateWrite(
+      { title: "Dry Harbour", repositoryUrl: "https://github.com/acme/one" },
+      { title: "dry harbour", repositoryUrl: "https://github.com/acme/one/" },
+    );
+    expect(decision).toEqual({ action: "reject", code: "duplicate_title_and_repository" });
+  });
+
+  it("flags a 2-of-3 match on title only", () => {
+    const decision = decideDuplicateWrite(
+      { title: "Dry Harbour", repositoryUrl: "https://github.com/acme/other" },
+      { title: "Dry  Harbour!", repositoryUrl: "https://github.com/acme/one" },
+    );
+    expect(decision).toEqual({ action: "flag", code: "duplicate_title" });
+  });
+
+  it("flags a 2-of-3 match on repository only", () => {
+    const decision = decideDuplicateWrite(
+      { title: "Different Name", repositoryUrl: "git@github.com:acme/one.git" },
+      { title: "Dry Harbour", repositoryUrl: "https://github.com/acme/one" },
+    );
+    expect(decision).toEqual({ action: "flag", code: "duplicate_repository" });
+  });
+
+  it("allows a team-only match (1 of 3)", () => {
+    const decision = decideDuplicateWrite(
+      { title: "Fresh Idea", repositoryUrl: "https://github.com/acme/new" },
+      { title: "Dry Harbour", repositoryUrl: "https://github.com/acme/one" },
+    );
+    expect(decision).toEqual({ action: "allow" });
+  });
+
+  it("never matches on blank titles or blank URLs", () => {
+    const decision = decideDuplicateWrite(
+      { title: "", repositoryUrl: "" },
+      { title: "", repositoryUrl: "" },
+    );
+    expect(decision).toEqual({ action: "allow" });
+  });
+
+  it("exposes a stable user-facing reject message", () => {
+    expect(DUPLICATE_REJECT_MESSAGE).toBe("This project is already submitted by your team.");
   });
 });

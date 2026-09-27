@@ -169,14 +169,30 @@ export const updateSettings = mutation({
 
 import { sha256Hex } from "./crypto";
 
+/**
+ * Per-role invite lifetimes (issue 24). Admin invites are the most powerful
+ * (and most dangerous), so they expire fastest; judge/participant invites last
+ * a week, which is the usual registration-window length.
+ */
+export const INVITE_TTL_MS: Record<string, number> = {
+  admin: 2 * 24 * 60 * 60 * 1000,
+  organizer: 5 * 24 * 60 * 60 * 1000,
+  judge: 7 * 24 * 60 * 60 * 1000,
+  participant: 7 * 24 * 60 * 60 * 1000,
+};
+
 export const listInvites = query({
   args: {},
   handler: async (ctx) => {
     await requireOrganizer(ctx);
     const invites = await ctx.db.query("invites").collect();
     const users = await ctx.db.query("users").collect();
+    const now = Date.now();
+    // Issue 24: expired-but-unused invites stay listed (with `expired: true`)
+    // so an admin can see them and regenerate, instead of silently vanishing.
     return invites
-      .filter((inv) => !inv.usedAt && !inv.revokedAt && Date.now() < inv.expiresAt)
+      .filter((inv) => !inv.usedAt && !inv.revokedAt)
+      .sort((a, b) => b.createdAt - a.createdAt)
       .map((inv) => {
         const creator = users.find((u) => u._id === inv.createdBy);
         return {
@@ -186,6 +202,7 @@ export const listInvites = query({
           createdBy: creator?.email ?? "—",
           createdAt: inv.createdAt,
           expiresAt: inv.expiresAt,
+          expired: now >= inv.expiresAt,
         };
       });
   },
@@ -199,7 +216,8 @@ export const createInvite = mutation({
     const token = randomHex(32);
     const tokenHash = await sha256Hex(token);
     const now = Date.now();
-    const ttl = args.role === "admin" ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+    // Issue 24: TTL is per role — admin 2d, organizer 5d, judge/participant 7d.
+    const ttl = INVITE_TTL_MS[args.role] ?? 7 * 24 * 60 * 60 * 1000;
     const expiresAt = now + ttl;
 
     const id = await ctx.db.insert("invites", {
@@ -217,11 +235,55 @@ export const createInvite = mutation({
       action: "invite.create",
       targetType: "invite",
       targetId: String(id),
-      afterState: JSON.stringify({ email: args.email, role: args.role }),
+      afterState: JSON.stringify({ email: args.email, role: args.role, ttlDays: ttl / 86_400_000 }),
     });
 
     const url = `/invite/${token}`;
-    return { id: String(id), token, url };
+    return { id: String(id), token, url, expiresAt };
+  },
+});
+
+/**
+ * Reissue an expired (or about-to-expire) invite: the old token is revoked and
+ * a fresh one is minted with the same recipient, role and event (issue 24).
+ * One audited mutation, so the revocation and reissue can never drift apart.
+ */
+export const regenerateInvite = mutation({
+  args: { inviteId: v.id("invites") },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    if (actor.role !== "admin" && actor.role !== "organizer") throw new Error("Unauthorized");
+    const previous = await ctx.db.get(args.inviteId);
+    if (!previous) throw new Error("Invite not found");
+    if (previous.usedAt) throw new Error("This invite has already been used");
+    if (!previous.revokedAt) {
+      await ctx.db.patch(previous._id, { revokedAt: Date.now() });
+    }
+
+    const token = randomHex(32);
+    const tokenHash = await sha256Hex(token);
+    const now = Date.now();
+    const ttl = INVITE_TTL_MS[previous.role] ?? 7 * 24 * 60 * 60 * 1000;
+    const id = await ctx.db.insert("invites", {
+      email: previous.email,
+      role: previous.role,
+      eventId: previous.eventId,
+      tokenHash,
+      createdBy: actor._id,
+      createdAt: now,
+      expiresAt: now + ttl,
+    });
+
+    await appendAudit(ctx, {
+      actorId: actor._id,
+      action: "invite.regenerate",
+      targetType: "invite",
+      targetId: String(id),
+      beforeState: JSON.stringify({ replacedId: String(previous._id), role: previous.role }),
+      afterState: JSON.stringify({ email: previous.email, role: previous.role, ttlDays: ttl / 86_400_000 }),
+    });
+
+    return { id: String(id), token, url: `/invite/${token}`, expiresAt: now + ttl };
   },
 });
 
@@ -259,6 +321,7 @@ export const getInviteByToken = query({
       email: inv.email ?? "",
       role: inv.role,
       eventId: inv.eventId ? String(inv.eventId) : null,
+      expiresAt: inv.expiresAt,
     };
   },
 });

@@ -3,6 +3,7 @@ import { mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import {
+  assertJudgingOpen,
   requireOrganizer,
   requireUser,
   requireRole,
@@ -135,6 +136,7 @@ export const lockRubric = mutation({
   args: { eventId: v.id("events"), note: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
+    await assertJudgingOpen(ctx, args.eventId);
     await setPlatform(ctx, rubricLockKey(String(args.eventId)), "locked");
     await appendAudit(ctx, {
       eventId: args.eventId,
@@ -153,6 +155,7 @@ export const unlockRubric = mutation({
   args: { eventId: v.id("events"), note: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const actor = await requireRole(ctx, "admin");
+    await assertJudgingOpen(ctx, args.eventId);
     await setPlatform(ctx, rubricLockKey(String(args.eventId)), "unlocked");
     await appendAudit(ctx, {
       eventId: args.eventId,
@@ -201,6 +204,7 @@ export const customizeRubric = mutation({
   args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
+    await assertJudgingOpen(ctx, args.eventId);
     const existing = await ctx.db
       .query("rubricCriteria")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
@@ -236,6 +240,7 @@ export const deleteCriterion = mutation({
   args: { eventId: v.id("events"), criterionId: v.id("rubricCriteria") },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
+    await assertJudgingOpen(ctx, args.eventId);
     await assertRubricEditable(ctx, args.eventId, actor.role ?? "participant");
     const criterion = await ctx.db.get(args.criterionId);
     if (!criterion) throw new Error("Criterion not found");
@@ -272,6 +277,7 @@ export const upsertCriterion = mutation({
   },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
+    await assertJudgingOpen(ctx, args.eventId);
     await assertRubricEditable(ctx, args.eventId, actor.role ?? "participant");
 
     const name = args.name.trim();
@@ -382,6 +388,7 @@ export const setJudgeTracks = mutation({
   args: { eventId: v.id("events"), judgeId: v.id("users"), tracks: v.array(v.string()) },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
+    await assertJudgingOpen(ctx, args.eventId);
     const tracks = await ctx.db
       .query("tracks")
       .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
@@ -545,6 +552,7 @@ export const assignProjects = mutation({
   },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
+    await assertJudgingOpen(ctx, args.eventId);
     const now = Date.now();
     let count = 0;
     for (const subId of args.submissionIds) {
@@ -593,6 +601,7 @@ export const runAssignment = mutation({
   },
   handler: async (ctx, args) => {
     const actor = await requireOrganizer(ctx);
+    await assertJudgingOpen(ctx, args.eventId);
     const { submitted, judges, planInput } = await buildAssignmentInputs(ctx, args.eventId);
     if (submitted.length === 0) throw new Error("No submitted projects to assign");
     if (judges.length === 0) throw new Error("No judge accounts exist");
@@ -802,6 +811,7 @@ export const submitScores = mutation({
     if (user.role === "judge" && assignment.judgeId !== user._id) {
       throw new Error("Forbidden: not your assignment");
     }
+    await assertJudgingOpen(ctx, assignment.eventId);
     const event = await ctx.db.get(assignment.eventId);
     if (!event) throw new Error("Event not found");
     if (user.role === "judge") {

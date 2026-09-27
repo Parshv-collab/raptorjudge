@@ -44,6 +44,48 @@ export type DuplicateCode =
 /** `duplicate` blocks nothing by itself; `review` is a plagiarism hint. */
 export type DuplicateSeverity = "duplicate" | "review";
 
+/**
+ * Write-path decision for a candidate submission vs one existing submission of
+ * the SAME team (issue 18 — the caller scopes by team before calling):
+ *
+ *   | match                       | action |
+ *   |-----------------------------|--------|
+ *   | team + title + repo (3 of 3)| reject — never inserted, never flagged |
+ *   | team + title (2 of 3)       | flag   |
+ *   | team + repo (2 of 3)        | flag   |
+ *   | team only (1 of 3)          | allow  |
+ */
+export type DuplicateWriteDecision =
+  | { action: "reject"; code: "duplicate_title_and_repository" }
+  | { action: "flag"; code: DuplicateCode }
+  | { action: "allow" };
+
+/** Error message the submit mutation throws on a 3-of-3 reject. */
+export const DUPLICATE_REJECT_MESSAGE = "This project is already submitted by your team.";
+
+/**
+ * Decide what the write path should do with `candidate` given one earlier
+ * `existing` submission of the same team. Blank fields never match — an
+ * untitled draft cannot be a duplicate of anything.
+ */
+export function decideDuplicateWrite(
+  candidate: { title: string; repositoryUrl: string },
+  existing: { title: string; repositoryUrl: string },
+): DuplicateWriteDecision {
+  const titleMatch =
+    normalizeTitle(candidate.title).length > 0 &&
+    normalizeTitle(candidate.title) === normalizeTitle(existing.title);
+  const repoMatch =
+    normalizeRepositoryUrl(candidate.repositoryUrl).length > 0 &&
+    normalizeRepositoryUrl(candidate.repositoryUrl) ===
+      normalizeRepositoryUrl(existing.repositoryUrl);
+
+  if (titleMatch && repoMatch) return { action: "reject", code: "duplicate_title_and_repository" };
+  if (titleMatch) return { action: "flag", code: "duplicate_title" };
+  if (repoMatch) return { action: "flag", code: "duplicate_repository" };
+  return { action: "allow" };
+}
+
 export interface DuplicateMatch {
   /** The later submission that duplicates an earlier one. */
   submissionId: string;

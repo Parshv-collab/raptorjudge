@@ -10,7 +10,13 @@ import {
 import { assertWithinWindow } from "./lib/timeWindows";
 import { appendAudit } from "./lib/audit";
 import { seededShuffle, seedFromString } from "./crypto";
-import { findDuplicateMatches, type DuplicateSeverity, type SubmissionIdentity } from "../lib/algorithms/duplicates";
+import {
+  DUPLICATE_REJECT_MESSAGE,
+  decideDuplicateWrite,
+  findDuplicateMatches,
+  type DuplicateSeverity,
+  type SubmissionIdentity,
+} from "../lib/algorithms/duplicates";
 import { gallerySeedKey, isResultsPublished, rankEventProjects, rankMap } from "./lib/results";
 import {
   MAX_DESCRIPTION_LENGTH,
@@ -139,11 +145,15 @@ export const publicGallery = query({
       // — a published ranking is the answer, not a suggestion.
       const { ranking } = await rankEventProjects(ctx, args.eventId);
       const ranks = rankMap(ranking);
+      const scoreOf = new Map(ranking.map((r) => [r.submissionId, r.score]));
       cards = cards
         .map((card) => ({
           ...card,
           rank: ranks.get(card.id),
           isWinner: ranks.get(card.id) === 1,
+          // Final normalized (or Bradley–Terry) score — public exactly when the
+          // ranking is (issue 23.2 results page renders it in the table).
+          score: scoreOf.get(card.id),
         }))
         .sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER) || a.title.localeCompare(b.title));
     } else {
@@ -431,6 +441,22 @@ export const submit = mutation({
       throw new Error("Title or description contains unsupported content — edit and resubmit");
     }
 
+    // Issue 18: a team can only file one entry per (title, repository) pair.
+    // All-three-match is a hard reject at write time — nothing is inserted and
+    // no flag is written; the caller gets the error above. Two-of-three still
+    // goes through and is flagged for organizer review (below).
+    const teammates = existing.filter((s) => s._id !== draft._id);
+    for (const other of teammates) {
+      if (other.status !== "submitted" && other.status !== "withdrawn") continue;
+      const decision = decideDuplicateWrite(
+        { title: clean.title, repositoryUrl: clean.repositoryUrl },
+        { title: other.title, repositoryUrl: other.repositoryUrl },
+      );
+      if (decision.action === "reject") {
+        throw new Error(DUPLICATE_REJECT_MESSAGE);
+      }
+    }
+
     await ctx.db.patch(draft._id, {
       status: "submitted",
       submittedAt: Date.now(),
@@ -666,7 +692,16 @@ export const dismissFlag = mutation({
   },
 });
 
-/** Disqualify a flagged duplicate by withdrawing it from judging (organizer only). */
+/**
+ * Disqualify a flagged duplicate (organizer only).
+ *
+ * Issue 19: this used to merely flip the row to `withdrawn`, so the record
+ * kept living in the database while the UI hid it — the "Remove submission"
+ * button looked like a no-op on any re-query. It now deletes the submission
+ * outright along with its judging artifacts (assignments, scores, votes,
+ * comments, remaining flags), so nothing dangling references a project that
+ * no longer exists.
+ */
 export const removeFlaggedSubmission = mutation({
   args: { flagId: v.id("flags"), reason: v.optional(v.string()) },
   handler: async (ctx, args) => {
@@ -676,29 +711,77 @@ export const removeFlaggedSubmission = mutation({
     const sub = await ctx.db.get(flag.submissionId);
     if (!sub) throw new Error("Submission no longer exists");
 
-    await ctx.db.patch(sub._id, { status: "withdrawn", updatedAt: Date.now() });
-    await ctx.db.patch(args.flagId, { status: "removed", reviewedAt: Date.now() });
-    // Drop any judging work for the withdrawn entry so it cannot be scored.
+    // Judging work goes first so nothing can score a deleted row mid-mutation.
     const assignments = await ctx.db
       .query("judgeAssignments")
       .withIndex("by_submission", (q) => q.eq("submissionId", sub._id))
       .collect();
     for (const a of assignments) await ctx.db.delete(a._id);
 
+    const scores = await ctx.db
+      .query("judgeScores")
+      .withIndex("by_event", (q) => q.eq("eventId", sub.eventId))
+      .collect();
+    for (const s of scores) {
+      if (String(s.submissionId) === String(sub._id)) await ctx.db.delete(s._id);
+    }
+
+    const votes = await ctx.db
+      .query("communityVotes")
+      .withIndex("by_submission", (q) => q.eq("submissionId", sub._id))
+      .collect();
+    for (const v of votes) await ctx.db.delete(v._id);
+
+    const comments = await ctx.db
+      .query("comments")
+      .withIndex("by_submission", (q) => q.eq("submissionId", sub._id))
+      .collect();
+    for (const c of comments) await ctx.db.delete(c._id);
+
+    const matches = await ctx.db
+      .query("pairwiseMatches")
+      .withIndex("by_event", (q) => q.eq("eventId", sub.eventId))
+      .collect();
+    for (const m of matches) {
+      if (String(m.submissionAId) === String(sub._id) || String(m.submissionBId) === String(sub._id)) {
+        await ctx.db.delete(m._id);
+      }
+    }
+
+    // The submission itself — the whole point of this mutation.
+    await ctx.db.delete(sub._id);
+
+    // Close out every flag that pointed at the removed row.
+    const eventFlags = await ctx.db
+      .query("flags")
+      .withIndex("by_event", (q) => q.eq("eventId", sub.eventId))
+      .collect();
+    for (const f of eventFlags) {
+      if (String(f.submissionId) === String(sub._id) && f.status !== "removed") {
+        await ctx.db.patch(f._id, { status: "removed", reviewedAt: Date.now() });
+      }
+    }
+
     await appendAudit(ctx, {
-      eventId: flag.eventId,
+      eventId: sub.eventId,
       actorId: actor._id,
       action: "submission.duplicate_remove",
       targetType: "submission",
       targetId: String(sub._id),
-      beforeState: sub.status,
+      beforeState: JSON.stringify({ status: sub.status, title: sub.title }),
       afterState: JSON.stringify({
-        status: "withdrawn",
+        deleted: true,
         reason: args.reason ?? flag.reason,
         assignmentsRemoved: assignments.length,
+        scoresRemoved: scores.filter((s) => String(s.submissionId) === String(sub._id)).length,
+        votesRemoved: votes.length,
+        commentsRemoved: comments.length,
+        matchesRemoved: matches.filter(
+          (m) => String(m.submissionAId) === String(sub._id) || String(m.submissionBId) === String(sub._id),
+        ).length,
       }),
     });
-    return { ok: true, assignmentRemoved: assignments.length };
+    return { ok: true, assignmentRemoved: assignments.length, deleted: true };
   },
 });
 

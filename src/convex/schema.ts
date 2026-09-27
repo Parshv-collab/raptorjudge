@@ -94,4 +94,25 @@ export default defineSchema({
     fileType: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_team", ["teamId"]),
+  notifications: defineTable({
+    userId: v.id("users"),
+    /** Machine-readable kind, e.g. "results_published". */
+    type: v.string(),
+    eventId: v.optional(v.id("events")),
+    message: v.string(),
+    linkUrl: v.optional(v.string()),
+    createdAt: v.number(),
+    readAt: v.optional(v.number()),
+  }).index("by_user", ["userId"]).index("by_user_unread", ["userId", "readAt"]),
+  helpContent: defineTable({
+    /** "faq" renders in the accordion; "article" renders in the article list. */
+    type: v.union(v.literal("faq"), v.literal("article")),
+    title: v.string(),
+    body: v.string(),
+    order: v.number(),
+    visible: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    createdBy: v.optional(v.id("users")),
+  }).index("by_type", ["type"]),
 });

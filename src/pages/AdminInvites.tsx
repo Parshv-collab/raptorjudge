@@ -14,12 +14,21 @@ import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Mail } from "lucide-react";
 
+/** "3 days" / "1 day" / "today" — human copy for the invite countdown. */
+function daysLeft(expiresAt: number): string {
+  const ms = expiresAt - Date.now();
+  if (ms <= 0) return "0 days";
+  const days = Math.ceil(ms / 86_400_000);
+  return `${days} day${days === 1 ? "" : "s"}`;
+}
+
 export default function AdminInvites() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const skip = authLoading || !isAuthenticated;
   const invites = useQuery(api.admin.listInvites, skip ? "skip" : {});
   const createInvite = useMutation(api.admin.createInvite);
   const revokeInvite = useMutation(api.admin.revokeInvite);
+  const regenerateInvite = useMutation(api.admin.regenerateInvite);
 
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("organizer");
@@ -46,6 +55,17 @@ export default function AdminInvites() {
     try {
       await revokeInvite({ inviteId: inviteId as any });
       toast.success("Invite revoked.");
+    } catch (err: any) {
+      toast.error(humanizeConvexError(err));
+    }
+  }
+
+  /** Issue 24: mint a fresh link for an expired invite in one click. */
+  async function handleRegenerate(inviteId: string) {
+    try {
+      const res = await regenerateInvite({ inviteId: inviteId as any });
+      setLastCreatedUrl(`${window.location.origin}${res.url}`);
+      toast.success("Invite regenerated — a new link was issued.");
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
     }
@@ -97,6 +117,7 @@ export default function AdminInvites() {
                 { value: "organizer", label: "Organizer" },
                 { value: "admin", label: "Admin" },
                 { value: "judge", label: "Judge" },
+                { value: "participant", label: "Participant" },
               ]}
               value={role}
               onChange={(v) => setRole(v)}
@@ -156,14 +177,30 @@ export default function AdminInvites() {
                     <span className="text-secondary">{inv.createdBy}</span>
                   </TD>
                   <TD>
-                    <span className="tnum text-secondary">
-                      {new Date(inv.expiresAt).toLocaleDateString()}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="tnum text-secondary">
+                        {new Date(inv.expiresAt).toLocaleDateString()}
+                      </span>
+                      {inv.expired ? (
+                        <Badge variant="danger">Expired</Badge>
+                      ) : (
+                        <span className="tnum text-[12px] text-muted">
+                          Expires in {daysLeft(inv.expiresAt)}
+                        </span>
+                      )}
+                    </div>
                   </TD>
                   <TD numeric>
-                    <Button variant="danger" size="sm" onClick={() => handleRevoke(inv.id)}>
-                      Revoke
-                    </Button>
+                    <div className="flex justify-end gap-2">
+                      {inv.expired && (
+                        <Button variant="secondary" size="sm" onClick={() => handleRegenerate(inv.id)}>
+                          Regenerate
+                        </Button>
+                      )}
+                      <Button variant="danger" size="sm" onClick={() => handleRevoke(inv.id)}>
+                        Revoke
+                      </Button>
+                    </div>
                   </TD>
                 </TR>
               ))}

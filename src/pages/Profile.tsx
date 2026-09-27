@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { humanizeConvexError } from "@/lib/errors";
+import { clearConvexAuthSessionKeys } from "@/lib/sessionCleanup";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
@@ -97,6 +98,7 @@ export default function Profile() {
     setBusy(true);
     try {
       await deleteAccount({});
+      clearConvexAuthSessionKeys();
       await signOut();
       toast.success("Your account has been scheduled for deletion.");
       window.location.href = "/";

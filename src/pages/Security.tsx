@@ -9,6 +9,7 @@ import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
+import { QrCode } from "@/components/ui/QrCode";
 
 export default function Security() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -57,6 +58,7 @@ function TotpPanel() {
   const [enrollment, setEnrollment] = useState<{
     otpauthUri: string;
     secretForManualEntry: string;
+    secretRaw?: string;
   } | null>(null);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -153,16 +155,28 @@ function TotpPanel() {
             <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-accent">
               Step 1 — add the key to your authenticator app
             </p>
-            <div className="mt-3 p-3.5 bg-surface-2 rounded-input border border-line font-mono text-[15px] tracking-[0.2em] text-primary select-all tnum">
-              {enrollment.secretForManualEntry}
-            </div>
-            <div className="flex gap-2 mt-3">
-              <Button variant="secondary" size="sm" onClick={() => copy(enrollment.secretForManualEntry)}>
-                Copy key
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => copy(enrollment.otpauthUri)}>
-                Copy otpauth URI
-              </Button>
+            <div className="mt-3 flex flex-col sm:flex-row gap-5 items-start">
+              {/* Issue 28: camera enrolment — scan with Google Authenticator,
+                  Aegis, 1Password, etc. The manual key below stays as fallback. */}
+              <div className="p-2 bg-white rounded-input border border-line shrink-0">
+                <QrCode value={enrollment.otpauthUri} size={168} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] text-secondary">
+                  Scan this with your authenticator app, or enter the key manually:
+                </p>
+                <div className="mt-3 p-3.5 bg-surface-2 rounded-input border border-line font-mono text-[15px] tracking-[0.2em] text-primary select-all tnum break-all">
+                  {enrollment.secretForManualEntry}
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <Button variant="secondary" size="sm" onClick={() => copy(enrollment.secretForManualEntry)}>
+                    Copy key
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={() => copy(enrollment.otpauthUri)}>
+                    Copy otpauth URI
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
 

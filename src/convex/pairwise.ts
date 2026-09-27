@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireUser, requireRole } from "./lib/common";
+import { requireUser, requireRole, assertJudgingOpen } from "./lib/common";
 import { appendAudit } from "./lib/audit";
 import { bradleyTerry, nextMatch, type PairwiseMatchRecord } from "../lib/algorithms/pairwise";
 
@@ -102,6 +102,7 @@ export const submitMatch = mutation({
   },
   handler: async (ctx, args) => {
     const user = await requireRole(ctx, "judge", "organizer", "admin");
+    await assertJudgingOpen(ctx, args.eventId);
     if (args.submissionAId === args.submissionBId) {
       throw new Error("A submission cannot compete with itself");
     }

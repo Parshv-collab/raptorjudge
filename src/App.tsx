@@ -38,12 +38,32 @@ import AdminInvites from "@/pages/AdminInvites";
 import AdminSettings from "@/pages/AdminSettings";
 import AdminJudging from "@/pages/AdminJudging";
 import AdminWinnerOverrides from "@/pages/AdminWinnerOverrides";
+import AdminHelp from "@/pages/AdminHelp";
 import InviteAccept from "@/pages/InviteAccept";
 import ParticipantDashboard from "@/pages/ParticipantDashboard";
+import Results from "@/pages/Results";
 import { Link, Navigate, Outlet, useLocation } from "react-router-dom";
 
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { roleHomePath } from "@/lib/roles";
+
+/**
+ * `/results` without a slug: bounce to this participant's first enrolled
+ * event's results page (issue 23.1). Unknown events fall back to NotFound via
+ * the Results page's own empty state.
+ */
+function ResultsIndexRedirect() {
+  const enrolled = useQuery(api.events.enrolled, {});
+  if (enrolled === undefined) {
+    return (
+      <div className="max-w-xl mx-auto py-12">
+        <SkeletonCard lines={4} />
+      </div>
+    );
+  }
+  const first = enrolled[0];
+  return <Navigate to={first ? `/results/${first.slug}` : "/dashboard"} replace />;
+}
 
 function MinimalLayout() {
   return (
@@ -179,6 +199,15 @@ export default function App() {
             path="/workspace/chat"
             element={<ProtectedRoute requiredRole="participant"><TeamChat /></ProtectedRoute>}
           />
+          {/* Issue 23.2: participant results — podium + full ranking per event. */}
+          <Route
+            path="/results/:slug"
+            element={<ProtectedRoute requiredRole="participant"><Results /></ProtectedRoute>}
+          />
+          <Route
+            path="/results"
+            element={<ProtectedRoute requiredRole="participant"><ResultsIndexRedirect /></ProtectedRoute>}
+          />
 
           {/* Judge */}
           <Route path="/judge" element={<ProtectedRoute requiredRole="judge"><JudgePortal /></ProtectedRoute>} />
@@ -224,6 +253,11 @@ export default function App() {
           <Route
             path="/admin/winner-overrides"
             element={<ProtectedRoute requiredRole="admin"><AdminWinnerOverrides /></ProtectedRoute>}
+          />
+          {/* Issue 27: admin CRUD over the public help center. */}
+          <Route
+            path="/admin/help"
+            element={<ProtectedRoute requiredRole="admin"><AdminHelp /></ProtectedRoute>}
           />
 
           <Route path="*" element={<NotFound />} />

@@ -79,10 +79,10 @@ function Check() {
 }
 
 export default function Landing() {
-  const { event, slug, isLoading } = usePrimaryEvent();
+  const { event, slug, phase, isLoading } = usePrimaryEvent();
   const gallery = useQuery(
     api.submissions.publicGallery,
-    event ? { eventId: event._id } : "skip",
+    event ? { eventId: event._id, randomize: false } : "skip",
   );
   const tracks = useQuery(api.tracks.listByEvent, event ? { eventId: event._id } : "skip");
   const rubric = useQuery(api.judging.rubricForEvent, event ? { eventId: event._id } : "skip");
@@ -128,8 +128,16 @@ export default function Landing() {
 
         {event && (
           <p className="text-[13px] text-muted">
-            Demo event <span className="text-primary">{event.title}</span> is seeded with{" "}
+            {phase === "results" ? (
+              <span className="text-success font-medium">Results are in — </span>
+            ) : null}
+            <span className="text-primary">{event.title}</span> is seeded with{" "}
             {projects.length || 41} projects, {tracks?.length ?? 8} tracks and a live judging rubric.
+          </p>
+        )}
+        {!event && !isLoading && (
+          <p className="text-[13px] text-muted">
+            No events are live right now — check back soon, or browse all events.
           </p>
         )}
       </section>

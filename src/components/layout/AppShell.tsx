@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
-import { useQuery, useConvexAuth } from "convex/react";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { roleHomePath } from "@/lib/roles";
+import { clearConvexAuthSessionKeys } from "@/lib/sessionCleanup";
 
 /** lucide icons, 20px in nav, 16px inline (spec: consistent icon sizing). */
 import {
@@ -30,6 +31,9 @@ import {
   LogOut,
   Gauge,
   Crown,
+  Bell,
+  LifeBuoy,
+  Trophy,
 } from "lucide-react";
 
 interface NavItem {
@@ -60,6 +64,9 @@ const ROLE_NAV: Record<string, NavItem[]> = {
     { label: "Gallery", href: "/events", icon: <LayoutGrid size={20} strokeWidth={1.75} /> },
     { label: "My Team", href: "/workspace", icon: <Users size={20} strokeWidth={1.75} /> },
     { label: "Chat", href: "/workspace/chat", icon: <MessageSquare size={20} strokeWidth={1.75} /> },
+    // Issue 23.1: results stay hidden until the participant is actually in an
+    // event — the enrolled query below points this at that event's results.
+    { label: "Results", href: "/results", icon: <Trophy size={20} strokeWidth={1.75} /> },
     { label: "Profile", href: "/profile", icon: <UserIcon size={20} strokeWidth={1.75} /> },
   ],
   judge: [
@@ -114,6 +121,7 @@ const ROLE_NAV: Record<string, NavItem[]> = {
       icon: <Crown size={20} strokeWidth={1.75} />,
     },
     { label: "Invites", href: "/admin/invites", icon: <Mail size={20} strokeWidth={1.75} /> },
+    { label: "Help Content", href: "/admin/help", icon: <LifeBuoy size={20} strokeWidth={1.75} /> },
     { label: "Settings", href: "/admin/settings", icon: <Settings size={20} strokeWidth={1.75} /> },
     { label: "Audit", href: "/admin/audit", icon: <ScrollText size={20} strokeWidth={1.75} /> },
   ],
@@ -185,6 +193,13 @@ export function AppShell() {
   const location = useLocation();
 
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [bellOpen, setBellOpen] = useState(false);
+  const notifications = useQuery(
+    api.notifications.listMine,
+    skip ? "skip" : {},
+  );
+  const unreadCount = (notifications ?? []).filter((n: any) => !n.readAt).length;
+  const markAllRead = useMutation(api.notifications.markAllRead);
 
   // Close the mobile drawer on route change.
   useEffect(() => {
@@ -193,16 +208,37 @@ export function AppShell() {
 
   const role = me?.role ?? "participant";
   const homeHref = roleHomePath(role) ?? "/home";
-  const navLinks = (ROLE_NAV[role] ?? ROLE_NAV.participant).map((item) =>
-    item.label === "Overrides" ? { ...item, badge: pendingOverrides ?? 0 } : item,
+  // Issue 21+25: once every live event has published its results there is
+  // nothing left to compare, so the pairwise entry disappears instead of
+  // leading judges into a screen whose writes are rejected server-side.
+  const anyOpenEvent = useQuery(
+    api.events.anyOpenForJudging,
+    skip || role !== "judge" ? "skip" : {},
   );
+  // Issue 23.1: "Results" only appears once this participant belongs to a team
+  // in at least one event.
+  const enrolled = useQuery(api.events.enrolled, skip || role !== "participant" ? "skip" : {});
+  const navLinks = (ROLE_NAV[role] ?? ROLE_NAV.participant)
+    .filter((item) => item.label !== "Pairwise" || anyOpenEvent !== false)
+    .filter((item) => item.label !== "Results" || (enrolled !== undefined && enrolled.length > 0))
+    .map((item) =>
+      item.label === "Overrides" ? { ...item, badge: pendingOverrides ?? 0 } : item,
+    );
 
   useEffect(() => {
     document.title = "RaptorJudge";
   }, []);
 
   async function handleSignOut() {
-    await signOut();
+    // Issue 17: Convex Auth's tokens live in sessionStorage under __convexAuth*;
+    // kill them explicitly so a broken session cannot survive into the next
+    // sign-in, then let the library tear down its own state.
+    clearConvexAuthSessionKeys();
+    try {
+      await signOut();
+    } catch {
+      // Tokens already gone — the manual wipe above is what matters.
+    }
     toast.success("Signed out");
     navigate("/auth");
   }
@@ -338,6 +374,73 @@ export function AppShell() {
               />
             ))}
           </nav>
+
+          {/* Notification bell (issue 23.3) */}
+          <div className="px-3 pb-1 shrink-0 relative">
+            <button
+              type="button"
+              onClick={() => setBellOpen((v) => !v)}
+              aria-expanded={bellOpen}
+              aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
+              className={`relative w-full flex items-center gap-3 rounded-btn px-3 py-2.5 text-[13px] font-medium transition-colors duration-fast ${
+                bellOpen ? "text-primary bg-surface-2" : "text-secondary hover:text-primary hover:bg-surface-2"
+              }`}
+            >
+              <span className="shrink-0 relative">
+                <Bell size={20} strokeWidth={1.75} />
+                {unreadCount > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-pill bg-accent"
+                  />
+                )}
+              </span>
+              <span className="truncate md:hidden lg:inline">Notifications</span>
+              {unreadCount > 0 && (
+                <span className="ml-auto md:absolute md:right-3 lg:static lg:ml-auto tnum text-[11px] font-semibold rounded-pill bg-accent text-white px-1.5 py-0.5">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+
+            {bellOpen && (
+              <div className="md:hidden lg:block absolute left-3 right-3 bottom-full mb-2 z-50 rounded-card border border-line bg-canvas shadow-lg overflow-hidden">
+                <div className="flex items-center justify-between px-4 h-11 border-b border-line">
+                  <span className="text-[13px] font-semibold text-primary">Notifications</span>
+                  {unreadCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => markAllRead({})}
+                      className="text-[12px] text-accent hover:text-accent-hover transition-colors duration-fast"
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-72 overflow-y-auto">
+                  {(notifications ?? []).length === 0 ? (
+                    <p className="px-4 py-6 text-[13px] text-muted text-center">No notifications yet.</p>
+                  ) : (
+                    (notifications ?? []).slice(0, 12).map((n: any) => (
+                      <Link
+                        key={n.id}
+                        to={n.linkUrl ?? "#"}
+                        onClick={() => setBellOpen(false)}
+                        className={`block px-4 py-3 border-b border-line last:border-0 transition-colors duration-fast hover:bg-surface-2 ${
+                          n.readAt ? "" : "bg-surface-1"
+                        }`}
+                      >
+                        <p className="text-[13px] text-primary leading-snug">{n.message}</p>
+                        <p className="text-[11px] text-muted mt-0.5 tnum">
+                          {new Date(n.createdAt).toLocaleDateString()}
+                        </p>
+                      </Link>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* User footer */}
           <div className="border-t border-line p-3 shrink-0">

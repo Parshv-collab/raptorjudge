@@ -103,6 +103,33 @@ export async function requireEvent(ctx: QueryCtx | MutationCtx, eventId: Id<"eve
   return event;
 }
 
+/**
+ * Stages after which the event's results are final. Once an event reaches one
+ * of these stages every judging-side write (assignments, rubric, scores,
+ * pairwise) is rejected: the ranking the public sees must be the ranking the
+ * judges produced, so a late edit can never retroactively change it.
+ */
+const JUDGING_LOCKED_STAGES = ["published", "archived", "closed"];
+
+/**
+ * Gate for every mutation that touches judging state (issue 21+25).
+ *
+ * Throws once the event is published/archived (or terminally closed) — before
+ * any write happens. Events still in setup or live stages (draft, registration,
+ * hacking, judging, voting) pass, so organizers can prepare assignments and
+ * correct scores while the event is running.
+ */
+export async function assertJudgingOpen(ctx: MutationCtx, eventId: Id<"events">): Promise<Doc<"events">> {
+  const event = await ctx.db.get(eventId);
+  if (!event) throw new Error("Event not found");
+  if (JUDGING_LOCKED_STAGES.includes(event.status)) {
+    throw new Error(
+      "Judging is locked: this event's results have been published and its scores can no longer change",
+    );
+  }
+  return event;
+}
+
 /** Deadline gate for participant submission edits (T1 strict deadline enforcement). */
 export async function assertSubmissionWindow(
   _ctx: MutationCtx,
