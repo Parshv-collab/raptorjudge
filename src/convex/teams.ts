@@ -89,60 +89,10 @@ export const myTeams = query({
   },
 });
 
-/**
- * A single team. Role isolation: the roster (member names **and emails**) is only
- * returned to the team's own members and to organizers/admins — an arbitrary
- * signed-in participant must not be able to enumerate other people's emails.
- */
-export const getTeam = query({
-  args: { teamId: v.id("teams") },
-  handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
-    const team = await ctx.db.get(args.teamId);
-    if (!team) throw new Error("Team not found");
-    const members = await ctx.db
-      .query("teamMembers")
-      .withIndex("by_team", (q) => q.eq("teamId", args.teamId))
-      .collect();
-    const isMember = members.some((m) => m.userId === user._id);
-    const isStaff = user.role === "organizer" || user.role === "admin";
-
-    if (!isMember && !isStaff) {
-      return {
-        _id: team._id,
-        eventId: team.eventId,
-        name: team.name,
-        trackId: team.trackId,
-        memberCount: members.length,
-        members: [],
-        isMember: false,
-        canViewRoster: false,
-      };
-    }
-
-    const memberUsers = [];
-    for (const m of members) {
-      const u = await ctx.db.get(m.userId);
-      if (u) {
-        memberUsers.push({
-          userId: m.userId,
-          name: u.name,
-          // Email is only exposed to organizers/admins; teammates already
-          // share a workspace, so they get names and roles instead.
-          email: isStaff ? u.email : undefined,
-          memberRole: m.memberRole,
-        });
-      }
-    }
-    return {
-      ...team,
-      inviteCode: isMember || isStaff ? team.inviteCode : null,
-      members: memberUsers,
-      isMember,
-      canViewRoster: true,
-    };
-  },
-});
+// `getTeam(teamId)` was removed here: it was an unmetered public read of any
+// team id, and no page, route or test called it. Rosters are served by
+// `myTeams` (your own teams — the only place a member list belongs) and
+// `listByEvent` (staff), which both apply the same email-isolation rule.
 
 export const create = mutation({
   args: {

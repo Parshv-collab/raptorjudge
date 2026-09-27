@@ -13,7 +13,8 @@ export default function OrganizerDashboard() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const skip = authLoading || !isAuthenticated;
 
-  const events = useQuery(api.events.listAll, skip ? "skip" : {});
+  // `listMine`: organizers see the events they own, admins see everything.
+  const events = useQuery(api.events.listMine, skip ? "skip" : {});
   const { event: primaryEvent } = usePrimaryEvent();
   // The organizer's own first event, falling back to the public featured event.
   const event = skip ? primaryEvent : (events?.[0] ?? primaryEvent);

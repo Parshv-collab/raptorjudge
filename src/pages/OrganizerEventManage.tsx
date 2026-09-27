@@ -39,6 +39,9 @@ export function OrganizerEventManage() {
   const submissionsCsv = useQuery(api.exports.submissionsCsv, skip || !event ? "skip" : { eventId: event._id });
   const rankingsCsv = useQuery(api.exports.rankingsCsv, skip || !event ? "skip" : { eventId: event._id });
   const scoresCsv = useQuery(api.exports.scoresCsv, skip || !event ? "skip" : { eventId: event._id });
+  const assignmentsCsv = useQuery(api.exports.assignmentsCsv, skip || !event ? "skip" : { eventId: event._id });
+  const eventJson = useQuery(api.exports.eventJson, skip || !event ? "skip" : { eventId: event._id });
+  const certificates = useQuery(api.certificates.listByEvent, skip || !event ? "skip" : { eventId: event._id });
 
   const rubricData = useQuery(api.judging.getRubric, skip || !event ? "skip" : { eventId: event._id });
   const customizeRubric = useMutation(api.judging.customizeRubric);
@@ -47,6 +50,9 @@ export function OrganizerEventManage() {
   const voteStatusData = useQuery(api.voting.voteStatus, skip || !event ? "skip" : { eventId: event._id });
   const flaggedComments = useQuery((api.comments as any).listFlagged, skip || !event ? "skip" : { eventId: event._id });
   const deleteComment = useMutation(api.comments.deleteComment);
+  const unflagComment = useMutation(api.comments.unflag);
+  const updateTrack = useMutation(api.tracks.update);
+  const setWebhookActive = useMutation(api.webhooks.setActive);
 
   const flagsData = useQuery((api.submissions as any).listFlags, skip || !event ? "skip" : { eventId: event._id });
   const dismissFlag = useMutation((api.submissions as any).dismissFlag);
@@ -78,6 +84,8 @@ export function OrganizerEventManage() {
   const [unpublishConfirmOpen, setUnpublishConfirmOpen] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState("");
   const [webhookEvents, setWebhookEvents] = useState("*");
+  const [renamingTrackId, setRenamingTrackId] = useState<string | null>(null);
+  const [trackNameDraft, setTrackNameDraft] = useState("");
   const [newSecretKey, setNewSecretKey] = useState<string | null>(null);
   const [newTrackName, setNewTrackName] = useState("");
   const [newTrackDesc, setNewTrackDesc] = useState("");
@@ -243,6 +251,44 @@ export function OrganizerEventManage() {
     }
   }
 
+  async function handleUnflagComment(commentId: string) {
+    setBusy(true);
+    try {
+      await unflagComment({ commentId: commentId as never });
+      toast.success("Flag cleared — the comment stays published.");
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRenameTrack(trackId: string) {
+    if (!trackNameDraft.trim()) return;
+    setBusy(true);
+    try {
+      await updateTrack({ trackId: trackId as never, name: trackNameDraft.trim() });
+      toast.success("Track renamed.");
+      setRenamingTrackId(null);
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleToggleWebhook(webhookId: string, isActive: boolean) {
+    setBusy(true);
+    try {
+      await setWebhookActive({ webhookId: webhookId as never, isActive });
+      toast.success(isActive ? "Webhook resumed." : "Webhook paused — deliveries stop until resumed.");
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleRunDuplicateScan() {
     if (!event) return;
     setBusy(true);
@@ -382,11 +428,46 @@ export function OrganizerEventManage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {(tracks || []).map((t: any) => (
-                <div key={t._id} className="bg-surface-1 border border-line rounded-card p-5">
-                  <h4 className="text-[15px] font-semibold text-primary">{t.name}</h4>
-                  {t.description && <p className="text-[13px] text-secondary mt-1">{t.description}</p>}
+                <div key={t._id} className="bg-surface-1 border border-line rounded-card p-5 flex flex-col gap-2">
+                  {renamingTrackId === t._id ? (
+                    <div className="flex flex-wrap items-end gap-2">
+                      <div className="flex-1 min-w-40">
+                        <Input
+                          label="Track name"
+                          value={trackNameDraft}
+                          onChange={(e) => setTrackNameDraft(e.target.value)}
+                        />
+                      </div>
+                      <Button variant="primary" size="sm" isLoading={busy} onClick={() => handleRenameTrack(t._id)}>
+                        Save
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setRenamingTrackId(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h4 className="text-[15px] font-semibold text-primary">{t.name}</h4>
+                        {t.description && (
+                          <p className="text-[13px] text-secondary mt-1">{t.description}</p>
+                        )}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() => {
+                          setRenamingTrackId(t._id);
+                          setTrackNameDraft(t.name);
+                        }}
+                      >
+                        Rename
+                      </Button>
+                    </div>
+                  )}
                   {t.prizeDescription && (
-                    <p className="text-[13px] font-medium text-accent mt-2">{t.prizeDescription}</p>
+                    <p className="text-[13px] font-medium text-accent">{t.prizeDescription}</p>
                   )}
                 </div>
               ))}
@@ -438,7 +519,15 @@ export function OrganizerEventManage() {
                 <div className="text-primary leading-relaxed bg-warning/5 border border-warning/30 rounded-input p-2.5">
                   <Markdown content={c.body || c.content} className="text-[13px]" />
                 </div>
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    isLoading={busy}
+                    onClick={() => handleUnflagComment(c.id)}
+                  >
+                    Unflag (keep)
+                  </Button>
                   <Button
                     variant="danger"
                     size="sm"
@@ -690,17 +779,31 @@ export function OrganizerEventManage() {
                 >
                   <div className="min-w-0">
                     <span className="font-mono text-primary break-all">{w.targetUrl}</span>
-                    <p className="text-muted mt-0.5">Events: {w.events}</p>
+                    <p className="text-muted mt-0.5 flex items-center gap-2">
+                      Events: {w.events}
+                      <Badge variant={w.isActive ? "success" : "default"}>
+                        {w.isActive ? "Active" : "Paused"}
+                      </Badge>
+                    </p>
                   </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    isLoading={busy}
-                    onClick={() => handleTestDelivery(w._id)}
-                    className="shrink-0"
-                  >
-                    Send test event
-                  </Button>
+                  <div className="flex gap-2 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      isLoading={busy}
+                      onClick={() => handleToggleWebhook(w._id, !w.isActive)}
+                    >
+                      {w.isActive ? "Pause" : "Resume"}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      isLoading={busy}
+                      onClick={() => handleTestDelivery(w._id)}
+                    >
+                      Send test event
+                    </Button>
+                  </div>
                 </div>
               ))}
               {(!webhooks || webhooks.length === 0) && (
@@ -824,6 +927,81 @@ export function OrganizerEventManage() {
               >
                 Scores CSV
               </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  if (!assignmentsCsv) {
+                    toast.error("No data to export yet");
+                    return;
+                  }
+                  downloadRawCsv(`${event.slug}-assignments.csv`, assignmentsCsv);
+                }}
+              >
+                Assignments CSV
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  if (!eventJson) {
+                    toast.error("No data to export yet");
+                    return;
+                  }
+                  // Full event dump (tracks, teams, submissions, rubric,
+                  // assignments, scores, votes, matches) for backup or migration.
+                  const blob = new Blob([JSON.stringify(eventJson, null, 2)], {
+                    type: "application/json",
+                  });
+                  const url = URL.createObjectURL(blob);
+                  const link = document.createElement("a");
+                  link.href = url;
+                  link.download = `${event.slug}-event.json`;
+                  link.click();
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                Event JSON
+              </Button>
+            </div>
+          </div>
+
+          {/* Certificates: issued at seeding/close-of-event, verifiable by anyone. */}
+          <div className="bg-surface-1 border border-line rounded-card p-6">
+            <h3 className="text-h3 text-primary mb-1">
+              Issued certificates{" "}
+              <span className="text-muted tnum">({certificates?.length || 0})</span>
+            </h3>
+            <p className="text-[13px] text-secondary mb-4">
+              Participation and winner certificates for this event. Each one carries an HMAC signature
+              that anyone can check on the public verification page.
+            </p>
+            <div className="flex flex-col gap-2">
+              {(certificates || []).slice(0, 8).map((c: any) => (
+                <div
+                  key={c._id}
+                  className="px-4 py-3 rounded-input bg-surface-2 border border-line flex flex-wrap items-center justify-between gap-2 text-[13px]"
+                >
+                  <div className="min-w-0">
+                    <span className="font-medium text-primary">{c.email}</span>
+                    <span className="text-muted ml-2 uppercase text-[11px] tracking-[0.08em]">{c.certType}</span>
+                    <p className="text-muted mt-0.5 truncate">{c.title}</p>
+                  </div>
+                  <Link
+                    to={`/verify/${c.certUuid}?signature=${c.signatureHash}`}
+                    className="text-accent hover:text-accent-hover transition-colors duration-fast shrink-0"
+                  >
+                    Verify ↗
+                  </Link>
+                </div>
+              ))}
+              {certificates !== undefined && certificates.length === 0 && (
+                <EmptyState
+                  title="No certificates issued"
+                  description="Certificates are minted when the event closes — participants and winners each get a signed record."
+                />
+              )}
+              {certificates === undefined && <SkeletonCard lines={3} />}
             </div>
           </div>
 

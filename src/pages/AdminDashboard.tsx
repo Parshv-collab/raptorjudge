@@ -1,6 +1,10 @@
+import { useMemo, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
-import { useQuery, useConvexAuth } from "convex/react";
+import { useQuery, useMutation, useConvexAuth } from "convex/react";
+import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
+import { Button } from "@/components/ui/Button";
+import { humanizeConvexError } from "@/lib/errors";
 import { StatCard } from "@/components/ui/StatCard";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Badge } from "@/components/ui/Badge";
@@ -55,6 +59,38 @@ export default function AdminDashboard() {
   const event = skip ? primaryEvent : (events?.[0] ?? primaryEvent);
   const submissions = useQuery(api.submissions.byEvent, skip || !event ? "skip" : { eventId: event._id });
   const audit = useQuery(api.audit.list, skip ? "skip" : { limit: 10 });
+  // In-app acceptance self-check: same checks the REST report runs, stored so
+  // the result survives a reload instead of living only in the response body.
+  const latestReport = useQuery(api.acceptance.latestReport, skip ? "skip" : {});
+  const runSuite = useMutation(api.acceptance.runSuite);
+  const saveReport = useMutation(api.acceptance.saveReport);
+  const [checkBusy, setCheckBusy] = useState(false);
+
+  // The stored report is JSON text so it can grow without a schema change.
+  const parsedReport = useMemo(() => {
+    if (!latestReport) return null;
+    try {
+      return JSON.parse(latestReport) as { summary?: string; runAt?: number; checks?: any[] };
+    } catch {
+      return null;
+    }
+  }, [latestReport]);
+  const reportSummary = parsedReport?.summary ?? "";
+  const reportPassedAt = parsedReport?.runAt ?? null;
+  const reportChecks = parsedReport?.checks ?? [];
+
+  async function handleRunAcceptance() {
+    setCheckBusy(true);
+    try {
+      const report = await runSuite({});
+      await saveReport({ report: JSON.stringify(report) });
+      toast.success(report.summary);
+    } catch (err) {
+      toast.error(humanizeConvexError(err));
+    } finally {
+      setCheckBusy(false);
+    }
+  }
 
   if (authLoading || !isAuthenticated || me === undefined || !events || !users) {
     return (
@@ -125,6 +161,55 @@ export default function AdminDashboard() {
           </div>
         </Link>
       </div>
+
+      {/* Acceptance self-check */}
+      <section className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-h2 text-primary">Acceptance self-check</h2>
+            <p className="text-[13px] text-secondary mt-0.5">
+              Re-runs the platform's own integrity checks (role isolation, result gating,
+              audit chain) against the live data. Same suite as <code className="font-mono text-[12px]">GET /api/v1/acceptance</code>.
+            </p>
+          </div>
+          <Button variant="secondary" size="sm" isLoading={checkBusy} onClick={handleRunAcceptance}>
+            Run checks
+          </Button>
+        </div>
+
+        {latestReport ? (
+          <div className="bg-surface-1 border border-line rounded-card p-5 flex flex-col gap-3">
+            <p className="text-[13px] text-primary font-medium">{reportSummary}</p>
+            {reportPassedAt ? (
+              <p className="text-[12px] text-muted tnum">
+                Last run {new Date(reportPassedAt).toLocaleString()}
+              </p>
+            ) : null}
+            <div className="flex flex-col gap-1.5">
+              {reportChecks.slice(0, 6).map((c: any) => (
+                <div
+                  key={`${c.tier}-${c.id}`}
+                  className="flex items-center justify-between gap-3 text-[13px]"
+                >
+                  <span className="text-secondary truncate">
+                    <span className="font-mono text-[11px] text-muted mr-2">{c.id}</span>
+                    {c.description}
+                  </span>
+                  <Badge variant={c.skipped ? "default" : c.pass ? "success" : "danger"}>
+                    {c.skipped ? "skipped" : c.pass ? "pass" : "fail"}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <EmptyState
+            icon={<ShieldCheck />}
+            title="No self-check stored yet"
+            description="Run the checks once and the report is kept here for the rest of the deployment."
+          />
+        )}
+      </section>
 
       {/* Recent audit */}
       <section className="flex flex-col gap-4">

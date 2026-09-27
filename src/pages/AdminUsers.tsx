@@ -41,6 +41,9 @@ export default function AdminUsers() {
   const forceLogout = useMutation(api.users.adminForceLogout);
   const deleteUser = useMutation(api.users.adminDelete);
   const resetPassword = useAction(api.adminReset.adminResetPassword);
+  // Clearing a lost 2FA device — without it an admin reset cannot restore
+  // access, because the second factor is required after the password.
+  const resetMfa = useMutation(api.mfa.adminReset);
 
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
@@ -55,6 +58,20 @@ export default function AdminUsers() {
   const [customPassword, setCustomPassword] = useState("");
   const [resetBusy, setResetBusy] = useState(false);
   const [resetResult, setResetResult] = useState<{ email: string; tempPassword: string } | null>(null);
+
+  async function handleResetMfa(user: any) {
+    setBusy(true);
+    try {
+      await resetMfa({ userId: user._id });
+      toast.success(
+        `Second factor cleared for ${user.name || user.email}. They can enrol a new device from Security.`,
+      );
+    } catch (err) {
+      toast.error(humanizeConvexError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleResetPassword() {
     if (!resetTarget) return;
@@ -260,6 +277,19 @@ export default function AdminUsers() {
                       }}
                     >
                       Reset password
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!user.totpEnabled}
+                      title={
+                        user.totpEnabled
+                          ? "Clear the stored TOTP secret so the user can enrol a new device"
+                          : "This user has no second factor enrolled"
+                      }
+                      onClick={() => handleResetMfa(user)}
+                    >
+                      Reset 2FA
                     </Button>
                     <Button variant="danger" size="sm" onClick={() => handleDelete(user)}>
                       Delete

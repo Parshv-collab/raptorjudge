@@ -6,6 +6,16 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 
+/** Fields present only on a successful `judging.verifyJudgeRecord` result. */
+type JudgeRecordView = {
+  judgeName?: string;
+  eventName?: string;
+  eventSlug?: string;
+  projectsScored?: number;
+  totalScoresSubmitted?: number;
+  issuedAt?: number;
+};
+
 export default function Verify() {
   const { uuid: uuidParam } = useParams<{ uuid?: string }>();
   const [searchParams] = useSearchParams();
@@ -23,11 +33,21 @@ export default function Verify() {
       : "skip"
   );
 
-  const judgeName = searchParams.get("judgeName") ?? "";
-  const eventName = searchParams.get("eventName") ?? "";
-  const projectsScored = searchParams.get("projectsScored") ?? "0";
-  const totalScores = searchParams.get("totalScores") ?? "0";
-  const isJudgeValid = isJudge && Boolean(sigParam) && Boolean(uuidParam);
+  // Judge attestation: verified against the backend, never from the URL. The
+  // link carries the counts in its query string for convenience, but they are
+  // only trustworthy when the HMAC over them matches the server's record.
+  const judgeId = uuidParam ?? "";
+  const eventIdParam = searchParams.get("eventId") ?? "";
+  const judgeRecord = useQuery(
+    api.judging.verifyJudgeRecord,
+    isJudge && judgeId && eventIdParam && sigParam
+      ? { judgeId, eventId: eventIdParam, signature: sigParam }
+      : "skip"
+  );
+  const judgeLinkComplete = isJudge && Boolean(judgeId) && Boolean(eventIdParam) && Boolean(sigParam);
+  // The success branch is the only one carrying record fields — narrow once so
+  // the table below never reads a property that a failed check does not have.
+  const verified = judgeRecord?.valid ? (judgeRecord as JudgeRecordView) : null;
 
   return (
     <div className="max-w-2xl mx-auto flex flex-col gap-8 py-6">
@@ -57,19 +77,42 @@ export default function Verify() {
         </Button>
       </div>
 
-      {isJudge && isJudgeValid && (
-        <Alert variant="success" title="Judge record verified">
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 mt-2 text-[13px]">
-            <dt className="text-primary font-medium">Judge</dt>
-            <dd>{judgeName || "Verified judge"}</dd>
-            <dt className="text-primary font-medium">Event</dt>
-            <dd>{eventName || "RaptorJudge event"}</dd>
-            <dt className="text-primary font-medium">Projects scored</dt>
-            <dd className="tnum">{projectsScored}</dd>
-            <dt className="text-primary font-medium">Total scores</dt>
-            <dd className="tnum">{totalScores}</dd>
-          </dl>
-        </Alert>
+      {isJudge && (
+        <div>
+          {!judgeLinkComplete ? (
+            <Alert variant="warning" title="Incomplete verification link">
+              This link is missing the judge, event or signature parameter. Ask the judge to copy
+              the full attestation URL from their judging console.
+            </Alert>
+          ) : judgeRecord === undefined ? (
+            <Alert variant="info" title="Checking signature…">
+              Comparing the attestation against the event's signed records.
+            </Alert>
+          ) : judgeRecord.valid ? (
+            <Alert variant="success" title="Judge record verified">
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 mt-2 text-[13px]">
+                <dt className="text-primary font-medium">Judge</dt>
+                <dd>{verified?.judgeName ?? "Verified judge"}</dd>
+                <dt className="text-primary font-medium">Event</dt>
+                <dd>{verified?.eventName ?? "RaptorJudge event"}</dd>
+                <dt className="text-primary font-medium">Projects scored</dt>
+                <dd className="tnum">{verified?.projectsScored ?? 0}</dd>
+                <dt className="text-primary font-medium">Total scores</dt>
+                <dd className="tnum">{verified?.totalScoresSubmitted ?? 0}</dd>
+                {verified?.issuedAt ? (
+                  <>
+                    <dt className="text-primary font-medium">Attested</dt>
+                    <dd className="tnum">{new Date(verified.issuedAt).toLocaleString()}</dd>
+                  </>
+                ) : null}
+              </dl>
+            </Alert>
+          ) : (
+            <Alert variant="error" title="Judge record could not be verified">
+              {judgeRecord.reason || "The signature does not match this judge's records."}
+            </Alert>
+          )}
+        </div>
       )}
 
       {!isJudge && certResult && (

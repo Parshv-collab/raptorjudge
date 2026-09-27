@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query, type QueryCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { getCurrentUser, requireOrganizer, requireUser } from "./lib/common";
 import { appendAudit } from "./lib/audit";
@@ -23,12 +24,9 @@ export const listMine = query({ args: {}, handler: async (ctx) => {
   return (user.role === "admin" ? all : all.filter((e) => e.organizerId === user._id));
 } });
 export const listPublic = query({ args: {}, handler: async (ctx) => (await ctx.db.query("events").collect()).filter((e) => e.status !== "draft") });
-export const get = query({ args: { eventId: v.id("events") }, handler: async (ctx, args) => {
-  const event = await ctx.db.get(args.eventId);
-  if (!event) throw new Error("Event not found");
-  await assertEventVisible(ctx, event);
-  return event;
-} });
+// `get({ eventId })` was removed: every caller resolved an event by slug
+// (`getBySlug`) or through a public variant, so it was an unused public read
+// that duplicated `assertEventVisible` gating.
 export const getBySlug = query({ args: { slug: v.string() }, handler: async (ctx, args) => {
   const event = await ctx.db.query("events").withIndex("by_slug", (q) => q.eq("slug", args.slug)).unique();
   if (!event) return null;
@@ -152,7 +150,17 @@ export const deleteEvent = mutation({ args: { eventId: v.id("events") }, handler
 export const setStage = mutation({ args: { eventId: v.id("events"), stage: v.string() }, handler: async (ctx, args) => {
   const actor = await requireOrganizer(ctx); const event = await ctx.db.get(args.eventId); if (!event) throw new Error("Event not found");
   const stages = ["draft", "registration", "hacking", "judging", "voting", "published", "archived"]; if (!stages.includes(args.stage)) throw new Error("Invalid stage");
-  await ctx.db.patch(args.eventId, { status: args.stage }); await appendAudit(ctx, { eventId: args.eventId, actorId: actor._id, action: "event.stage_change", targetType: "event", targetId: String(args.eventId), beforeState: event.status, afterState: args.stage }); return { ok: true };
+  await ctx.db.patch(args.eventId, { status: args.stage }); await appendAudit(ctx, { eventId: args.eventId, actorId: actor._id, action: "event.stage_change", targetType: "event", targetId: String(args.eventId), beforeState: event.status, afterState: args.stage });
+  // Announcing results is the one transition subscribers act on: it changes the
+  // public gallery for everyone, so it gets a webhook of its own.
+  if (args.stage === "published" && event.status !== "published") {
+    await ctx.scheduler.runAfter(0, internal.webhooks.dispatch, {
+      eventId: args.eventId,
+      eventType: "results.published",
+      payload: JSON.stringify({ eventId: String(args.eventId), slug: event.slug, title: event.title, publishedAt: Date.now() }),
+    });
+  }
+  return { ok: true };
 } });
 
 export const adminTransferOwnership = mutation({ args: { eventId: v.id("events"), newOrganizerId: v.id("users") }, handler: async (ctx, args) => {

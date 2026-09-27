@@ -28,6 +28,9 @@ export default function AdminSettings() {
   const professions = useQuery(api.admin.listLookups, skip ? "skip" : { type: "professions" });
   const createLookup = useMutation(api.admin.createLookup);
   const deactivateLookup = useMutation(api.admin.deactivateLookup);
+  // `updateLookup` is the only way to fix a label typo — activation alone is
+  // covered by `deactivateLookup`.
+  const updateLookup = useMutation(api.admin.updateLookup);
 
   // Branding
   const [siteName, setSiteName] = useState("RaptorJudge");
@@ -51,6 +54,9 @@ export default function AdminSettings() {
 
   // Lookup table state
   const [lookupModalOpen, setLookupModalOpen] = useState(false);
+  const [lookupEditTarget, setLookupEditTarget] = useState<any>(null);
+  const [lookupEditLabel, setLookupEditLabel] = useState("");
+  const [lookupEditBusy, setLookupEditBusy] = useState(false);
   const [lookupType, setLookupType] = useState("professions");
   const [lookupCode, setLookupCode] = useState("");
   const [lookupLabel, setLookupLabel] = useState("");
@@ -112,6 +118,26 @@ export default function AdminSettings() {
       toast.success("Lookup status updated.");
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
+    }
+  }
+
+  async function handleRenameLookup() {
+    if (!lookupEditTarget || !lookupEditLabel.trim()) return;
+    setLookupEditBusy(true);
+    try {
+      await updateLookup({
+        type: lookupType,
+        id: lookupEditTarget.id,
+        label: lookupEditLabel.trim(),
+        active: Boolean(lookupEditTarget.active),
+        sortOrder: lookupEditTarget.sortOrder ?? 0,
+      });
+      toast.success("Lookup label updated.");
+      setLookupEditTarget(null);
+    } catch (err: any) {
+      toast.error(humanizeConvexError(err));
+    } finally {
+      setLookupEditBusy(false);
     }
   }
 
@@ -332,13 +358,25 @@ export default function AdminSettings() {
                     </Badge>
                   </TD>
                   <TD numeric>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleToggleLookupActive(lookupType, item.id)}
-                    >
-                      {item.active ? "Deactivate" : "Activate"}
-                    </Button>
+                    <div className="flex justify-end gap-1.5">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setLookupEditTarget(item);
+                          setLookupEditLabel(item.label);
+                        }}
+                      >
+                        Rename
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleToggleLookupActive(lookupType, item.id)}
+                      >
+                        {item.active ? "Deactivate" : "Activate"}
+                      </Button>
+                    </div>
                   </TD>
                 </TR>
               ))}
@@ -346,6 +384,35 @@ export default function AdminSettings() {
           </Table>
         )}
       </section>
+
+      {/* Rename a lookup label (fixing a typo without deleting the entry) */}
+      <Modal
+        isOpen={!!lookupEditTarget}
+        onClose={() => setLookupEditTarget(null)}
+        title="Rename lookup entry"
+        description={`Edit the label shown for ${lookupEditTarget?.code ?? ""} in the ${lookupType.replace(/_/g, " ")} list.`}
+      >
+        <div className="flex flex-col gap-4 mt-2">
+          <Input
+            label="Label"
+            value={lookupEditLabel}
+            onChange={(e) => setLookupEditLabel(e.target.value)}
+          />
+          <div className="flex justify-end gap-3">
+            <Button variant="ghost" onClick={() => setLookupEditTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              isLoading={lookupEditBusy}
+              disabled={!lookupEditLabel.trim()}
+              onClick={handleRenameLookup}
+            >
+              Save label
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Danger zone */}
       <section className="flex flex-col gap-4">

@@ -15,13 +15,10 @@ export default function ParticipantDashboard() {
 
   const me = useQuery(api.users.me, skip ? "skip" : {});
   const publicEvents = useQuery(api.events.listPublic, skip ? "skip" : {});
-  const myTeams = useQuery(api.teams.myTeams, skip ? "skip" : {});
-
-  const enrolled = useMemo(() => {
-    if (!publicEvents || !myTeams) return undefined;
-    const eventIds = new Set(myTeams.map((t: any) => String(t.eventId)));
-    return publicEvents.filter((e: any) => eventIds.has(String(e._id)));
-  }, [publicEvents, myTeams]);
+  // Server-side scoping: `events.enrolled` walks this user's team memberships
+  // and returns the matching events (with `participantCount`) in one read,
+  // instead of filtering the public list against a separately fetched roster.
+  const enrolled = useQuery(api.events.enrolled, skip ? "skip" : {});
 
   const featured = useMemo(() => {
     if (!publicEvents) return undefined;

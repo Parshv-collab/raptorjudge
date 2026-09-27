@@ -21,6 +21,23 @@ export default function JudgePortal() {
   const scoresOnly = searchParams.get("view") === "scores";
 
   const queue = useQuery(api.judging.myQueue, skip ? "skip" : {});
+  const me = useQuery(api.users.me, skip ? "skip" : {});
+
+  // The attestation is per event: prefer the explicit filter, else the first
+  // event this judge actually has assignments in.
+  const recordEventId = React.useMemo(() => {
+    const items = ((queue as any)?.items ?? []) as any[];
+    if (selectedEventId !== "all") return selectedEventId;
+    return items.find((i: any) => i.eventId)?.eventId ?? null;
+  }, [queue, selectedEventId]);
+
+  const judgeRecord = useQuery(
+    api.judging.judgeRecord,
+    skip || !me?._id || !recordEventId
+      ? "skip"
+      : { eventId: recordEventId as never, judgeId: me._id as never },
+  );
+  const [copied, setCopied] = React.useState(false);
 
   if (authLoading) {
     return (
@@ -107,6 +124,61 @@ export default function JudgePortal() {
       <div className="bg-surface-1 border border-line rounded-card p-6">
         <ProgressBar value={completed} max={total || 1} showLabel label={`${completed} of ${total} scored`} />
       </div>
+
+      {/* Signed attestation: the proof a judge can hand to anyone (a participant,
+          a sponsor) without giving them an account on this deployment. */}
+      {scoresOnly && judgeRecord && (
+        <section className="bg-surface-1 border border-line rounded-card p-6 flex flex-col gap-4">
+          <div>
+            <h2 className="text-h3 text-primary">Judging attestation</h2>
+            <p className="text-[13px] text-secondary mt-0.5">
+              A signed summary of the scores you submitted for {judgeRecord.eventName}. Verification is
+              public — no account needed — and fails if a single character of the link is edited.
+            </p>
+          </div>
+          <dl className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-[13px]">
+            {[
+              { label: "Projects scored", value: String(judgeRecord.projectsScored) },
+              { label: "Scores submitted", value: String(judgeRecord.totalScoresSubmitted) },
+              {
+                label: "Attested",
+                value: judgeRecord.issuedAt
+                  ? new Date(judgeRecord.issuedAt).toLocaleDateString()
+                  : "—",
+              },
+              { label: "Signature", value: `${judgeRecord.signature.slice(0, 12)}…` },
+            ].map((row) => (
+              <div key={row.label} className="rounded-input bg-surface-2 border border-line px-3 py-2">
+                <dt className="text-[11px] uppercase tracking-[0.08em] text-muted">{row.label}</dt>
+                <dd className="text-primary tnum font-mono mt-0.5 truncate">{row.value}</dd>
+              </div>
+            ))}
+          </dl>
+          <div className="flex flex-wrap gap-2">
+            <Link to={judgeRecord.verificationUrl}>
+              <Button variant="primary" size="sm">
+                Open verification page →
+              </Button>
+            </Link>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                const url = `${window.location.origin}${judgeRecord.verificationUrl}`;
+                navigator.clipboard?.writeText(url).then(
+                  () => {
+                    setCopied(true);
+                    window.setTimeout(() => setCopied(false), 2000);
+                  },
+                  () => setCopied(false),
+                );
+              }}
+            >
+              {copied ? "Link copied" : "Copy verification link"}
+            </Button>
+          </div>
+        </section>
+      )}
 
       {/* Assigned queue */}
       <section className="flex flex-col gap-4">

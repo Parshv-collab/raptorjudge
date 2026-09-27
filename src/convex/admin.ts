@@ -105,10 +105,18 @@ export const updateLookup = mutation({
     if (!row) throw new Error("Lookup table not found");
     const list = JSON.parse(row.value) as any[];
     const idx = list.findIndex((x) => x.id === args.id);
-    if (idx !== -1) {
-      list[idx] = { ...list[idx], label: args.label, active: args.active, sortOrder: args.sortOrder };
-      await ctx.db.patch(row._id, { value: JSON.stringify(list) });
-    }
+    if (idx === -1) throw new Error("Lookup entry not found");
+    const before = list[idx];
+    list[idx] = { ...before, label: args.label, active: args.active, sortOrder: args.sortOrder };
+    await ctx.db.patch(row._id, { value: JSON.stringify(list) });
+    await appendAudit(ctx, {
+      actorId: actor._id,
+      action: "admin.lookup_update",
+      targetType: "lookup",
+      targetId: `${args.type}:${args.id}`,
+      beforeState: JSON.stringify(before),
+      afterState: JSON.stringify(list[idx]),
+    });
     return { ok: true };
   },
 });

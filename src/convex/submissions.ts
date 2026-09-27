@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
   getCurrentUser,
@@ -462,6 +463,22 @@ export const submit = mutation({
     } catch {
       // Detection is advisory: never block a legitimate submission on it.
     }
+
+    // Webhooks: fire `project.submitted` for every registered endpoint of this
+    // event. `dispatch` is an internal mutation (never reachable from the
+    // client) and it only enqueues deliveries, so a broken subscriber can never
+    // fail a submission.
+    await ctx.scheduler.runAfter(0, internal.webhooks.dispatch, {
+      eventId: args.eventId,
+      eventType: "project.submitted",
+      payload: JSON.stringify({
+        submissionId: String(draft._id),
+        title: draft.title,
+        teamId: String(draft.teamId),
+        trackId: draft.trackId ? String(draft.trackId) : null,
+        submittedAt: Date.now(),
+      }),
+    });
 
     return { ok: true, submissionId: draft._id };
   },

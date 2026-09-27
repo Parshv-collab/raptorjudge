@@ -18,6 +18,13 @@ export default function ProjectDetail() {
   const detail = useQuery(api.submissions.detail, id ? { submissionId: id as never } : "skip");
   const comments = useQuery(api.comments.listForSubmission, id ? { submissionId: id as never } : "skip");
   const me = useQuery(api.users.me, {});
+  const voteStatus = useQuery(
+    api.voting.voteStatus,
+    detail?.eventId ? { eventId: detail.eventId } : "skip",
+  );
+  const castVote = useMutation(api.voting.castVote);
+  const removeVote = useMutation(api.voting.removeVote);
+  const [votePoints, setVotePoints] = useState(1);
   const addComment = useMutation(api.comments.add);
   const flagComment = useMutation(api.comments.flag);
   const deleteComment = useMutation(api.comments.deleteComment);
@@ -33,6 +40,34 @@ export default function ProjectDetail() {
       await addComment({ submissionId: id as never, content: text });
       setText("");
       toast.success("Comment posted");
+    } catch (err) {
+      toast.error(humanizeConvexError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleVote(points: number) {
+    if (!id || !detail?.eventId) return;
+    setBusy(true);
+    try {
+      await castVote({ eventId: detail.eventId, submissionId: id as never, points });
+      toast.success(
+        voteStatus?.votingType === "upvote" ? "Upvote recorded" : `${points} point${points === 1 ? "" : "s"} cast`,
+      );
+    } catch (err) {
+      toast.error(humanizeConvexError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemoveVote() {
+    if (!id || !detail?.eventId) return;
+    setBusy(true);
+    try {
+      await removeVote({ eventId: detail.eventId, submissionId: id as never });
+      toast.success("Vote withdrawn");
     } catch (err) {
       toast.error(humanizeConvexError(err));
     } finally {
@@ -141,6 +176,76 @@ export default function ProjectDetail() {
           </div>
         ) : null}
       </header>
+
+      {/* Community vote — the only participant-facing write on this page. The
+          server owns every rule (stage window, quadratic budget, rate limit,
+          one-vote-per-project in upvote mode); this panel only mirrors them. */}
+      {voteStatus && me?.role !== "judge" && (() => {
+        const myVote = (voteStatus.myVotes ?? []).find(
+          (v: any) => v.submissionId === String(id),
+        );
+        const isUpvote = voteStatus.votingType === "upvote";
+        const creditsLeft = voteStatus.budget - voteStatus.creditsSpent;
+        return (
+          <section className="border-t border-line pt-8 flex flex-col gap-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-h2 text-primary">Community vote</h2>
+              <span className="text-[13px] text-muted tnum">
+                {isUpvote
+                  ? myVote
+                    ? "You upvoted this project"
+                    : "One upvote per project"
+                  : `${creditsLeft} of ${voteStatus.budget} credits left`}
+              </span>
+            </div>
+
+            {!me ? (
+              <p className="text-sm text-secondary">
+                <Link to="/auth" className="text-accent hover:text-accent-hover transition-colors duration-fast">
+                  Sign in
+                </Link>{" "}
+                to vote on this project.
+              </p>
+            ) : !voteStatus.votingOpen ? (
+              <p className="text-sm text-secondary">
+                Voting is {voteStatus.resultsVisible ? "closed for this event" : "not open yet"} — points can
+                be cast while the event is in its voting stage.
+              </p>
+            ) : myVote ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge variant="accent">{myVote.points} point{myVote.points === 1 ? "" : "s"}</Badge>
+                <span className="text-[13px] text-muted">
+                  {isUpvote
+                    ? "Your upvote is recorded."
+                    : `Cost ${myVote.creditsSpent} credit${myVote.creditsSpent === 1 ? "" : "s"}.`}
+                </span>
+                <Button variant="secondary" size="sm" isLoading={busy} onClick={handleRemoveVote}>
+                  Withdraw vote
+                </Button>
+              </div>
+            ) : isUpvote ? (
+              <Button variant="primary" size="sm" isLoading={busy} onClick={() => handleVote(1)} className="self-start">
+                Upvote this project
+              </Button>
+            ) : (
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="w-32">
+                  <Input
+                    label="Points"
+                    type="number"
+                    min={1}
+                    value={String(votePoints)}
+                    onChange={(e) => setVotePoints(Math.max(1, Number(e.target.value) || 1))}
+                  />
+                </div>
+                <Button variant="primary" size="sm" isLoading={busy} onClick={() => handleVote(votePoints)}>
+                  Cast {votePoints} point{votePoints === 1 ? "" : "s"} ({votePoints * votePoints} credits)
+                </Button>
+              </div>
+            )}
+          </section>
+        );
+      })()}
 
       {/* Description */}
       <section className="border-t border-line pt-8">

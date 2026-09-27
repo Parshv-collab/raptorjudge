@@ -19,7 +19,8 @@ const STATUS_OPTIONS = [
 
 export function OrganizerEvents() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
-  const events = useQuery(api.events.listAll, authLoading || !isAuthenticated ? "skip" : {});
+  // Scoped to the caller's own events (admins get all) — same rule as the console.
+  const events = useQuery(api.events.listMine, authLoading || !isAuthenticated ? "skip" : {});
   const [statusFilter, setStatusFilter] = useState("all");
 
   const filteredEvents = useMemo(() => {

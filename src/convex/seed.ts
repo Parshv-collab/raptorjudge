@@ -272,12 +272,14 @@ export const seed = action({
     const tokens: Record<string, string> = {};
     const SESSION_SECRET = "raptorjudge-session-secret-key-2026";
 
+    let organizerUserId: Id<"users"> | null = null;
     for (const demo of demoAccounts) {
       const { id: userId } = await ctx.runMutation(internal.seed.upsertSeedUser, {
         email: demo.email,
         name: demo.name,
         role: demo.role,
       });
+      if (demo.key === "organizer") organizerUserId = userId as Id<"users">;
       await ctx.runAction(internal.seed.ensureSeedUser, { email: demo.email, password: SEED_PASSWORD });
 
       // Generate deterministic token
@@ -289,6 +291,16 @@ export const seed = action({
         userId: userId as Id<"users">,
         tokenHash,
         expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
+      });
+    }
+
+    // The event is inserted before the accounts exist, so ownership is stamped
+    // here: without it `events.listMine` (the organizer console) had nothing to
+    // scope to and the seeded organizer saw an empty dashboard.
+    if (organizerUserId) {
+      await ctx.runMutation(internal.seed.setEventOrganizer, {
+        eventId,
+        organizerId: organizerUserId,
       });
     }
 
@@ -495,6 +507,15 @@ export const createEvent = internalMutation({
       return existing._id;
     }
     return ctx.db.insert("events", args);
+  },
+});
+
+/** Stamp the seeded event's owner (the event exists before its accounts do). */
+export const setEventOrganizer = internalMutation({
+  args: { eventId: v.id("events"), organizerId: v.id("users") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.eventId, { organizerId: args.organizerId });
+    return { ok: true };
   },
 });
 

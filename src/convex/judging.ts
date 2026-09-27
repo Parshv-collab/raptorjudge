@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import {
   requireOrganizer,
@@ -10,7 +11,7 @@ import { assertWithinWindow } from "./lib/timeWindows";
 import { appendAudit } from "./lib/audit";
 import { planJudgeAssignments, type AssignmentPlan } from "../lib/algorithms/assignment";
 import { DEFAULT_RUBRIC } from "./lib/defaultRubric";
-import { hmacSha256Hex } from "./crypto";
+import { hmacSha256Hex, safeEqualHex } from "./crypto";
 import { isResultsPublished, rankEventProjects } from "./lib/results";
 
 async function getCertSecretReadOnly(ctx: any): Promise<string> {
@@ -871,6 +872,19 @@ export const submitScores = mutation({
         targetId: String(args.assignmentId),
         afterState: JSON.stringify({ submissionId: String(assignment.submissionId), criteria: scoredCount }),
       });
+      // Webhook event: a completed judging assignment is the unit subscribers
+      // care about (partial saves stay internal). Enqueued, never fired inline.
+      await ctx.scheduler.runAfter(0, internal.webhooks.dispatch, {
+        eventId: assignment.eventId,
+        eventType: "score.recorded",
+        payload: JSON.stringify({
+          assignmentId: String(args.assignmentId),
+          judgeId: String(user._id),
+          submissionId: String(assignment.submissionId),
+          criteriaScored: scoredCount,
+          completedAt: now,
+        }),
+      });
     }
     return { ok: true, complete };
   },
@@ -985,7 +999,10 @@ export const judgeRecord = query({
     const judgeScores = scores.filter((s) => s.judgeId === args.judgeId);
 
     const projectsScoredCount = new Set(judgeScores.map((s) => String(s.submissionId))).size;
-    const issuedAt = Date.now();
+    // Attestation time = the judge's last submission. Using `Date.now()` here
+    // made the record look freshly issued on every read even though the
+    // signature (and therefore the record) never changes.
+    const issuedAt = judgeScores.reduce((max, s) => Math.max(max, s.submittedAt), 0);
 
     const secret = await getCertSecretReadOnly(ctx);
     const payloadStr = [
@@ -1013,70 +1030,67 @@ export const judgeRecord = query({
   },
 });
 
-/** All scores for an event (organizer/admin only — feeds normalization + exports). */
+// A `leaderboard` query briefly lived here. It duplicated the ranking that
+// `submissions.publicGallery` already returns (same `rankEventProjects` helper,
+// same `rank` / `isWinner` fields on every card) and nothing called it, so the
+// public gallery remains the single ranked read for an event.
+
 /**
- * Final leaderboard (T2 results).
+ * Public verification of a judge record (the counterpart of
+ * `certificates.verify` for the `/verify/judge/:uuid` link that `judgeRecord`
+ * hands out).
  *
- * Same rule as `normalization.analyze` and `pairwise.leaderboard`: staff may
- * preview it while judging runs, everyone else only after the event publishes.
- * The ordering and the #1 winner come from `lib/results`, so the gallery, this
- * endpoint and the winner-override system all report the same name.
+ * No identity required — the record is only readable by staff/self before
+ * publication, but its *authenticity* must be checkable by anyone holding the
+ * link. The signature covers judge, event and the two score counts; a tampered
+ * URL fails the constant-time comparison instead of rendering a green banner.
  */
-export const leaderboard = query({
-  args: { eventId: v.id("events") },
-  handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
-    const event = await ctx.db.get(args.eventId);
-    if (!event) throw new Error("Event not found");
-    const published = isResultsPublished(event);
-    const isStaff = user.role === "judge" || user.role === "organizer" || user.role === "admin";
-    if (!published && !isStaff) throw new Error("Results are not published yet");
-
-    const { method, ranking, overridden } = await rankEventProjects(ctx, args.eventId);
-    const subs = await ctx.db
-      .query("submissions")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    return {
-      published,
-      method,
-      overridden,
-      winnerId: ranking[0]?.submissionId ?? null,
-      ranking: ranking.map((row) => ({
-        ...row,
-        title: row.title ?? subs.find((s) => String(s._id) === row.submissionId)?.title ?? "—",
-      })),
-    };
+export const verifyJudgeRecord = query({
+  args: {
+    judgeId: v.string(),
+    eventId: v.string(),
+    signature: v.string(),
   },
-});
-
-export const allScores = query({
-  args: { eventId: v.id("events") },
   handler: async (ctx, args) => {
-    await requireOrganizer(ctx);
+    const invalid = { valid: false, reason: "signature mismatch — record may be forged" };
+    if (!args.judgeId || !args.eventId || !args.signature) {
+      return { valid: false, reason: "judge, event and signature are all required" };
+    }
+
+    const judge = await ctx.db.get(args.judgeId as Id<"users">).catch(() => null);
+    const event = await ctx.db.get(args.eventId as Id<"events">).catch(() => null);
+    if (!judge || !event) return { valid: false, reason: "record not found" };
+
     const scores = await ctx.db
       .query("judgeScores")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .collect();
-    const users = await ctx.db.query("users").collect();
-    const criteria = await ctx.db
-      .query("rubricCriteria")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    const subs = await ctx.db
-      .query("submissions")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
-    return scores.map((s) => ({
-      scoreId: String(s._id),
-      submissionId: String(s.submissionId),
-      submissionTitle: subs.find((x) => x._id === s.submissionId)?.title ?? "—",
-      judgeId: String(s.judgeId),
-      judgeName: users.find((u) => u._id === s.judgeId)?.name ?? "—",
-      criterionId: String(s.criterionId),
-      criterionName: criteria.find((c) => c._id === s.criterionId)?.name ?? "—",
-      score: s.score,
-      submittedAt: s.submittedAt,
-    }));
+    const judgeScores = scores.filter((s) => s.judgeId === judge._id);
+    const projectsScored = new Set(judgeScores.map((s) => String(s.submissionId))).size;
+
+    // Identical payload to `judgeRecord` — the two must never drift.
+    const payloadStr = [
+      judge._id,
+      event._id,
+      judge.name,
+      event.title,
+      projectsScored,
+      judgeScores.length,
+    ].join("|");
+    const secret = await getCertSecretReadOnly(ctx);
+    const expected = await hmacSha256Hex(secret, payloadStr);
+    const valid = safeEqualHex(expected, args.signature);
+
+    if (!valid) return invalid;
+    return {
+      valid: true,
+      reason: null,
+      judgeName: judge.name,
+      eventName: event.title,
+      eventSlug: event.slug,
+      projectsScored,
+      totalScoresSubmitted: judgeScores.length,
+      issuedAt: judgeScores.reduce((max, s) => Math.max(max, s.submittedAt), 0),
+    };
   },
 });

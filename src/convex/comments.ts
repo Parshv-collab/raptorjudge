@@ -181,15 +181,7 @@ export const deleteComment = mutation({
   },
 });
 
-/** True when the caller may moderate a comment (author, organizer, or admin). */
-export const canModerate = query({
-  args: { commentId: v.id("comments") },
-  handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
-    const comment = await ctx.db.get(args.commentId);
-    if (!comment) return { canDelete: false, isAuthor: false };
-    const isAuthor = comment.userId === user._id;
-    const isStaff = user.role === "organizer" || user.role === "admin";
-    return { canDelete: isAuthor || isStaff, isAuthor };
-  },
-});
+// `canModerate` used to live here as a per-comment query. It had no callers:
+// the project page already knows the viewer's own id and role (`users.me`) and
+// decides moderation rights locally, while `comments.deleteComment` re-checks
+// the same rule server-side. Removed rather than kept as an unused public read.
