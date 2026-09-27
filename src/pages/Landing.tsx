@@ -78,6 +78,95 @@ function Check() {
   );
 }
 
+/** Short label for a lifecycle stage, used on the event cards. */
+const STAGE_LABELS: Record<string, string> = {
+  registration: "Registration",
+  hacking: "Submissions",
+  judging: "Judging",
+  voting: "Voting",
+  published: "Results",
+  closed: "Closed",
+  archived: "Archived",
+};
+
+/**
+ * The stage-grouped event sections (issue 30).
+ *
+ * Rendered only when the deployment's TEST_EVENTS flag is on. With the flag
+ * off this returns null and the page is byte-for-byte the single-event layout
+ * it has always had.
+ */
+function StageSections() {
+  const config = useQuery(api.events.publicConfig, {});
+  // The stage query is a handful of public rows, so it runs unconditionally and
+  // the render is gated on the flag instead of skipping the subscription.
+  const groups = useQuery(api.events.stageOverview, {});
+
+  if (!config?.testEvents) return null;
+  if (groups === undefined) {
+    return (
+      <section className="max-w-content mx-auto px-5 lg:px-8 w-full">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={3} />
+        </div>
+      </section>
+    );
+  }
+  if (groups.length === 0) return null;
+
+  return (
+    <section className="max-w-content mx-auto px-5 lg:px-8 w-full">
+      <div className="mb-10">
+        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-accent">
+          The whole lifecycle
+        </span>
+        <h2 className="text-h1 text-primary mt-2">
+          Every stage of a hackathon, side by side
+        </h2>
+        <p className="text-sm text-secondary mt-2 max-w-2xl">
+          These demo events are each frozen in a different stage, so the
+          registration, submission, judging, voting and results flows can all be
+          opened without waiting for real time to pass.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-10">
+        {groups.map((group) => (
+          <div key={group.key}>
+            <div className="flex items-baseline gap-3 mb-4">
+              <h3 className="text-h3 text-primary">{group.label}</h3>
+              <span className="text-[13px] text-muted">{group.blurb}</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {group.events.map((ev) => (
+                <Link key={ev.slug} to={`/e/${ev.slug}`} className="group">
+                  <div className="h-full bg-surface-1 border border-line rounded-card p-5 flex flex-col transition-colors duration-fast group-hover:border-line-strong">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Badge variant="accent">{STAGE_LABELS[ev.status] ?? ev.status}</Badge>
+                    </div>
+                    <h4 className="text-[15px] font-semibold text-primary">{ev.title}</h4>
+                    <p className="text-[13px] text-secondary mt-1 line-clamp-2 leading-relaxed">
+                      {ev.tagline}
+                    </p>
+                    <div className="flex items-center gap-4 mt-4 pt-4 text-[12px] text-muted tnum">
+                      <span>{ev.projectCount} projects</span>
+                      <span>{ev.teamCount} teams</span>
+                      <span>{ev.participantCount} participants</span>
+                    </div>
+                    <span className="mt-3 text-[13px] font-medium text-accent">Open event →</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function Landing() {
   const { event, slug, phase, isLoading } = usePrimaryEvent();
   const gallery = useQuery(
@@ -151,6 +240,9 @@ export default function Landing() {
           <StatCard label="Normalisation" value="z → 0–10" subtext="per judge, clamped" />
         </div>
       </section>
+
+      {/* ------------------------------------------ stage-grouped test events */}
+      <StageSections />
 
       {/* ----------------------------------------------------------- pipeline */}
       <section className="max-w-content mx-auto px-5 lg:px-8 w-full">

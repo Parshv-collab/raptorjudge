@@ -98,6 +98,52 @@ material instead of empty states.
 
 The login page lists these accounts with one-click fill-in buttons.
 
+## Seeded events
+
+The seed always creates **one** event:
+
+| Event | Slug | Stage | Demonstrates |
+|---|---|---|---|
+| Sample Hack 2026 | `sample-hack-2026` | `closed` | The full fixture population: 8 tracks, 30 judges, 40 teams, 41 projects, 126 score rows, plus demo votes, pairwise matches, certificates and a duplicate flag. This is the event the acceptance suite targets, and it is never modified by anything below. |
+
+Setting **`TEST_EVENTS=true`** additionally seeds five demo events, each frozen
+in a different lifecycle stage with its own dates computed from the moment the
+seed runs, so every write-side flow can be exercised without waiting for real
+time to pass or hand-editing dates:
+
+| Event | Slug | Stage | Contents |
+|---|---|---|---|
+| Test Hack — Registration | `test-hack-registration` | `registration` | 0 projects, 0 judges, 0 votes — sign-ups are open, nothing built yet |
+| Test Hack — Submissions | `test-hack-submissions` | `hacking` | 5 projects, 0 judges, 0 votes — teams are submitting against a live deadline |
+| Test Hack — Judging | `test-hack-judging` | `judging` | 8 projects, 3 judges assigned, 4 scored — a partially filled judging queue |
+| Test Hack — Voting | `test-hack-voting` | `voting` | 6 projects all scored, 15 votes — community voting open, tallies hidden |
+| Test Hack — Results | `test-hack-results` | `published` | 8 projects all scored, 30 votes, winner crowned, certificates issued |
+
+**The five test events only appear when `TEST_EVENTS=true`.** The default is
+`false`, and with it the seed behaves exactly as before — only Sample Hack 2026
+is created, and the landing page shows the single-event layout it always had.
+
+Everything is built from the existing fixture users, teams, judges and projects;
+no new accounts are invented. All writes go through the same internal mutations
+the regular seed uses, and every vote is recorded in the hash-chained audit log.
+
+To switch modes:
+
+```bash
+# docker path: edit TEST_EVENTS in .env, then
+docker compose up --build     # the bootstrap container publishes the flag to the deployment
+
+# local dev: the Convex deployment's env vars are what the functions read
+bun convex env set TEST_EVENTS true
+bun run seed
+```
+
+It is idempotent — a `test-events-v1` platform flag guards re-runs, so the flag
+can be turned on after the first boot without wiping the fixtures. Turning it
+back off stops the events being created but leaves already-seeded rows in place;
+a fresh seed (`docker compose down -v`, or clearing the seed flags) is how you go
+back to a single-event deployment.
+
 ## Acceptance status
 
 `run.py .dogfood.toml` against the running stack reports **7/7** — see

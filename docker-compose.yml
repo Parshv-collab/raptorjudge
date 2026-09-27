@@ -117,6 +117,12 @@ services:
       SITE_URL: ${SITE_URL:-http://localhost:3000}
       SEED_ON_START: ${SEED_ON_START:-true}
       SKIP_AUTH_KEYS: ${SKIP_AUTH_KEYS:-false}
+      # Issue 30: seed five extra demo events, one per lifecycle stage.
+      # "false" (the default) keeps the seed exactly as it was: only
+      # Sample Hack 2026. Propagated to the deployment in backend/entrypoint.sh,
+      # because Convex functions read process.env from the deployment's own
+      # environment variables — not from this container's.
+      TEST_EVENTS: ${TEST_EVENTS:-false}
     restart: "no"
     networks:
       - dogfood-network

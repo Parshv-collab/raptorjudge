@@ -24,6 +24,95 @@ export const listMine = query({ args: {}, handler: async (ctx) => {
   return (user.role === "admin" ? all : all.filter((e) => e.organizerId === user._id));
 } });
 export const listPublic = query({ args: {}, handler: async (ctx) => (await ctx.db.query("events").collect()).filter((e) => e.status !== "draft") });
+
+/**
+ * Public, unauthenticated runtime config for the marketing surfaces (issue 30).
+ *
+ * `testEvents` mirrors the TEST_EVENTS deployment env var. The landing page
+ * uses it to decide whether to render the stage-grouped event sections; when
+ * the flag is off it shows only Sample Hack 2026, exactly as before. Nothing
+ * sensitive is exposed here — it is one boolean, and a public event list is
+ * already readable without auth.
+ */
+export const publicConfig = query({
+  args: {},
+  handler: async () => ({ testEvents: process.env.TEST_EVENTS === "true" }),
+});
+
+/**
+ * The stage buckets the landing page renders, in lifecycle order. The copy is
+ * the public-facing label for each lifecycle stage, kept here so the page
+ * cannot drift from the server's notion of a stage.
+ */
+const STAGE_SECTIONS: { key: string; label: string; blurb: string; statuses: string[] }[] = [
+  {
+    key: "registration",
+    label: "Registration open",
+    blurb: "Teams are signing up. Nothing has been submitted yet.",
+    statuses: ["registration"],
+  },
+  {
+    key: "submissions",
+    label: "Submissions open",
+    blurb: "Hacking is underway — projects are landing against a live deadline.",
+    statuses: ["hacking"],
+  },
+  {
+    key: "judging",
+    label: "Now judging",
+    blurb: "The panel is scoring against a locked weighted rubric.",
+    statuses: ["judging"],
+  },
+  {
+    key: "voting",
+    label: "Vote now",
+    blurb: "Judging is done, community voting is open and tallies are hidden.",
+    statuses: ["voting"],
+  },
+  {
+    key: "past",
+    label: "Past events",
+    blurb: "Published results, rankings and certificates.",
+    statuses: ["published", "closed", "archived"],
+  },
+];
+
+/**
+ * Public events grouped by lifecycle stage, with the counts the landing page
+ * shows (issue 30). Empty buckets are omitted, so a deployment with only the
+ * closed Sample Hack 2026 returns exactly one group.
+ */
+export const stageOverview = query({
+  args: {},
+  handler: async (ctx) => {
+    const all = (await ctx.db.query("events").collect()).filter((e) => e.status !== "draft");
+    const teams = await ctx.db.query("teams").collect();
+    const members = await ctx.db.query("teamMembers").collect();
+    const submissions = await ctx.db.query("submissions").collect();
+
+    return STAGE_SECTIONS.map((section) => {
+      const events = all
+        .filter((e) => section.statuses.includes(e.status))
+        // Newest activity first, so a freshly seeded demo event leads its group.
+        .sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0))
+        .map((event) => {
+          const eventTeamIds = new Set(
+            teams.filter((t) => t.eventId === event._id).map((t) => String(t._id)),
+          );
+          return {
+            slug: event.slug,
+            title: event.title,
+            tagline: event.tagline,
+            status: event.status,
+            projectCount: submissions.filter((s) => s.eventId === event._id).length,
+            teamCount: eventTeamIds.size,
+            participantCount: members.filter((m) => eventTeamIds.has(String(m.teamId))).length,
+          };
+        });
+      return { key: section.key, label: section.label, blurb: section.blurb, events };
+    }).filter((section) => section.events.length > 0);
+  },
+});
 // `get({ eventId })` was removed: every caller resolved an event by slug
 // (`getBySlug`) or through a public variant, so it was an unused public read
 // that duplicated `assertEventVisible` gating.
