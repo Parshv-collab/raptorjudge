@@ -21,17 +21,15 @@ T3  Rate limiting fires .......................... PASS
        refused after 18 of 25 votes while only 18/25 credits were spent — the limiter refused it, not the quadratic budget
        vote window rolled after ~61s and the session votes again
 T3  Duplicate detection (3-of-3 rejected) ........ PASS
-       tests/duplicates.test.ts: 18 tests passed — the 3-of-3 write decision and the 'This project is already submitted by your team.' message are proven against the mutation's own rule (no REST route creates submissions to file one over HTTP)
+       tests/duplicates.test.ts: 18 tests passed via bun — the 3-of-3 write decision and the 'This project is already submitted by your team.' message are proven against the mutation's own rule (no REST route creates submissions to file one over HTTP)
 T3  Audit chain verifies ......................... PASS
-       208 entries, chain intact
+       128 entries, chain intact
 T4  OpenAPI spec responds ........................ PASS
        openapi 3.0.3 at /api/openapi.json
 T4  REST endpoints respond ....................... PASS
        /api/v1/events and /api/v1/gallery/<slug> both 200
 T4  Webhook delivery signed ...................... PASS
-       http://host.docker.internal:36787/hook: no delivery within 15s (this address is not reachable from the backend container)
-       http://172.17.0.1:36787/hook: no delivery within 15s (this address is not reachable from the backend container)
-       delivered to http://127.0.0.1:36787/hook within 15s: HMAC-SHA256 over timestamp.delivery.body matches and the payload is the ping that was triggered
+       delivered to http://host.docker.internal:36507/hook within 15s: HMAC-SHA256 over timestamp.delivery.body matches and the payload is the ping that was triggered
 T4  Certificates verify .......................... PASS
        genuine certificate verifies, tampered signature rejected
 T4  Judge records verify ......................... PASS
@@ -44,11 +42,3 @@ T4  Bulk import idempotent ....................... PASS
        re-importing an existing event creates no duplicates
 
 Summary: 17/17 PASS
-
-Captured verbatim from `python3 run_t3_t4.py .dogfood.toml` against a live
-deployment. The `event:` line is whichever event the script auto-discovers with
-an open judging or voting window, so it is deployment-specific. The webhook check
-probes every address the backend container could reach, in order, and reports the
-ones that failed before the one that delivered — on a real Docker host the first
-candidate (`host.docker.internal`, wired by `extra_hosts: host-gateway` on the
-`backend` service) is the one that answers.
