@@ -48,14 +48,29 @@ test("help page renders the seeded FAQ and guide content", async ({ page }) => {
     page.getByRole("heading", { name: "Frequently asked questions" }),
   ).toBeVisible();
 
-  // The FAQ accordion renders one `aria-expanded` button per seeded question.
-  // `seedDefaultsInternal` seeds five entries, so several must be present.
-  const faqButtons = page.getByRole("button", { expanded: false });
-  expect(await faqButtons.count()).toBeGreaterThan(0);
+  // The FAQ accordion renders one `aria-expanded` button per seeded question
+  // (`seedDefaultsInternal` seeds three FAQs and two articles).
+  //
+  // Scoped to the `<section aria-label="Frequently asked questions">` region
+  // rather than to `getByRole("button", { expanded: false })`. That predicate
+  // is part of the selector, so it is re-evaluated on every use: after the
+  // first question is opened it stops matching that button, and `.first()`
+  // silently re-points at the *second*, still-collapsed question. The assertion
+  // would then check `aria-expanded="true"` on a collapsed button and fail every
+  // run. Inside the region the DOM order is stable.
+  const faq = page.getByRole("region", { name: "Frequently asked questions" });
+  const firstFaq = faq.getByRole("button").first();
+  await expect(firstFaq).toBeVisible();
+  expect(await faq.getByRole("button").count()).toBeGreaterThan(0);
 
-  // Opening one reveals its markdown body.
-  await faqButtons.first().click();
-  await expect(faqButtons.first()).toHaveAttribute("aria-expanded", "true");
+  // A real seeded question is on screen, not just an empty accordion.
+  await expect(
+    page.getByRole("button", { name: "How does quadratic voting work?" }),
+  ).toBeVisible();
+
+  // Opening it flips the control and reveals its markdown body.
+  await firstFaq.click();
+  await expect(firstFaq).toHaveAttribute("aria-expanded", "true");
 
   // Articles render under the "Guides" heading as <article> elements.
   await expect(page.getByRole("heading", { name: "Guides" })).toBeVisible();

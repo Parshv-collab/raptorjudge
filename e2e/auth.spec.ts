@@ -96,8 +96,12 @@ test("a protected route is not rendered for a signed-out visitor", async ({ page
   expect(decodeURIComponent(new URL(page.url()).searchParams.get("returnTo") ?? "")).toBe(
     "/admin",
   );
-  // The admin console itself must never have mounted.
-  await expect(page.getByRole("heading", { name: "All system events" })).toHaveCount(0);
+  // The admin console itself must never have mounted. `AdminDashboard.tsx`
+  // renders h1 "System administration" — asserting on that, not on the events
+  // page's "All system events", which is a different route entirely.
+  await expect(
+    page.getByRole("heading", { level: 1, name: "System administration" }),
+  ).toHaveCount(0);
 });
 
 test("participant cannot access /admin", async ({ page }) => {

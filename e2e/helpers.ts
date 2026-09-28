@@ -64,17 +64,6 @@ export async function signIn(
   await page.locator("form").getByRole("button", { name: "Sign in" }).click();
 }
 
-/** Sign in, then assert we landed on that role's console. */
-export async function signInAndExpectHome(
-  page: Page,
-  email: string,
-  home: RegExp,
-  password: string = SEED_PASSWORD,
-): Promise<void> {
-  await signIn(page, email, password);
-  await page.waitForURL(home);
-}
-
 /**
  * The signed-in sidebar rail.
  *
