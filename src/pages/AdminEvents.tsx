@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
 import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
-import { Modal } from "@/components/ui/Modal";
+import { ConfirmDialog, Modal } from "@/components/ui/Modal";
+import { formatDate } from "@/lib/format";
 import { Textarea } from "@/components/ui/Textarea";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { nextDeadline } from "@/lib/eventStatus";
@@ -75,6 +76,9 @@ export default function AdminEvents() {
   const [transferTargetEvent, setTransferTargetEvent] = useState<any>(null);
   const [selectedOrganizer, setSelectedOrganizer] = useState("");
   const [importModalOpen, setImportModalOpen] = useState(false);
+  // Only drafts can be deleted, and deletion also drops the event's teams,
+  // submissions and scores — so it confirms in-app with the title typed out.
+  const [deleteTarget, setDeleteTarget] = useState<{ _id: any; title: string } | null>(null);
   const [importJsonText, setImportJsonText] = useState("");
   const [importBusy, setImportBusy] = useState(false);
 
@@ -140,11 +144,12 @@ export default function AdminEvents() {
     }
   }
 
-  async function handleDelete(e: any) {
-    if (!confirm(`Delete event "${e.title}"? This cannot be undone.`)) return;
+  async function handleDelete() {
+    if (!deleteTarget) return;
     try {
-      await deleteEvent({ eventId: e._id });
-      toast.success(`Deleted ${e.title}`);
+      await deleteEvent({ eventId: deleteTarget._id });
+      toast.success(`Deleted ${deleteTarget.title}`);
+      setDeleteTarget(null);
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
     }
@@ -346,7 +351,7 @@ export default function AdminEvents() {
                           {next.label}
                           {next.date ? (
                             <span className="block text-[12px] text-muted tnum">
-                              {new Date(next.date).toLocaleDateString()}
+                              {formatDate(next.date)}
                             </span>
                           ) : null}
                         </span>
@@ -369,7 +374,12 @@ export default function AdminEvents() {
                         Transfer
                       </Button>
                       {e.status === "draft" && (
-                        <Button variant="danger" size="sm" onClick={() => handleDelete(e)}>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          aria-label={`Delete event ${e.title}`}
+                          onClick={() => setDeleteTarget({ _id: e._id, title: e.title })}
+                        >
                           Delete
                         </Button>
                       )}
@@ -460,6 +470,20 @@ export default function AdminEvents() {
         </div>
       </Modal>
 
+      <ConfirmDialog
+        isOpen={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        title="Delete event"
+        description={
+          deleteTarget
+            ? `Delete "${deleteTarget.title}"? Its teams, submissions, scores and votes are removed with it, and this cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete event"
+        requireTyping={deleteTarget?.title}
+        destructive
+      />
     </div>
   );
 }

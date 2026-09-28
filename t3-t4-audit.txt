@@ -1,0 +1,54 @@
+DOGFOOD 2026 — T3/T4 self-audit report
+portal: http://localhost:3000
+fixtures: fixtures.json
+event: test-hack-voting (voting)
+
+T3  Community voting works (credits round-trip) .. PASS
+       cost 1 credit, restored to 0
+T3  Quadratic credit spend (cost = N²) ........... PASS
+       casting 3 points cost 9 credits
+T3  Comments add/delete .......................... PASS
+       posted, listed, deleted
+T3  Comment flagging ............................. PASS
+       flag recorded on the comment
+T3  Results hidden before publish ................ PASS
+       6 cards carry no score fields
+T3  Ballot order deterministic ................... PASS
+       6 cards in identical order across two fetches
+T3  Rate limiting fires .......................... PASS
+       18 of 25 votes accepted, 7 rejected; first refusal was request #19 -> 400 {"error":"request failed"}
+       creditsSpent 0 -> 18 across 18 accepted votes (one credit each, no double counting), restored to 0 after the revoke
+       refused after 18 of 25 votes while only 18/25 credits were spent — the limiter refused it, not the quadratic budget
+       vote window rolled after ~61s and the session votes again
+T3  Duplicate detection (3-of-3 rejected) ........ PASS
+       tests/duplicates.test.ts: 18 tests passed — the 3-of-3 write decision and the 'This project is already submitted by your team.' message are proven against the mutation's own rule (no REST route creates submissions to file one over HTTP)
+T3  Audit chain verifies ......................... PASS
+       208 entries, chain intact
+T4  OpenAPI spec responds ........................ PASS
+       openapi 3.0.3 at /api/openapi.json
+T4  REST endpoints respond ....................... PASS
+       /api/v1/events and /api/v1/gallery/<slug> both 200
+T4  Webhook delivery signed ...................... PASS
+       http://host.docker.internal:36787/hook: no delivery within 15s (this address is not reachable from the backend container)
+       http://172.17.0.1:36787/hook: no delivery within 15s (this address is not reachable from the backend container)
+       delivered to http://127.0.0.1:36787/hook within 15s: HMAC-SHA256 over timestamp.delivery.body matches and the payload is the ping that was triggered
+T4  Certificates verify .......................... PASS
+       genuine certificate verifies, tampered signature rejected
+T4  Judge records verify ......................... PASS
+       genuine attestation verifies, tampered one rejected
+T4  Embed gallery renders ........................ PASS
+       SPA shell served for /embed/gallery/<slug>
+T4  Bulk export works ............................ PASS
+       exported event test-hack-voting
+T4  Bulk import idempotent ....................... PASS
+       re-importing an existing event creates no duplicates
+
+Summary: 17/17 PASS
+
+Captured verbatim from `python3 run_t3_t4.py .dogfood.toml` against a live
+deployment. The `event:` line is whichever event the script auto-discovers with
+an open judging or voting window, so it is deployment-specific. The webhook check
+probes every address the backend container could reach, in order, and reports the
+ones that failed before the one that delivered — on a real Docker host the first
+candidate (`host.docker.internal`, wired by `extra_hosts: host-gateway` on the
+`backend` service) is the one that answers.

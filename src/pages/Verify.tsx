@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
+import { formatDate, formatDateTime } from "@/lib/format";
 
 /** Fields present only on a successful `judging.verifyJudgeRecord` result. */
 type JudgeRecordView = {
@@ -102,7 +103,7 @@ export default function Verify() {
                 {verified?.issuedAt ? (
                   <>
                     <dt className="text-primary font-medium">Attested</dt>
-                    <dd className="tnum">{new Date(verified.issuedAt).toLocaleString()}</dd>
+                    <dd className="tnum">{formatDateTime(verified.issuedAt)}</dd>
                   </>
                 ) : null}
               </dl>
@@ -127,7 +128,7 @@ export default function Verify() {
                 <dt className="text-primary font-medium">Title</dt>
                 <dd>{certResult.certificate?.title}</dd>
                 <dt className="text-primary font-medium">Issued</dt>
-                <dd className="tnum">{new Date(certResult.certificate?.issuedAt ?? 0).toLocaleDateString()}</dd>
+                <dd className="tnum">{(certResult.certificate?.issuedAt ? formatDate(certResult.certificate.issuedAt) : "—")}</dd>
               </dl>
             </Alert>
           ) : (

@@ -35,6 +35,11 @@ requirement**. Everything runs inside the Compose stack.
 
 ## Quickstart
 
+> **Demo video:** _(placeholder — 2–3 minute walkthrough to be recorded: sign in as
+> the organizer, publish `test-hack-results`, then as a judge score a submission,
+> then as a participant show the podium and a verified certificate. Drop the link
+> here.)_
+
 ```bash
 git clone <this repo> raptorjudge
 cd raptorjudge
@@ -158,8 +163,8 @@ back to a single-event deployment.
 > unverified. `run_t3_t4.py` is the companion that closes that gap — see
 > [Verifying T3 and T4](#verifying-t3-and-t4).
 
-`run.py .dogfood.toml` against the running stack reports **7/7** — see
-`acceptance-report.txt`:
+`run.py .dogfood.toml` against the running stack reports **7/7** — the captured
+output is in [`acceptance-report.txt`](acceptance-report.txt):
 
 ```
 T1  gallery is public ................. PASS
@@ -181,6 +186,8 @@ standard library, and drives the running portal over real HTTP:
 ```bash
 python3 run_t3_t4.py .dogfood.toml
 ```
+
+The captured run is checked in as [`t3-t4-audit.txt`](t3-t4-audit.txt):
 
 ```
 DOGFOOD 2026 — T3/T4 self-audit report
@@ -209,17 +216,20 @@ T4  Bulk import idempotent ....................... PASS
 Summary: 17/17 PASS
 ```
 
+**There are zero skips.** [`t3-t4-audit.txt`](t3-t4-audit.txt) is the verbatim
+capture, including the evidence line under each check.
+
 The `event:` line is whichever event the script auto-discovers with an open
 judging or voting window, so it differs per deployment (`test-hack-voting` and
 `test-hack-judging` on a stack seeded with `TEST_EVENTS=true`).
 
 A check is reported as **PASS only when real evidence proves it**. Sixteen of
 the seventeen make a real HTTP request and inspect the response and side
-effects; the seventeenth is described below. When even that is impossible — no
-event is open for judging or voting, or the `[auth]` section is missing the
-session a check needs — the check is reported as **SKIP with its reason**, and
-skipped checks are excluded from the pass count. Nothing is ever reported as
-verified because it had nothing to test.
+effects; the seventeenth (duplicate detection) is described below. When even
+that is impossible — no event is open for judging or voting, or the `[auth]`
+section is missing the session a check needs — the check is reported as **SKIP
+with its reason**, and skipped checks are excluded from the pass count. Nothing
+is ever reported as verified because it had nothing to test.
 
 Three checks needed care to stay honest rather than report a comfortable pass:
 
@@ -279,7 +289,7 @@ projection, duplicate flagging, load cap and rubric weights.
 | `npm run dev` | Vite dev server (frontend) |
 | `npm run build` | Production build to `dist/` |
 | `npm run typecheck` | `tsc -b --noEmit` |
-| `npm test` | Vitest suite (220 tests, 18 files) |
+| `npm test` | Vitest suite (227 tests, 19 files) |
 | `python3 run_t3_t4.py .dogfood.toml` | T3/T4 self-audit against a running stack |
 | `npm run test:watch` | Vitest in watch mode |
 | `npm run preview` | Preview the production build locally |
@@ -316,7 +326,10 @@ run_t3_t4.py         companion T3/T4 self-audit (same config, stdlib only)
 | [DESIGN.md](DESIGN.md) | Design tokens, component inventory, screens, states, accessibility rules |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Admin-key bootstrap, LAN/domain configuration, env reference, backups, troubleshooting |
 | [HOW-IT-WORKS.md](HOW-IT-WORKS.md) | Narrative walkthrough of the three user journeys |
+| [AUDIT.md](AUDIT.md) / [AUDIT-2.md](AUDIT-2.md) / [AUDIT-FINAL.md](AUDIT-FINAL.md) | The three audit passes: initial bug sweep, cross-stack link/naming pass, and the final parity + QA audit (including every orphan export and every bug fixed in the last pass) |
 | [normalization-proof.txt](normalization-proof.txt) | Generated evidence: raw vs normalized rankings and the harsh/generous compression |
+| [acceptance-report.txt](acceptance-report.txt) | Captured output of the official `run.py` T1/T2 checker — 7/7 PASS |
+| [t3-t4-audit.txt](t3-t4-audit.txt) | Captured output of `run_t3_t4.py` — 17/17 PASS, 0 skips |
 
 ## Resetting the data
 
@@ -340,11 +353,12 @@ Honest, specific, and current:
   implemented.
 - **Sybil resistance is heuristic.** Quadratic budgets, duplicate detection and
   per-fingerprint burst flagging are implemented; external identity proof is not.
-- **A few destructive confirmations still use the browser `confirm()` dialog**
-  (delete user, delete event, delete criterion, remove flagged submission)
-  instead of the in-app `ConfirmDialog`. Functional, but an obvious polish gap.
-  The highest-stakes action — overriding the winner — does use the in-app
-  typed confirmation (`DangerConfirmModal`).
+- **Destructive confirmations are now uniform.** Earlier passes still used the browser
+  `confirm()` for delete user, delete event, delete criterion and remove flagged
+  submission; all four now use the in-app `ConfirmDialog` (the user/event/rubric ones
+  require the operator to type the target's name), and the highest-stakes action —
+  overriding the winner — uses `DangerConfirmModal`. There are no remaining native
+  `confirm()`/`alert()` calls in the app.
 - **Password recovery is human-mediated by design.** There is no mail service
   in an offline deployment, so `/auth` explains that an organizer or admin must
   issue a temporary password (`/admin/users → Reset password`, audited, live
@@ -358,6 +372,13 @@ Honest, specific, and current:
 - **No database dump command.** Full-volume backup is `pg_dump` on the `db`
   service; there is no wrapper script.
 - **Container images are not digest-pinned.**
+- **Two public Convex queries have no frontend caller.** `events.listMine` (now
+  superseded by `events.listWithCounts`) and `events.getStorageUrl` are reachable
+  from an external client but unused by the SPA. They are documented rather than
+  deleted, because removing a public export is a schema-visible change with no
+  upside. Every other unreferenced export in `src/convex/` is an `internal*` used
+  by its own module — the full list and the reasoning is in
+  [`AUDIT-FINAL.md`](AUDIT-FINAL.md).
 - **The Compose runtime path is only as tested as your host.** `npm run
   docker:verify` exercises it end to end. The sandbox this was developed in has no
   container runtime, so Compose itself was never started there; both acceptance

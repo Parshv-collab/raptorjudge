@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
@@ -25,6 +25,7 @@ import { Scale, Mail, UserMinus } from "lucide-react";
  * event, and jump to that event's scores.
  */
 export default function OrganizerJudges() {
+  const navigate = useNavigate();
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const skip = authLoading || !isAuthenticated;
 
@@ -65,9 +66,7 @@ export default function OrganizerJudges() {
         title="Organizer access required"
         description="Judge management is limited to organizers and platform admins."
         actionLabel="Go to my dashboard"
-        onAction={() => {
-          window.location.href = "/home";
-        }}
+        onAction={() => navigate("/home")}
       />
     );
   }

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { deriveEventStatus } from "@/lib/eventStatus";
+import { formatDate } from "@/lib/format";
 
 /** Short public label per lifecycle stage. */
 const STAGE_LABELS: Record<string, string> = {
@@ -58,7 +59,7 @@ function EventCard({ event, compact = false }: { event: BrowseEvent; compact?: b
           <span>{event.teamCount} teams</span>
           <span>
             {event.submissionDeadline
-              ? `Closes ${new Date(event.submissionDeadline).toLocaleDateString()}`
+              ? `Closes ${formatDate(event.submissionDeadline)}`
               : "—"}
           </span>
         </div>

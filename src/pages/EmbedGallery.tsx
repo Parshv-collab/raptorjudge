@@ -43,6 +43,19 @@ export default function EmbedGallery() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {cards === undefined &&
+          Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={`skeleton-${i}`}
+              aria-hidden="true"
+              className="bg-surface-1 border border-line rounded-card p-4 animate-pulse"
+            >
+              <div className="h-5 w-20 rounded-pill bg-surface-2" />
+              <div className="h-3.5 w-3/4 rounded-btn bg-surface-2 mt-3" />
+              <div className="h-3 w-full rounded-btn bg-surface-2 mt-2.5" />
+              <div className="h-3 w-2/3 rounded-btn bg-surface-2 mt-1.5" />
+            </div>
+          ))}
         {(cards || []).map((card: any) => (
           <a
             key={card.id}
@@ -58,8 +71,19 @@ export default function EmbedGallery() {
         ))}
       </div>
 
-      {(!cards || cards.length === 0) && (
-        <div className="py-12 text-center text-[13px] text-muted">No public projects found</div>
+      {cards && cards.length === 0 && (
+        <div className="py-12 px-6 flex flex-col items-center text-center gap-1.5">
+          <p className="text-[13px] font-medium text-primary">
+            {search ? "No projects match that search" : "No public projects yet"}
+          </p>
+          <p className="text-[12px] text-muted max-w-xs leading-relaxed">
+            {search
+              ? "Try a shorter or different search term."
+              : event
+                ? "Projects appear here as soon as teams submit and the organizer publishes the gallery."
+                : "This event could not be found — check the slug in the embed code."}
+          </p>
+        </div>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useParams, Link, Navigate } from "react-router-dom";
+import { useParams, Link, Navigate, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
@@ -15,9 +15,11 @@ import { RubricTab } from "@/pages/organizer/RubricTab";
 import { JudgesTab } from "@/pages/organizer/JudgesTab";
 import { WinnerOverridePanel } from "@/pages/organizer/WinnerOverridePanel";
 import { Markdown } from "@/components/ui/Markdown";
+import { formatDate, formatDateTime, formatTime } from "@/lib/format";
 import { ShieldCheck, ShieldAlert, Trophy } from "lucide-react";
 
 export function OrganizerEventManage() {
+  const navigate = useNavigate();
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const { slug } = useParams<{ slug: string }>();
 
@@ -51,16 +53,23 @@ export function OrganizerEventManage() {
   const deleteCriterion = useMutation(api.judging.deleteCriterion);
 
   const voteStatusData = useQuery(api.voting.voteStatus, skip || !event ? "skip" : { eventId: event._id });
-  const flaggedComments = useQuery((api.comments as any).listFlagged, skip || !event ? "skip" : { eventId: event._id });
+  const flaggedComments = useQuery(api.comments.listFlagged, skip || !event ? "skip" : { eventId: event._id });
   const deleteComment = useMutation(api.comments.deleteComment);
   const unflagComment = useMutation(api.comments.unflag);
   const updateTrack = useMutation(api.tracks.update);
+  // Issue 44/45: create and update were wired but nothing called `tracks.remove`,
+  // so a mistaken track could never be deleted from the console even though the
+  // guard existed server-side.
+  const deleteTrack = useMutation(api.tracks.remove);
   const setWebhookActive = useMutation(api.webhooks.setActive);
+  // Same story for certificates: `issueAll` is organizer-gated and idempotent,
+  // but no screen called it, so only the seed ever minted a certificate.
+  const issueCertificates = useMutation(api.certificates.issueAll);
 
-  const flagsData = useQuery((api.submissions as any).listFlags, skip || !event ? "skip" : { eventId: event._id });
-  const dismissFlag = useMutation((api.submissions as any).dismissFlag);
-  const removeFlaggedSub = useMutation((api.submissions as any).removeFlaggedSubmission);
-  const checkDuplicates = useMutation((api.submissions as any).checkDuplicates);
+  const flagsData = useQuery(api.submissions.listFlags, skip || !event ? "skip" : { eventId: event._id });
+  const dismissFlag = useMutation(api.submissions.dismissFlag);
+  const removeFlaggedSub = useMutation(api.submissions.removeFlaggedSubmission);
+  const checkDuplicates = useMutation(api.submissions.checkDuplicates);
 
   // Normalization + Bradley-Terry + audit chain (results view).
   const normalization = useQuery(
@@ -93,6 +102,12 @@ export function OrganizerEventManage() {
   const [newTrackName, setNewTrackName] = useState("");
   const [newTrackDesc, setNewTrackDesc] = useState("");
   const [newTrackPrize, setNewTrackPrize] = useState("");
+  // Destructive actions go through the in-app dialog instead of window.confirm,
+  // which renders as a browser chrome popup and reads as unfinished.
+  const [trackToDelete, setTrackToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [flagToRemove, setFlagToRemove] = useState<string | null>(null);
+  const [certBusy, setCertBusy] = useState(false);
+
 
   if (authPending) {
     return (
@@ -111,9 +126,7 @@ export function OrganizerEventManage() {
         title="Organizer access required"
         description="This event management screen is limited to the event's organizers and platform admins."
         actionLabel="Go to my dashboard"
-        onAction={() => {
-          window.location.href = "/home";
-        }}
+        onAction={() => navigate("/home")}
       />
     );
   }
@@ -124,9 +137,7 @@ export function OrganizerEventManage() {
         title="Event not found"
         description="The requested event could not be found or has been removed."
         actionLabel="Back to events"
-        onAction={() => {
-          window.location.href = "/organizer/events";
-        }}
+        onAction={() => navigate("/organizer/events")}
       />
     );
   }
@@ -153,7 +164,7 @@ export function OrganizerEventManage() {
   }
   if (votingStillOpen) {
     publishBlockers.push(
-      `voting closes ${new Date(event.votingEnd).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}`,
+      `voting closes ${formatDateTime(event.votingEnd)}`,
     );
   }
   const canPublish = publishBlockers.length === 0;
@@ -257,15 +268,50 @@ export function OrganizerEventManage() {
   }
 
   async function handleRemoveFlaggedSub(flagId: string) {
-    if (!confirm("Remove/withdraw this flagged submission?")) return;
     setBusy(true);
     try {
       await removeFlaggedSub({ flagId: flagId as never });
       toast.success("Flagged submission removed.");
+      setFlagToRemove(null);
     } catch (e: any) {
       toast.error(humanizeConvexError(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleDeleteTrack() {
+    if (!trackToDelete) return;
+    setBusy(true);
+    try {
+      await deleteTrack({ trackId: trackToDelete.id as never });
+      toast.success(`Track "${trackToDelete.name}" deleted.`);
+      setTrackToDelete(null);
+    } catch (e: any) {
+      // The server refuses while teams or submissions still point at the track
+      // and says exactly how many, so surface that instead of a generic failure.
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleIssueCertificates() {
+    if (!event) return;
+    setCertBusy(true);
+    try {
+      const result = await issueCertificates({ eventId: event._id });
+      if (result.issued > 0) {
+        toast.success(`Issued ${result.issued} certificate${result.issued === 1 ? "" : "s"}.`);
+      } else {
+        toast.info(
+          `${result.reused} certificate${result.reused === 1 ? "" : "s"} already issued — nothing to do.`,
+        );
+      }
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setCertBusy(false);
     }
   }
 
@@ -372,6 +418,34 @@ export function OrganizerEventManage() {
 
   return (
     <div className="flex flex-col lg:flex-row gap-8">
+      {/* Destructive confirmations. Rendered at the top of the tree: they are
+          overlays, so placement is purely organizational, and the two that used
+          to be window.confirm() popups now match the rest of the console. */}
+      <ConfirmDialog
+        isOpen={trackToDelete !== null}
+        onClose={() => setTrackToDelete(null)}
+        onConfirm={handleDeleteTrack}
+        title="Delete track"
+        description={
+          trackToDelete
+            ? `Delete "${trackToDelete.name}"? Teams and submissions still assigned to it must move to another track first — the server refuses the delete and tells you exactly how many are in the way.`
+            : ""
+        }
+        confirmLabel="Delete track"
+        destructive
+        isLoading={busy}
+      />
+      <ConfirmDialog
+        isOpen={flagToRemove !== null}
+        onClose={() => setFlagToRemove(null)}
+        onConfirm={() => flagToRemove && handleRemoveFlaggedSub(flagToRemove)}
+        title="Remove flagged submission"
+        description="This deletes the submission and its judging artifacts — assignments, scores, votes and comments. The project is withdrawn from the event and cannot be restored."
+        confirmLabel="Remove submission"
+        destructive
+        isLoading={busy}
+      />
+
       {/* Secondary sidebar (issue 20) */}
       <aside
         aria-label="Event sections"
@@ -464,13 +538,13 @@ export function OrganizerEventManage() {
           <div className="bg-surface-1 border border-line rounded-card p-6">
             <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Registration ends</span>
             <p className="text-h3 text-primary tnum mt-3">
-              {new Date(event.registrationEnd).toLocaleDateString()}
+              {formatDate(event.registrationEnd)}
             </p>
           </div>
           <div className="bg-surface-1 border border-line rounded-card p-6">
             <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Submissions close</span>
             <p className="text-h3 text-primary tnum mt-3">
-              {new Date(event.submissionDeadline).toLocaleDateString()}
+              {formatDate(event.submissionDeadline)}
             </p>
           </div>
         </div>
@@ -545,17 +619,28 @@ export function OrganizerEventManage() {
                           <Markdown content={t.description} className="text-[13px] mt-1" />
                         )}
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="shrink-0"
-                        onClick={() => {
-                          setRenamingTrackId(t._id);
-                          setTrackNameDraft(t.name);
-                        }}
-                      >
-                        Rename
-                      </Button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setRenamingTrackId(t._id);
+                            setTrackNameDraft(t.name);
+                          }}
+                        >
+                          Rename
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Delete track ${t.name}`}
+                          title="Delete track"
+                          className="text-muted hover:text-danger"
+                          onClick={() => setTrackToDelete({ id: t._id, name: t.name })}
+                        >
+                          Delete
+                        </Button>
+                      </div>
                     </div>
                   )}
                   {t.prizeDescription && (
@@ -605,7 +690,7 @@ export function OrganizerEventManage() {
                     </span>
                   </div>
                   <span className="text-[12px] text-muted tnum">
-                    {new Date(c.createdAt).toLocaleString()}
+                    {formatDateTime(c.createdAt)}
                   </span>
                 </div>
                 <div className="text-primary leading-relaxed bg-warning/5 border border-warning/30 rounded-input p-2.5">
@@ -702,7 +787,7 @@ export function OrganizerEventManage() {
                       variant="danger"
                       size="sm"
                       isLoading={busy}
-                      onClick={() => handleRemoveFlaggedSub(f.id)}
+                      onClick={() => setFlagToRemove(f.id)}
                     >
                       Remove submission
                     </Button>
@@ -925,7 +1010,7 @@ export function OrganizerEventManage() {
                       {d.statusCode ? `HTTP ${d.statusCode}` : "Failed"}
                     </Badge>
                     <span className="text-[12px] text-muted tnum">
-                      {new Date(d.deliveredAt).toLocaleTimeString()}
+                      {formatTime(d.deliveredAt)}
                     </span>
                   </div>
                 </div>
@@ -1070,16 +1155,29 @@ export function OrganizerEventManage() {
             </div>
           </div>
 
-          {/* Certificates: issued at seeding/close-of-event, verifiable by anyone. */}
+          {/* Certificates: issued by the organizer, verifiable by anyone. */}
           <div className="bg-surface-1 border border-line rounded-card p-6">
-            <h3 className="text-h3 text-primary mb-1">
-              Issued certificates{" "}
-              <span className="text-muted tnum">({certificates?.length || 0})</span>
-            </h3>
-            <p className="text-[13px] text-secondary mb-4">
-              Participation and winner certificates for this event. Each one carries an HMAC signature
-              that anyone can check on the public verification page.
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-h3 text-primary mb-1">
+                  Issued certificates{" "}
+                  <span className="text-muted tnum">({certificates?.length || 0})</span>
+                </h3>
+                <p className="text-[13px] text-secondary">
+                  Participation and winner certificates for this event. Each one carries an HMAC signature
+                  that anyone can check on the public verification page.
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                isLoading={certBusy}
+                onClick={handleIssueCertificates}
+                className="shrink-0"
+              >
+                {certificates && certificates.length > 0 ? "Issue missing" : "Issue certificates"}
+              </Button>
+            </div>
             <div className="flex flex-col gap-2">
               {(certificates || []).slice(0, 8).map((c: any) => (
                 <div
@@ -1102,7 +1200,9 @@ export function OrganizerEventManage() {
               {certificates !== undefined && certificates.length === 0 && (
                 <EmptyState
                   title="No certificates issued"
-                  description="Certificates are minted when the event closes — participants and winners each get a signed record."
+                  description="Issue certificates to give every participant and winner of this event a signed, publicly verifiable record. Re-running it only fills the gaps."
+                  actionLabel="Issue certificates"
+                  onAction={handleIssueCertificates}
                 />
               )}
               {certificates === undefined && <SkeletonCard lines={3} />}

@@ -4,6 +4,7 @@ import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { downloadCsv } from "@/lib/csv";
+import { formatDateTime } from "@/lib/format";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SkeletonCard, SkeletonTable } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
@@ -156,7 +157,7 @@ export default function AdminAudit() {
               <TR key={log.id}>
                 <TD>
                   <span className="font-mono text-[12px] text-secondary tnum">
-                    {new Date(log.timestamp).toLocaleString()}
+                    {formatDateTime(log.timestamp)}
                   </span>
                 </TD>
                 <TD>

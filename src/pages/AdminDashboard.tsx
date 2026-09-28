@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/Badge";
 import { SkeletonCard, SkeletonStat } from "@/components/ui/SkeletonCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { usePrimaryEvent } from "@/lib/featuredEvent";
+import { formatDateTime } from "@/lib/format";
 import {
   Users,
   CalendarDays,
@@ -182,7 +183,7 @@ export default function AdminDashboard() {
             <p className="text-[13px] text-primary font-medium">{reportSummary}</p>
             {reportPassedAt ? (
               <p className="text-[12px] text-muted tnum">
-                Last run {new Date(reportPassedAt).toLocaleString()}
+                Last run {formatDateTime(reportPassedAt)}
               </p>
             ) : null}
             <div className="flex flex-col gap-1.5">
@@ -240,7 +241,7 @@ export default function AdminDashboard() {
                   <Badge>{log.targetType}</Badge>
                 </div>
                 <span className="font-mono text-[12px] text-muted tnum">
-                  {new Date(log.timestamp).toLocaleString()}
+                  {formatDateTime(log.timestamp)}
                 </span>
               </div>
             ))}

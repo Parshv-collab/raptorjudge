@@ -9,6 +9,7 @@ import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Badge } from "@/components/ui/Badge";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { formatDate } from "@/lib/format";
 
 export default function JudgePortal() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -143,7 +144,7 @@ export default function JudgePortal() {
               {
                 label: "Attested",
                 value: judgeRecord.issuedAt
-                  ? new Date(judgeRecord.issuedAt).toLocaleDateString()
+                  ? formatDate(judgeRecord.issuedAt)
                   : "—",
               },
               { label: "Signature", value: `${judgeRecord.signature.slice(0, 12)}…` },

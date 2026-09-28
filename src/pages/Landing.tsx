@@ -22,7 +22,7 @@ const PIPELINE = [
   },
   {
     step: "03",
-    title: "Normalise",
+    title: "Normalize",
     body: "Per-judge z-scores rescaled to a 0–10 scale, so a harsh panel and a generous panel produce the same ranking.",
   },
   {
@@ -180,7 +180,10 @@ export default function Landing() {
   const projects = (gallery ?? []) as any[];
   const featuredProjects = projects.slice(0, 6);
   const eventHref = `/e/${slug}`;
-  const authHref = `/auth?returnTo=${encodeURIComponent("/dashboard")}`;
+  // `/home` resolves to the signed-in role's own console (participant dashboard,
+  // judge queue, organizer or admin console), so one CTA works for every role
+  // instead of dropping a judge onto the participant dashboard.
+  const authHref = `/auth?returnTo=${encodeURIComponent("/home")}`;
 
   return (
     <div className="flex flex-col gap-24 py-12">
@@ -199,7 +202,7 @@ export default function Landing() {
 
         <p className="text-base text-secondary max-w-2xl leading-relaxed">
           Run the whole event — registration, submissions, weighted rubrics, cross-judge
-          normalisation, pairwise ranking, community voting and signed certificates — on your own
+          normalization, pairwise ranking, community voting and signed certificates — on your own
           hardware, with no external services.
         </p>
 
@@ -211,7 +214,7 @@ export default function Landing() {
           </Link>
           <Link to={authHref}>
             <Button variant="secondary" size="lg">
-              Sign in to judge or organise
+              Sign in as judge or organizer
             </Button>
           </Link>
         </div>
@@ -222,7 +225,8 @@ export default function Landing() {
               <span className="text-success font-medium">Results are in — </span>
             ) : null}
             <span className="text-primary">{event.title}</span> is seeded with{" "}
-            {projects.length || 41} projects, {tracks?.length ?? 8} tracks and a live judging rubric.
+            {gallery === undefined ? "—" : projects.length} projects,{" "}
+            {tracks === undefined ? "—" : tracks.length} tracks and a live judging rubric.
           </p>
         )}
         {!event && !isLoading && (
@@ -235,9 +239,9 @@ export default function Landing() {
       {/* ------------------------------------------------------------ metrics */}
       <section className="max-w-content mx-auto px-5 lg:px-8 w-full">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Seeded projects" value={projects.length || "41"} subtext="from fixtures.json" />
-          <StatCard label="Tracks" value={tracks?.length ?? 8} subtext="with prize pools" />
-          <StatCard label="Rubric criteria" value={rubric?.length ?? 3} subtext="weights sum to 1.0" />
+          <StatCard label="Published projects" value={gallery === undefined ? "—" : projects.length} subtext="from the public gallery API" />
+          <StatCard label="Tracks" value={tracks === undefined ? "—" : tracks.length} subtext="with prize pools" />
+          <StatCard label="Rubric criteria" value={rubric === undefined ? "—" : rubric.length} subtext="weights sum to 1.0" />
           <StatCard label="Normalisation" value="z → 0–10" subtext="per judge, clamped" />
         </div>
       </section>

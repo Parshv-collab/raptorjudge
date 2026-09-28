@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Markdown } from "@/components/ui/Markdown";
 import { deriveEventStatus } from "@/lib/eventStatus";
+import { formatDate, formatDateTime } from "@/lib/format";
 
 const FAQ_ITEMS = [
   {
@@ -172,7 +173,7 @@ export default function EventPublic() {
                     />
                     <span className="text-sm font-medium text-primary">{step.label}</span>
                     <span className="text-[13px] text-muted tnum">
-                      {step.date ? new Date(step.date).toLocaleString() : "TBD"}
+                      {step.date ? formatDateTime(step.date) : "TBD"}
                     </span>
                   </div>
                 );
@@ -275,7 +276,7 @@ export default function EventPublic() {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted">Deadline</span>
-                <span className="text-primary tnum">{new Date(event.submissionDeadline).toLocaleDateString()}</span>
+                <span className="text-primary tnum">{formatDate(event.submissionDeadline)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted">Team size</span>

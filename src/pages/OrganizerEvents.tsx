@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { nextDeadline } from "@/lib/eventStatus";
+import { formatDate } from "@/lib/format";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All Statuses" },
@@ -119,7 +120,7 @@ export function OrganizerEvents() {
                         {next.label}
                         {next.date ? (
                           <span className="block text-[12px] text-muted tnum">
-                            {new Date(next.date).toLocaleDateString()}
+                            {formatDate(next.date)}
                           </span>
                         ) : null}
                       </span>

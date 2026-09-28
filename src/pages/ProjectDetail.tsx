@@ -1,5 +1,5 @@
 import { useState, FormEvent } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
@@ -9,10 +9,12 @@ import { Input } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { humanizeConvexError } from "@/lib/errors";
+import { formatDate, formatDateTime } from "@/lib/format";
 import { usePrimaryEventSlug } from "@/lib/featuredEvent";
 import { Markdown } from "@/components/ui/Markdown";
 
 export default function ProjectDetail() {
+  const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const fallbackSlug = usePrimaryEventSlug();
   const detail = useQuery(api.submissions.detail, id ? { submissionId: id as never } : "skip");
@@ -108,9 +110,7 @@ export default function ProjectDetail() {
           title="Project not found"
           description="This submission may have been withdrawn, or the link is out of date."
           actionLabel="Back to gallery"
-          onAction={() => {
-            window.location.href = `/gallery/${fallbackSlug}`;
-          }}
+          onAction={() => navigate(`/gallery/${fallbackSlug}`)}
         />
       </div>
     );
@@ -139,7 +139,7 @@ export default function ProjectDetail() {
           <Badge variant={detail.status === "submitted" ? "success" : "default"}>{detail.status}</Badge>
           {detail.submittedAt && (
             <span className="text-[13px] text-muted ml-auto tnum">
-              Submitted {new Date(detail.submittedAt).toLocaleDateString()}
+              Submitted {formatDate(detail.submittedAt)}
             </span>
           )}
         </div>
@@ -281,7 +281,7 @@ export default function ProjectDetail() {
                   <span className="font-semibold text-primary">{comment.authorName}</span>
                   {comment.isFlagged && <Badge variant="warning">Flagged</Badge>}
                   <span className="text-[11px] text-muted ml-auto tnum">
-                    {new Date(comment.createdAt).toLocaleString()}
+                    {formatDateTime(comment.createdAt)}
                   </span>
                 </div>
                 <Markdown content={comment.content} className="text-[13px]" />

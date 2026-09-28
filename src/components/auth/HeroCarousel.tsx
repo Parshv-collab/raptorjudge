@@ -14,8 +14,8 @@ export const HERO_SLIDES: Slide[] = [
   {
     quote: "A harsh panel and a generous panel should produce the same ranking.",
     points: [
-      "Per-judge z-score normalisation on a 0–10 scale.",
-      "Raw averages stay visible next to the normalised score.",
+      "Per-judge z-score normalization on a 0–10 scale.",
+      "Raw averages stay visible next to the normalized score.",
       "The compression is proven in normalization-proof.txt.",
       "Nobody's 6 is compared to anybody else's 9.",
     ],

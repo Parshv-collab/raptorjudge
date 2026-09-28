@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { deriveEventStatus, nextDeadline } from "@/lib/eventStatus";
+import { formatDate } from "@/lib/format";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All Events" },
@@ -112,7 +113,7 @@ export default function Browse() {
                   {(() => {
                     const next = nextDeadline(event);
                     return next.date
-                      ? `${next.label}: ${new Date(next.date).toLocaleDateString()}`
+                      ? `${next.label}: ${formatDate(next.date)}`
                       : next.label;
                   })()}
                 </span>

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
 import { QrCode } from "@/components/ui/QrCode";
+import { formatDateTime } from "@/lib/format";
 
 export default function Security() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -133,7 +134,7 @@ function TotpPanel() {
           </p>
           {status?.enrolledAt && (
             <p className="font-mono text-[12px] text-muted mt-3 tnum">
-              Enrolled {new Date(status.enrolledAt).toLocaleString()}
+              Enrolled {formatDateTime(status.enrolledAt)}
             </p>
           )}
         </div>

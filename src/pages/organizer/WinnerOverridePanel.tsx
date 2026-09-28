@@ -9,7 +9,9 @@ import { Modal } from "@/components/ui/Modal";
 import { Textarea } from "@/components/ui/Textarea";
 import { DangerConfirmModal } from "@/components/ui/DangerConfirmModal";
 import { humanizeConvexError } from "@/lib/errors";
+import { formatDateTime } from "@/lib/format";
 import { Crown, ShieldAlert } from "lucide-react";
+import { Markdown } from "@/components/ui/Markdown";
 
 const MIN_REASON_LENGTH = 20;
 
@@ -242,13 +244,16 @@ export function WinnerOverridePanel({ eventId, submissions, isAdmin }: WinnerOve
                   {r.status}
                 </Badge>
               </div>
-              <p className="text-secondary leading-relaxed">{r.reason}</p>
+              <Markdown content={r.reason ?? ""} className="text-secondary text-[13px]" />
               <span className="text-[12px] text-muted">
-                {r.requestedBy} · {new Date(r.requestedAt).toLocaleString()}
+                {r.requestedBy} · {formatDateTime(r.requestedAt)}
                 {r.source === "admin_direct" ? " · admin direct override" : ""}
               </span>
               {r.reviewerNote && (
-                <p className="text-[12px] text-warning">Reviewer note: {r.reviewerNote}</p>
+                <div className="text-[12px] text-warning">
+                  <p className="font-medium">Reviewer note</p>
+                  <Markdown content={r.reviewerNote} className="text-[12px] text-warning" />
+                </div>
               )}
             </div>
           ))}

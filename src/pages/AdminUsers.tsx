@@ -12,7 +12,7 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
 import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
-import { Modal } from "@/components/ui/Modal";
+import { ConfirmDialog, Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Search, KeyRound } from "lucide-react";
 
@@ -58,6 +58,9 @@ export default function AdminUsers() {
   const [customPassword, setCustomPassword] = useState("");
   const [resetBusy, setResetBusy] = useState(false);
   const [resetResult, setResetResult] = useState<{ email: string; tempPassword: string } | null>(null);
+  // Deleting a user is irreversible, so it asks through the in-app dialog with
+  // the email typed out rather than a browser confirm() popup.
+  const [deleteTarget, setDeleteTarget] = useState<{ _id: any; email: string } | null>(null);
 
   async function handleResetMfa(user: any) {
     setBusy(true);
@@ -134,11 +137,12 @@ export default function AdminUsers() {
     }
   }
 
-  async function handleDelete(u: any) {
-    if (!confirm(`Permanently delete user ${u.email}? This cannot be undone.`)) return;
+  async function handleDelete() {
+    if (!deleteTarget) return;
     try {
-      await deleteUser({ userId: u._id });
-      toast.success(`User ${u.email} deleted.`);
+      await deleteUser({ userId: deleteTarget._id });
+      toast.success(`User ${deleteTarget.email} deleted.`);
+      setDeleteTarget(null);
     } catch (e: any) {
       toast.error(humanizeConvexError(e));
     }
@@ -291,7 +295,12 @@ export default function AdminUsers() {
                     >
                       Reset 2FA
                     </Button>
-                    <Button variant="danger" size="sm" onClick={() => handleDelete(user)}>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      aria-label={`Delete user ${user.email}`}
+                      onClick={() => setDeleteTarget({ _id: user._id, email: user.email })}
+                    >
                       Delete
                     </Button>
                   </div>
@@ -413,6 +422,22 @@ export default function AdminUsers() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        title="Delete user"
+        description={
+          deleteTarget
+            ? `Permanently delete ${deleteTarget.email}? Their teams, submissions and scores are removed with the account and this cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete user"
+        requireTyping={deleteTarget?.email}
+        destructive
+        isLoading={busy}
+      />
     </div>
   );
 }

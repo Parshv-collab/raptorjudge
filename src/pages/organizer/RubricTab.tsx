@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import { Badge } from "@/components/ui/Badge";
-import { Modal } from "@/components/ui/Modal";
+import { Modal, ConfirmDialog } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { humanizeConvexError } from "@/lib/errors";
 
@@ -30,6 +30,8 @@ export function RubricTab({
   const [modalOpen, setModalOpen] = useState(false);
   const [editCriterion, setEditCriterion] = useState<any>(null);
   const [allowMismatch, setAllowMismatch] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Form state
   const [name, setName] = useState("");
@@ -145,16 +147,17 @@ export function RubricTab({
     }
   }
 
-  async function handleDelete(criterionId: string) {
-    if (!confirm("Delete this criterion?")) return;
-    setBusy(true);
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await deleteCriterion({ eventId, criterionId: criterionId as never });
+      await deleteCriterion({ eventId, criterionId: deleteTarget.id as never });
       toast.success("Criterion deleted.");
+      setDeleteTarget(null);
     } catch (e: any) {
       toast.error(humanizeConvexError(e));
     } finally {
-      setBusy(false);
+      setDeleting(false);
     }
   }
 
@@ -260,7 +263,12 @@ export function RubricTab({
                         <Button variant="ghost" size="sm" onClick={() => handleOpenModal(c)}>
                           Edit
                         </Button>
-                        <Button variant="danger" size="sm" onClick={() => handleDelete(c._id || c.id)}>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          aria-label={`Delete criterion ${c.name}`}
+                          onClick={() => setDeleteTarget({ id: c._id || c.id, name: c.name })}
+                        >
                           Delete
                         </Button>
                       </div>
@@ -300,6 +308,22 @@ export function RubricTab({
           ))}
         </div>
       </div>
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        title="Delete criterion"
+        description={
+          deleteTarget
+            ? `Delete “${deleteTarget.name}”? The remaining weights will no longer sum to 1.000, so judges cannot submit scores until you fix them. This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete criterion"
+        destructive
+        isLoading={deleting}
+      />
 
       {/* Add / edit criterion modal */}
       <Modal

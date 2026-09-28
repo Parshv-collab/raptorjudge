@@ -149,7 +149,7 @@ export default function Gallery() {
             <Link key={project.id} to={`/project/${project.id}`} className="group">
               <div className="h-full bg-surface-1 border border-line rounded-card overflow-hidden transition-colors duration-fast group-hover:border-line-strong flex flex-col">
                 <div className="h-32 bg-surface-2 border-b border-line flex items-center justify-center font-mono text-xl text-accent">
-                  {project.title.substring(0, 2).toUpperCase()}
+                  {String(project.title ?? "?").slice(0, 2).toUpperCase()}
                 </div>
 
                 <div className="p-5 flex flex-col flex-1">

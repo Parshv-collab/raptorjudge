@@ -8,6 +8,7 @@ import { SkeletonCard, SkeletonStat } from "@/components/ui/SkeletonCard";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
 import { usePrimaryEvent } from "@/lib/featuredEvent";
+import { formatDateTime } from "@/lib/format";
 
 export default function OrganizerDashboard() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -136,7 +137,7 @@ export default function OrganizerDashboard() {
           {(audit || []).map((log: any) => (
             <div key={log.id} className="flex justify-between items-center px-5 h-12">
               <span className="font-mono text-[13px] text-primary">{log.action}</span>
-              <span className="text-[13px] text-muted tnum">{new Date(log.timestamp).toLocaleString()}</span>
+              <span className="text-[13px] text-muted tnum">{formatDateTime(log.timestamp)}</span>
             </div>
           ))}
           {(!audit || audit.length === 0) && (

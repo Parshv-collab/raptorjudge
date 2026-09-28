@@ -1,4 +1,4 @@
-import { useParams, Link, Navigate } from "react-router-dom";
+import { useParams, Link, Navigate, useNavigate } from "react-router-dom";
 import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/Badge";
@@ -20,6 +20,7 @@ import { Trophy, Medal } from "lucide-react";
  */
 export default function Results() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const navigate = useNavigate();
   const { slug } = useParams<{ slug: string }>();
   const fallbackSlug = usePrimaryEventSlug();
   const eventSlug = slug ?? fallbackSlug;
@@ -60,9 +61,7 @@ export default function Results() {
           title="Event not found"
           description="This results page points at an event that doesn't exist or hasn't been announced."
           actionLabel="Back to gallery"
-          onAction={() => {
-            window.location.href = `/gallery/${fallbackSlug}`;
-          }}
+          onAction={() => navigate(`/gallery/${fallbackSlug}`)}
         />
       </div>
     );

@@ -14,6 +14,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
 import { Markdown } from "@/components/ui/Markdown";
 import { Crown, ArrowRight } from "lucide-react";
+import { formatDateTime } from "@/lib/format";
 
 /**
  * Admin review queue for winner overrides (path A of the override system).
@@ -116,7 +117,7 @@ export default function AdminWinnerOverrides() {
                   <h3 className="text-[15px] font-semibold text-primary">{request.eventTitle}</h3>
                   <p className="text-[12px] text-muted mt-1">
                     Requested by {request.requestedBy} ·{" "}
-                    {new Date(request.requestedAt).toLocaleString()}
+                    {formatDateTime(request.requestedAt)}
                   </p>
                 </div>
                 <Badge variant="warning">pending</Badge>

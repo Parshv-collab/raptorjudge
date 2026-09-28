@@ -16,6 +16,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Markdown } from "@/components/ui/Markdown";
 import { EventPicker } from "@/components/participant/EventPicker";
 import { humanizeConvexError } from "@/lib/errors";
+import { formatDate, formatDateTime, formatTime } from "@/lib/format";
 import { usePrimaryEventSlug } from "@/lib/featuredEvent";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -235,7 +236,7 @@ export default function ParticipantWorkspace() {
           <div className="bg-surface-1 border border-line rounded-card px-4 py-2.5 flex flex-col">
             <span className="text-[11px] uppercase tracking-[0.05em] text-muted">Submission deadline</span>
             <span className="text-[13px] font-medium text-primary tnum">
-              {new Date(event.submissionDeadline).toLocaleString()}
+              {formatDateTime(event.submissionDeadline)}
             </span>
           </div>
         }
@@ -701,7 +702,7 @@ export function TeamChatSection({ teamId, className = "" }: { teamId: Id<"teams"
                   <span className="text-[13px] font-medium text-primary truncate">{msg.authorName}</span>
                 </span>
                 <span className="text-[11px] text-muted tnum shrink-0">
-                  {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  {formatTime(msg.createdAt)}
                 </span>
               </div>
 

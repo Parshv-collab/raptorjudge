@@ -4,6 +4,7 @@ import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { humanizeConvexError } from "@/lib/errors";
+import { formatDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SkeletonCard, SkeletonTable } from "@/components/ui/SkeletonCard";
 import { Button } from "@/components/ui/Button";
@@ -179,7 +180,7 @@ export default function AdminInvites() {
                   <TD>
                     <div className="flex items-center gap-2">
                       <span className="tnum text-secondary">
-                        {new Date(inv.expiresAt).toLocaleDateString()}
+                        {formatDate(inv.expiresAt)}
                       </span>
                       {inv.expired ? (
                         <Badge variant="danger">Expired</Badge>

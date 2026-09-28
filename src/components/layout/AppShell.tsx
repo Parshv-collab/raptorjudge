@@ -8,6 +8,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { roleHomePath } from "@/lib/roles";
 import { clearConvexAuthSessionKeys } from "@/lib/sessionCleanup";
+import { formatDate } from "@/lib/format";
 
 /** lucide icons, 20px in nav, 16px inline (spec: consistent icon sizing). */
 import {
@@ -476,23 +477,43 @@ export function AppShell() {
                 </div>
                 <div className="max-h-72 overflow-y-auto">
                   {(notifications ?? []).length === 0 ? (
-                    <p className="px-4 py-6 text-[13px] text-muted text-center">No notifications yet.</p>
+                    <div className="px-4 py-8 flex flex-col items-center text-center gap-1.5">
+                      <Bell size={20} strokeWidth={1.5} className="text-muted mb-1" aria-hidden="true" />
+                      <p className="text-[13px] font-medium text-primary">No notifications yet</p>
+                      <p className="text-[12px] text-muted max-w-[240px] leading-relaxed">
+                        Assignment, score, vote and result updates for your events show up here.
+                      </p>
+                    </div>
                   ) : (
-                    (notifications ?? []).slice(0, 12).map((n: any) => (
-                      <Link
-                        key={n.id}
-                        to={n.linkUrl ?? "#"}
-                        onClick={() => setBellOpen(false)}
-                        className={`block px-4 py-3 border-b border-line last:border-0 transition-colors duration-fast hover:bg-surface-2 ${
-                          n.readAt ? "" : "bg-surface-1"
-                        }`}
-                      >
-                        <p className="text-[13px] text-primary leading-snug">{n.message}</p>
-                        <p className="text-[11px] text-muted mt-0.5 tnum">
-                          {new Date(n.createdAt).toLocaleDateString()}
-                        </p>
-                      </Link>
-                    ))
+                    (notifications ?? []).slice(0, 12).map((n: any) => {
+                      const body = (
+                        <>
+                          <p className="text-[13px] text-primary leading-snug">{n.message}</p>
+                          <p className="text-[11px] text-muted mt-0.5 tnum">
+                            {formatDate(n.createdAt)}
+                          </p>
+                        </>
+                      );
+                      const shell = `block px-4 py-3 border-b border-line last:border-0 transition-colors duration-fast ${
+                        n.readAt ? "" : "bg-surface-1"
+                      }`;
+                      // A notification without a destination is informational only:
+                      // render it as static text instead of a link that goes nowhere.
+                      return n.linkUrl ? (
+                        <Link
+                          key={n.id}
+                          to={n.linkUrl}
+                          onClick={() => setBellOpen(false)}
+                          className={`${shell} hover:bg-surface-2`}
+                        >
+                          {body}
+                        </Link>
+                      ) : (
+                        <div key={n.id} className={shell}>
+                          {body}
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </div>

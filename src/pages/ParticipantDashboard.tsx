@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery, useConvexAuth } from "convex/react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { usePrimaryEvent } from "@/lib/featuredEvent";
 
 export default function ParticipantDashboard() {
+  const navigate = useNavigate();
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const skip = authLoading || !isAuthenticated;
 
@@ -125,9 +126,7 @@ export default function ParticipantDashboard() {
             title="You're not enrolled in any events yet"
             description="Browse upcoming and live hackathons to join a team and start building."
             actionLabel="Browse events"
-            onAction={() => {
-              window.location.href = `/events`;
-            }}
+            onAction={() => navigate("/events")}
           />
         )}
       </section>
