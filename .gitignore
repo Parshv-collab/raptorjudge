@@ -26,3 +26,12 @@ npm-debug.log*
 # python bytecode (run.py / run_t3_t4.py are stdlib-only scripts)
 __pycache__/
 *.pyc
+
+# Playwright — browsers and run artifacts are never committed
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/.playwright/
+# …nor is the e2e runtime state, which is stack-specific
+/e2e/.auth/

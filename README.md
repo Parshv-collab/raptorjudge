@@ -295,14 +295,63 @@ success because it had no input is a fail-open check, not a pass.
 | **T4 Stretch** | REST API + OpenAPI 3.0.3 document at `/api/openapi.json`, HMAC-SHA256 signed webhooks with replay protection, certificates with public verification, signed judge records, embeddable gallery widget, bulk JSON import/export | Complete |
 | **Bonus** | Normalization proof regenerated from fixtures, Bradley–Terry MM ranking, STRIDE threat model, API-first design | Complete |
 
+## Testing
+
+Four layers, each answering a question the others cannot.
+
+| Layer | Command | What it covers |
+|-------|---------|----------------|
+| Unit + integration | `npm test` | Backend logic, algorithms, security, audit chain (227 tests, 19 files) |
+| **E2E (browser)** | `npm run test:e2e` | **React pages, sign-in flows, role guards, admin nav** (37 tests, 5 specs) |
+| T1/T2 acceptance | `python3 run.py .dogfood.toml` | Official checker |
+| T3/T4 self-audit | `python3 run_t3_t4.py .dogfood.toml` | Self-audit |
+| Compose smoke | `npm run docker:verify` | Boots the real stack and asserts health + API surface |
+
+The unit and HTTP layers are fast and hermetic but they never render a React
+page: a broken import, a component that throws on mount, or a route that no
+longer exists passes all 227 unit tests and both Python suites, and only fails
+in a browser. The Playwright layer closes that gap.
+
+**E2E tests require the stack to be running:**
+
+```bash
+docker compose up -d
+npx playwright install chromium     # once per machine
+npm run test:e2e
+```
+
+Point the suite at another host with `E2E_BASE_URL=https://…`. Run a single spec
+with `npx playwright test e2e/judge.spec.ts`, or browse them interactively with
+`npm run test:e2e:ui`. Traces and screenshots are written to `test-results/` on
+failure and are gitignored.
+
+The suite signs in with the seeded accounts from
+[Seeded credentials](#seeded-credentials) (password `dogfood2026`) and runs
+**serially with one worker** — the app rate-limits per user+event, and several
+specs reuse the same accounts, so parallel workers would trip the limiter
+against each other.
+
+Two notes on what the suite does and does not assert:
+
+- The five `Test Hack — …` demo events only exist when the stack was seeded with
+  `TEST_EVENTS=true`. `e2e/admin.spec.ts` asserts them only when you tell it to:
+  `E2E_TEST_EVENTS=1 npm run test:e2e`. The default single-event stack asserts
+  their *absence*, so a deployment that suddenly grew them would be caught.
+- `participant@fixture.local` is created by the seed but is deliberately never
+  added to a team, so its dashboard shows the "You're not enrolled in any events
+  yet" empty state. The enrolled-events spec therefore signs in as a real fixture
+  team member (`priya1@example.org`).
+
 ## Commands
 
 | Command | Purpose |
 |---|---|
 | `npm run dev` | Vite dev server (frontend) |
 | `npm run build` | Production build to `dist/` |
-| `npm run typecheck` | `tsc -b --noEmit` |
+| `npm run typecheck` | `tsc -b --noEmit` (covers `src/`, `tests/`, `e2e/`, `playwright.config.ts`) |
 | `npm test` | Vitest suite (227 tests, 19 files) |
+| `npm run test:e2e` | Playwright browser suite (37 tests, 5 specs) — needs a running stack |
+| `npm run test:e2e:ui` | Playwright interactive mode |
 | `python3 run_t3_t4.py .dogfood.toml` | T3/T4 self-audit against a running stack |
 | `npm run test:watch` | Vitest in watch mode |
 | `npm run preview` | Preview the production build locally |
@@ -322,6 +371,8 @@ src/lib/algorithms/  pure, unit-tested assignment, normalization, pairwise, dupl
 src/pages/           route-level screens
 src/components/ui/   design-system components (Button, Card, Table, EmptyState, …)
 tests/               Vitest suites, including fixture-driven proofs
+e2e/                 Playwright browser specs (public, auth, judge, participant, admin)
+playwright.config.ts browser-suite config: one Chromium project, serial, one worker
 scripts/             seed / acceptance / proof / key-generation tooling
 frontend/, backend/  Docker images and entrypoints
 run.py, .dogfood.toml official acceptance checker and its config
@@ -372,6 +423,12 @@ Honest, specific, and current:
   require the operator to type the target's name), and the highest-stakes action —
   overriding the winner — uses `DangerConfirmModal`. There are no remaining native
   `confirm()`/`alert()` calls in the app.
+- **The admin rail lists "Settings" twice.** `ROLE_NAV.admin` points one entry at
+  `/admin/settings` and the shared `ACCOUNT_NAV` points the other at `/settings`,
+  so both light up as "Settings" in the admin sidebar. This is the same
+  duplicated-row bug that was fixed for "Profile"; the browser suite asserts
+  around it (by `href`) rather than papering over it. Low impact, but it is
+  ambiguous and should collapse to one entry.
 - **Password recovery is human-mediated by design.** There is no mail service
   in an offline deployment, so `/auth` explains that an organizer or admin must
   issue a temporary password (`/admin/users → Reset password`, audited, live
@@ -386,14 +443,20 @@ Honest, specific, and current:
   service; there is no wrapper script.
 - **Container images are not digest-pinned.**
 - **`/admin/settings` persists platform preferences the runtime does not read.**
-  The fourteen keys it writes (branding, timezone, date format, certificate URL,
-  and the maintenance / MFA-required / gallery-visible / show-scores / voting-mode
-  flags) are stored and audit-logged, but no query, mutation or component
-  consumes them yet. The page carries a banner saying exactly that, and badges
-  the flag section "Not enforced yet", so nobody turns on "Maintenance mode"
-  expecting a maintenance window. The lookup-table CRUD on the same page is
-  fully wired. Enforcing `mfa_required` in particular is an auth-layer change
-  and is the single highest-value follow-up in this repository.
+  The fourteen keys it writes are stored and audit-logged, but only the four
+  **branding** keys are actually consumed: `src/convex/branding.ts` serves them
+  through a public allowlisted query and `src/lib/branding.ts` feeds the site
+  name, tagline, logo and footer into the app shell and the sign-in page.
+  Everything else the page writes is still read by nothing: the support email,
+  timezone, date format, certificate base URL and default voting mode, plus the
+  `maintenance_mode`, `mfa_required`, `gallery_visible_during_submission` and
+  `show_scores_during_judging` flags. The page's banner says exactly that — it
+  is titled "Feature flags are stored, not enforced" and names the unenforced
+  set — and the flag section is badged "Not enforced yet", so nobody turns on
+  "Maintenance mode" expecting a maintenance window. The lookup-table CRUD on
+  the same page is fully wired. Enforcing `mfa_required` in particular is an
+  auth-layer change and is the single highest-value follow-up in this
+  repository.
 - **`/security` covers two-factor authentication only.** There is no self-service
   password change and no session list. Password reset is human-mediated by
   design (no mail service offline): an admin resets it from
