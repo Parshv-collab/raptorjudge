@@ -20,6 +20,17 @@ import { expect, type Page } from "@playwright/test";
 /** Password shared by every seeded account (`SEED_PASSWORD` in `src/convex/seed.ts`). */
 export const SEED_PASSWORD = "dogfood2026";
 
+/**
+ * Storage keys the auth provider uses, mirrored from `src/main.tsx`
+ * (`TOKEN_KEY_PREFIX` + `storageNamespace`). `sessionStorage` is per tab, so
+ * this is how a cached session is carried from one test's page to the next.
+ */
+const TOKEN_KEY_PREFIX = "__convexAuth";
+const AUTH_NAMESPACE = "raptorjudge";
+
+/** Access tokens already issued in this worker, keyed by email. */
+const jwtCache = new Map<string, string>();
+
 /** The five demo accounts created by the seed, plus one real team member. */
 export const ACCOUNTS = {
   admin: "admin@fixture.local",
@@ -46,13 +57,10 @@ export const ROLE_HOME = {
 } as const;
 
 /**
- * Sign in through the real form and wait for the role's own console.
- *
- * Deliberately uses the UI rather than injecting a seeded session cookie: the
- * point of these tests is that the sign-in *screen* works, and the cookie path
- * is already covered by `run.py`.
+ * Sign in by actually filling the form in — no caching, no token replay.
+ * Used by the tests whose subject *is* the sign-in screen.
  */
-export async function signIn(
+export async function signInViaForm(
   page: Page,
   email: string,
   password: string = SEED_PASSWORD,
@@ -62,6 +70,48 @@ export async function signIn(
   await page.getByLabel(/^Password/).fill(password);
   // Scoped to the form: the mode-switch button is also a "Sign in" button.
   await page.locator("form").getByRole("button", { name: "Sign in" }).click();
+}
+
+/**
+ * Get `page` into `email`'s session, and wait for nothing else — callers
+ * assert on the landing page themselves.
+ *
+ * The first time an account is used in a worker this really types credentials
+ * into the form. Afterwards the issued JWT is cached and replayed into the next
+ * page's `sessionStorage`, so each account authenticates once per run rather
+ * than once per test.
+ *
+ * That is not just a speed-up. `auth.ts` charges every credential attempt —
+ * successful ones included — against a per-address bucket
+ * (`AUTH_ATTEMPT_LIMIT`, 20 per 5 minutes), so a suite that signed in afresh 11
+ * times as `participant@fixture.local` passed on a clean stack and then failed
+ * with a bare "Something went wrong" the moment it was re-run inside the
+ * window. Caching keeps the suite deterministic no matter how often it is run.
+ *
+ * Only the JWT is replayed, never the refresh token: the refresh token is
+ * single-use and rotating, and a valid one-hour JWT removes the need for it
+ * inside a test run. Tests that care about the sign-in *form* itself use
+ * `signInViaForm`, which never touches the cache.
+ */
+export async function signIn(
+  page: Page,
+  email: string,
+  password: string = SEED_PASSWORD,
+): Promise<void> {
+  const cached = jwtCache.get(email);
+  if (cached) {
+    await page.addInitScript(
+      ([key, value]) => window.sessionStorage.setItem(key, value),
+      [`${TOKEN_KEY_PREFIX}JWT_${AUTH_NAMESPACE}`, cached] as const,
+    );
+    return;
+  }
+  await signInViaForm(page, email, password);
+  const jwt = await page.evaluate(
+    (key) => window.sessionStorage.getItem(key),
+    `${TOKEN_KEY_PREFIX}JWT_${AUTH_NAMESPACE}`,
+  );
+  if (jwt) jwtCache.set(email, jwt);
 }
 
 /**

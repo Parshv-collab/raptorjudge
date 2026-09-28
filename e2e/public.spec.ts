@@ -63,9 +63,11 @@ test("help page renders the seeded FAQ and guide content", async ({ page }) => {
   await expect(firstFaq).toBeVisible();
   expect(await faq.getByRole("button").count()).toBeGreaterThan(0);
 
-  // A real seeded question is on screen, not just an empty accordion.
+  // A real seeded question is on screen, not just an empty accordion. `.first()`
+  // because a re-seeded deployment can carry more than one copy of an entry, and
+  // a strict locator would then trip over the duplicates rather than the test.
   await expect(
-    page.getByRole("button", { name: "How does quadratic voting work?" }),
+    page.getByRole("button", { name: "How does quadratic voting work?" }).first(),
   ).toBeVisible();
 
   // Opening it flips the control and reveals its markdown body.

@@ -1,7 +1,7 @@
 import { useEffect, useState, FormEvent } from "react";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { useConvex, useQuery } from "convex/react";
+import { useConvex, useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/Button";
@@ -48,13 +48,9 @@ const EXPERIENCE_LEVELS = [
 /** How many times we re-ask for the role before showing the waiting screen. */
 const ROLE_LOOKUP_ATTEMPTS = 4;
 
-/** Issue 17: wipe any stale Convex Auth tokens before a new sign-in starts. */
-if (typeof window !== "undefined") {
-  clearConvexAuthSessionKeys();
-}
-
 export default function Auth() {
   const { signIn, signOut } = useAuthActions();
+  const { isAuthenticated, isLoading } = useConvexAuth();
   const convex = useConvex();
   const navigate = useNavigate();
   const location = useLocation();
@@ -102,6 +98,27 @@ export default function Auth() {
   const [staleTimer, setStaleTimer] = useState(false);
 
   const liveMe = useQuery(api.users.me, awaitingRole ? {} : "skip");
+
+  /**
+   * Issue 17: wipe any stale Convex Auth tokens before a new sign-in starts.
+   *
+   * This used to run at **module scope**, which was a real bug rather than a
+   * style nit. `App.tsx` imports this module to build its route table, so the
+   * statement ran while the bundle was still evaluating — on *every* page load,
+   * not just a visit to `/auth`. Reloading `/admin`, following a bookmark, or
+   * opening a shared link therefore deleted the live JWT and refresh token and
+   * bounced a signed-in user to the sign-in form. In-app navigation kept
+   * working, because the module had already been evaluated once.
+   *
+   * Scoped to the component it now only fires for a visitor who has actually
+   * landed here signed out, which is the case it was written for. A signed-in
+   * user reaching `/auth` keeps their session; a token the server rejects is
+   * still cleaned up by the sign-in failure path below.
+   */
+  useEffect(() => {
+    if (isLoading || isAuthenticated) return;
+    clearConvexAuthSessionKeys();
+  }, [isLoading, isAuthenticated]);
 
   useEffect(() => {
     if (!awaitingRole) return;

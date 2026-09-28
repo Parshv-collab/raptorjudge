@@ -6,6 +6,7 @@ import {
   expectNoAuthError,
   sidebar,
   signIn,
+  signInViaForm,
   signOut,
 } from "./helpers";
 
@@ -20,7 +21,7 @@ import {
  */
 
 test("sign in as participant lands on the participant dashboard", async ({ page }) => {
-  await signIn(page, ACCOUNTS.participant);
+  await signInViaForm(page, ACCOUNTS.participant);
   await page.waitForURL(ROLE_HOME.participant);
   await expectNoAuthError(page);
   // `ParticipantDashboard.tsx` PageHeader: "Welcome back, <first name>".
@@ -30,7 +31,7 @@ test("sign in as participant lands on the participant dashboard", async ({ page 
 });
 
 test("sign in as organizer lands on the organizer console", async ({ page }) => {
-  await signIn(page, ACCOUNTS.organizer);
+  await signInViaForm(page, ACCOUNTS.organizer);
   await page.waitForURL(ROLE_HOME.organizer);
   await expectNoAuthError(page);
   // `OrganizerDashboard.tsx` PageHeader title.
@@ -42,7 +43,7 @@ test("sign in as organizer lands on the organizer console", async ({ page }) => 
 });
 
 test("sign in as judge lands on the judge portal", async ({ page }) => {
-  await signIn(page, ACCOUNTS.judgeA);
+  await signInViaForm(page, ACCOUNTS.judgeA);
   await page.waitForURL(ROLE_HOME.judge);
   await expectNoAuthError(page);
   // `JudgePortal.tsx` PageHeader title when not in `?view=scores` mode.
@@ -52,7 +53,7 @@ test("sign in as judge lands on the judge portal", async ({ page }) => {
 });
 
 test("sign in as admin lands on the admin console", async ({ page }) => {
-  await signIn(page, ACCOUNTS.admin);
+  await signInViaForm(page, ACCOUNTS.admin);
   await page.waitForURL(ROLE_HOME.admin);
   await expectNoAuthError(page);
   // `AdminDashboard.tsx` PageHeader title.
@@ -78,7 +79,7 @@ test("a wrong password is rejected and the visitor stays on /auth", async ({ pag
 });
 
 test("sign out clears the session and returns to /auth", async ({ page }) => {
-  await signIn(page, ACCOUNTS.participant);
+  await signInViaForm(page, ACCOUNTS.participant);
   await page.waitForURL(ROLE_HOME.participant);
 
   await signOut(page);
@@ -88,6 +89,31 @@ test("sign out clears the session and returns to /auth", async ({ page }) => {
   // sign-in again instead of rendering the dashboard from a cached render.
   await page.goto("/dashboard");
   await page.waitForURL(/\/auth\?returnTo=/);
+});
+
+test("a signed-in session survives a full page reload", async ({ page }) => {
+  // Regression guard. `Auth.tsx` used to wipe the stored Convex Auth tokens at
+  // **module scope** to clear stale ones before a sign-in. `App.tsx` imports
+  // that module for its route table, so the statement ran while the bundle was
+  // still evaluating — on every page load, not just a visit to /auth. Reloading
+  // any page therefore deleted the live session and bounced the user to the
+  // sign-in form, while clicking around inside an already-loaded app kept
+  // working. Every `page.goto()`-based test in this suite failed because of it.
+  await signInViaForm(page, ACCOUNTS.admin);
+  await page.waitForURL(ROLE_HOME.admin);
+
+  await page.goto("/admin/events");
+  await expect(page).toHaveURL(/\/admin\/events/);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "All system events" }),
+  ).toBeVisible();
+
+  // A second reload must behave the same, not degrade into a sign-out.
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "All system events" }),
+  ).toBeVisible();
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
 });
 
 test("a protected route is not rendered for a signed-out visitor", async ({ page }) => {
@@ -152,6 +178,6 @@ test("the seeded password is the documented one", async ({ page }) => {
   // obvious auth error, so pin it with one readable test.
   expect(SEED_PASSWORD).toBe("dogfood2026");
 
-  await signIn(page, ACCOUNTS.participant, SEED_PASSWORD);
+  await signInViaForm(page, ACCOUNTS.participant, SEED_PASSWORD);
   await page.waitForURL(ROLE_HOME.participant);
 });

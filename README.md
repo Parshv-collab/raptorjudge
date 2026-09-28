@@ -334,7 +334,7 @@ Four layers, each answering a question the others cannot.
 | Layer | Command | What it covers |
 |-------|---------|----------------|
 | Unit + integration | `npm test` | Backend logic, algorithms, security, audit chain (227 tests, 19 files) |
-| **E2E (browser)** | `npm run test:e2e` | **React pages, sign-in flows, role guards, admin nav** (37 tests, 5 specs) |
+| **E2E (browser)** | `npm run test:e2e` | **React pages, sign-in flows, role guards, admin nav** (38 tests, 5 specs) |
 | T1/T2 acceptance | `python3 run.py .dogfood.toml` | Official checker |
 | T3/T4 self-audit | `python3 run_t3_t4.py .dogfood.toml` | Self-audit |
 | Compose smoke | `npm run docker:verify` | Boots the real stack and asserts health + API surface |
@@ -362,6 +362,15 @@ The suite signs in with the seeded accounts from
 **serially with one worker** — the app rate-limits per user+event, and several
 specs reuse the same accounts, so parallel workers would trip the limiter
 against each other.
+
+Each account authenticates **once per run**: `e2e/helpers.ts` types the
+credentials into the real form the first time, then replays the issued JWT into
+the next page's `sessionStorage`. `auth.ts` charges every credential attempt —
+successful ones included — against a per-address bucket of 20 per 5 minutes, so
+signing in afresh per test made the suite pass on a clean stack and then fail
+with a bare “Something went wrong” on a second run inside the window. The specs
+that are *about* the sign-in form still use the real form every time
+(`signInViaForm`); nothing is cached for them.
 
 Two notes on what the suite does and does not assert:
 
@@ -449,6 +458,24 @@ supported reset path and is safe to re-run (it wipes and rebuilds fixture data).
 
 Honest, specific, and current:
 
+- **Reloading right after signing in used to sign you out.** `Auth.tsx` wiped
+  stale Convex Auth tokens at **module scope** to clear them before a new
+  sign-in, and `App.tsx` imports that module for its route table — so the
+  statement ran while the bundle was still evaluating, on *every* page load.
+  Reloading `/admin`, following a bookmark or opening a shared link deleted the
+  live session and bounced you to the sign-in form, while clicking around inside
+  an already-loaded app kept working. The wipe is now scoped to a visitor who
+  has actually landed on `/auth` signed out, and
+  `e2e/auth.spec.ts` has a regression test for it. Fixing it exposed a second,
+  upstream one — see the next entry.
+- **Fast-reload sign-out was an `@convex-dev/auth` bug, fixed by upgrading.**
+  Reloading within a second or two of authenticating could still sign you out:
+  the client removes the stored refresh token *before* the refresh request
+  completes, so a navigation that interrupts it destroys the session on the
+  next load. Measured on `0.0.74` it failed 2 runs in 3 with this app's
+  `sessionStorage` and **9 in 9** with the library's default `localStorage` —
+  so our storage choice was mitigating it, not causing it. `@convex-dev/auth` is
+  now pinned to `0.0.95`, where the same reproduction is 9 for 9 green.
 - **Single-node rate limiting.** The limiter is a fixed-window counter in the
   Convex `platform` table, so it is per-deployment. A distributed limiter (Redis
   et al.) is not implemented; behind a CDN you should also rate limit at the edge.
