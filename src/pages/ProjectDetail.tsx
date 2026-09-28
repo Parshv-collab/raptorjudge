@@ -26,6 +26,12 @@ export default function ProjectDetail() {
   );
   const castVote = useMutation(api.voting.castVote);
   const removeVote = useMutation(api.voting.removeVote);
+  /** Issue 53: is the signed-in visitor actually on a team in this event? */
+  const myTeams = useQuery(api.teams.myTeams, me ? {} : "skip");
+  const enrolledInEvent = Boolean(
+    detail?.eventId && myTeams?.some((t: { eventId: string }) => t.eventId === detail.eventId),
+  );
+  const eventSlug = (detail as { eventSlug?: string } | undefined)?.eventSlug ?? fallbackSlug;
   const [votePoints, setVotePoints] = useState(1);
   const addComment = useMutation(api.comments.add);
   const flagComment = useMutation(api.comments.flag);
@@ -210,6 +216,22 @@ export default function ProjectDetail() {
               <p className="text-sm text-secondary">
                 Voting is {voteStatus.resultsVisible ? "closed for this event" : "not open yet"} — points can
                 be cast while the event is in its voting stage.
+              </p>
+            ) : !enrolledInEvent ? (
+              // Issue 53: the panel used to look identical whether or not the
+              // visitor belongs to this event, so there was no way to tell that
+              // the ballot is open. Naming it explicitly is the honest version:
+              // the community vote is open to any signed-in participant, and
+              // joining a team here is what makes it yours.
+              <p className="text-sm text-secondary">
+                Community voting is open.{" "}
+                <Link
+                  to={`/e/${eventSlug ?? ""}`}
+                  className="text-accent hover:text-accent-hover transition-colors duration-fast"
+                >
+                  Join a team in this event
+                </Link>{" "}
+                to take part — you are not on a team here yet.
               </p>
             ) : myVote ? (
               <div className="flex flex-wrap items-center gap-3">

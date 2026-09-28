@@ -4,24 +4,27 @@ import { ACCOUNTS, ROLE_HOME, sidebar, signIn } from "./helpers";
 /**
  * Participant surfaces.
  *
- * One seed subtlety shapes this file, and it is worth stating plainly because
- * it contradicts the obvious guess:
+ * One seed subtlety used to shape this file, and it is worth stating plainly
+ * because it contradicts the obvious guess — the note is kept because the
+ * *other* account below still depends on it.
  *
- *   `participant@fixture.local` is created as a `participant` user and gets a
- *   session, but the seed **never adds it to a team** — team membership comes
- *   only from `FIXTURES.teams[].members`, and that list is made of fixture
- *   addresses like `priya1@example.org`. `events.enrolled` derives enrollment
- *   purely from `teamMembers`, so the demo participant's "Your events" grid is
- *   empty by design and renders its "You're not enrolled in any events yet"
- *   empty state. Asserting "at least one event card" for that account would be
- *   a test that could never pass.
+ *   `participant@fixture.local` was created by the main seed and never added
+ *   to a team, so its "Your events" grid was permanently empty and the
+ *   dashboard rendered "You're not enrolled in any events yet". That made the
+ *   participant role's front page undemoable on a TEST_EVENTS stack: no
+ *   workspace, no chat, no vote panel, no results.
  *
- *   So: the enrolled-events test signs in as `tm_01`'s leader, who really is
- *   in a team, and the demo participant is asserted on what it genuinely sees —
- *   the featured primary event on its dashboard.
+ *   The TEST_EVENTS branch of the seed now enrols it in all five demo events
+ *   (issue 52) — that branch only, so `sample-hack-2026` and the T1/T2
+ *   acceptance suite are untouched. The test below therefore asserts the demo
+ *   participant *is* enrolled, and the enrolled-events test still signs in as
+ *   `tm_01`'s leader, who is enrolled by the ordinary fixture path.
+ *
+ *   The suite must pass on both a TEST_EVENTS=true and a TEST_EVENTS=false
+ *   stack, so nothing below names a demo event.
  */
 
-test("demo participant dashboard shows the featured seeded event", async ({ page }) => {
+test("demo participant dashboard shows its events and featured cards", async ({ page }) => {
   await signIn(page, ACCOUNTS.participant);
   await page.waitForURL(ROLE_HOME.participant);
 
@@ -29,21 +32,23 @@ test("demo participant dashboard shows the featured seeded event", async ({ page
     page.getByRole("heading", { level: 1, name: /Welcome back/i }),
   ).toBeVisible();
 
-  // "Your events" is empty for this account (see the file header) …
-  await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible();
-  await expect(page.getByText("You're not enrolled in any events yet")).toBeVisible();
+  const yourEvents = page.locator("section").filter({
+    has: page.getByRole("heading", { name: "Your events" }),
+  });
+  await expect(yourEvents).toBeVisible();
+  // On a TEST_EVENTS stack the seed enrols this account in five events; on a
+  // default stack it is enrolled in none and the empty state is correct. Either
+  // way one of the two must hold — a dashboard that is neither is the bug.
+  const enrolledCards = await yourEvents.getByRole("heading", { level: 3 }).count();
+  const emptyState = await yourEvents.getByText("You're not enrolled in any events yet").count();
+  expect(enrolledCards > 0 || emptyState > 0).toBe(true);
 
-  // … while the featured slot still surfaces a real event, so the dashboard is
-  // never a blank screen.
+  // Featured slot: up to three cards (issue 49 — it used to be exactly one,
+  // whatever the deployment), never a blank screen.
   //
-  // Deliberately NOT asserted against a specific title. `events.featuredForVisitors`
-  // ranks *open* events (registration/hacking/judging/voting) by team count
-  // first and only falls back to the closed/published bucket when there are
-  // none. So the featured card is:
-  //   - "Sample Hack 2026" on a default TEST_EVENTS=false stack (its `closed`
-  //     status is what puts it in the fallback bucket), but
-  //   - whichever test event is currently open on a TEST_EVENTS=true stack.
-  // Naming one of those makes the test pass on one stack and fail on the other.
+  // Deliberately NOT asserted against specific titles. `events.browse` ranks
+  // *open* events first, so which event wins depends on the stack's stage
+  // mix. Naming one passes on one stack and fails on the other.
   const featured = page.locator("section").filter({
     has: page.getByRole("heading", { name: "Featured events" }),
   });
@@ -52,8 +57,14 @@ test("demo participant dashboard shows the featured seeded event", async ({ page
   ).toBeVisible();
   // Each featured card links to its public event page.
   await expect(featured.getByRole("link", { name: "View event" }).first()).toBeVisible();
-  // …and it has a real title, not a placeholder.
+  // …and they have real titles, not placeholders.
   expect(await featured.getByRole("heading", { level: 3 }).count()).toBeGreaterThan(0);
+
+  // The discovery grid below it makes the whole catalogue reachable from the
+  // dashboard, not just whatever is featured.
+  await expect(
+    page.getByRole("heading", { name: "Browse all events" }),
+  ).toBeVisible();
 });
 
 test("a participant who is on a team sees their enrolled events", async ({ page }) => {

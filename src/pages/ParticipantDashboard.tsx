@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { usePrimaryEvent } from "@/lib/featuredEvent";
+import { BrowseAllEvents } from "@/components/events/EventDiscovery";
 
 export default function ParticipantDashboard() {
   const navigate = useNavigate();
@@ -19,14 +19,23 @@ export default function ParticipantDashboard() {
   // and returns the matching events (with `participantCount`) in one read,
   // instead of filtering the public list against a separately fetched roster.
   const enrolled = useQuery(api.events.enrolled, skip ? "skip" : {});
-  // Issue 29: the featured slot never heroes a closed event — open first,
-  // then upcoming, then most recently published with the "Results are in" tag.
-  const primaryEvent = usePrimaryEvent();
-
+  /**
+   * Issue 49: this used to render exactly one card, from `usePrimaryEvent`, so
+   * on a TEST_EVENTS deployment the whole dashboard showed a single event and
+   * a "You're not enrolled in any events yet" empty state — the participant
+   * role's front page looked broken next to the landing page, which shows three.
+   * It now mirrors the landing page's priority (open → upcoming → past) and
+   * takes up to three, so a busy deployment never reduces to a single card.
+   */
+  const browse = useQuery(api.events.browse, skip ? "skip" : {});
   const featured = useMemo(() => {
-    if (primaryEvent.isLoading) return undefined;
-    return primaryEvent.event ? [primaryEvent.event] : [];
-  }, [primaryEvent.isLoading, primaryEvent.event]);
+    if (browse === undefined) return undefined;
+    const list = browse as any[];
+    const open = list.filter((e) => e.isOpen);
+    const upcoming = list.filter((e) => !e.isOpen && e.isUpcoming);
+    const past = list.filter((e) => e.isPast);
+    return [...open, ...upcoming, ...past].slice(0, 3);
+  }, [browse]);
 
   if (authLoading) {
     return (
@@ -143,8 +152,8 @@ export default function ParticipantDashboard() {
                 className="bg-surface-1 border border-line rounded-card p-5 flex flex-col justify-between transition-colors duration-fast hover:border-line-strong"
               >
                 <div>
-                  <Badge variant={primaryEvent.phase === "results" ? "accent" : "default"} className="mb-2">
-                    {primaryEvent.phase === "results" ? "Results are in" : event.status}
+                  <Badge variant={event.status === "published" ? "accent" : "default"} className="mb-2">
+                    {event.status === "published" ? "Results are in" : event.status}
                   </Badge>
                   <h3 className="text-[15px] font-semibold text-primary line-clamp-1">{event.title}</h3>
                   <p className="text-[13px] text-secondary line-clamp-2 mt-1 mb-3">
@@ -162,6 +171,13 @@ export default function ParticipantDashboard() {
           </div>
         </section>
       )}
+
+      {/*
+        Issue 49: everything else. The dashboard used to stop after one
+        featured card, so a participant had no way to see or join an event
+        from here without already knowing the URL.
+      */}
+      <BrowseAllEvents contained />
     </div>
   );
 }

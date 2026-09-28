@@ -135,8 +135,12 @@ const FILTERS = [
  * searchable by name, grouped into Registration open / Happening now /
  * Upcoming / Past. This is the same list `/events` serves, surfaced on the
  * landing page so a visitor never has to guess that a second page exists.
+ *
+ * `contained` drops the landing page's max-width/padding wrapper so the same
+ * component can be reused *inside* the app shell (the participant dashboard,
+ * issue 49), which already supplies its own container.
  */
-export function BrowseAllEvents() {
+export function BrowseAllEvents({ contained = false }: { contained?: boolean }) {
   const events = useQuery(api.events.browse, {});
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -171,7 +175,7 @@ export function BrowseAllEvents() {
 
   if (events === undefined) {
     return (
-      <section className="max-w-content mx-auto px-5 lg:px-8 w-full">
+      <section className={contained ? "w-full" : "max-w-content mx-auto px-5 lg:px-8 w-full"}>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <SkeletonCard lines={3} />
           <SkeletonCard lines={3} />
@@ -182,7 +186,7 @@ export function BrowseAllEvents() {
   }
 
   return (
-    <section className="max-w-content mx-auto px-5 lg:px-8 w-full">
+    <section className={contained ? "w-full" : "max-w-content mx-auto px-5 lg:px-8 w-full"}>
       <div className="mb-8">
         <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-accent">
           Discover

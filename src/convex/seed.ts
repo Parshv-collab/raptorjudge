@@ -484,6 +484,63 @@ async function seedTestEvents(ctx: ActionCtx): Promise<string[]> {
   });
   const organizerId = organizerRow as Id<"users"> | null;
 
+  /**
+   * Issue 52: the demo participant.
+   *
+   * `participant@fixture.local` is created by the main seed but deliberately
+   * left off every team, so on a TEST_EVENTS deployment its workspace was empty
+   * in all five demo events — which made /workspace, /workspace/chat, the vote
+   * panel, comments and the results page undemoable. Enrolling it here (test
+   * events only; Sample Hack 2026 is never touched) gives the demo a real
+   * participant journey.
+   *
+   * `member1_1@example.org` is a fixture team member, so the demo team has two
+   * real accounts: multi-user team chat and the invite-code flow both work
+   * without inventing anybody.
+   */
+  const demoParticipantRow = await ctx.runQuery(internal.seed.getSeedUserIdByEmail, {
+    email: "participant@fixture.local",
+  });
+  const demoParticipantId = demoParticipantRow as Id<"users"> | null;
+  const demoTeammateRow = await ctx.runQuery(internal.seed.getSeedUserIdByEmail, {
+    email: "member1_1@example.org",
+  });
+  const demoTeammateId = demoTeammateRow as Id<"users"> | null;
+
+  /**
+   * Put the demo participant on a team in `eventId`, with `teammateId` when one
+   * is supplied (team chat needs a second member to be worth showing). A
+   * participant with no team has no workspace at all, and `events.enrolled`
+   * walks team memberships, so this is what makes the event appear on their
+   * dashboard. Returns the team id so the submissions-stage event can hang a
+   * draft project off it.
+   */
+  const enrollDemoParticipant = async (
+    eventId: Id<"events">,
+    teamName: string,
+    teammateId: Id<"users"> | null,
+  ): Promise<Id<"teams"> | null> => {
+    if (!demoParticipantId) return null;
+    const teamId = await ctx.runMutation(internal.seed.createTeam, {
+      eventId,
+      name: teamName,
+      createdBy: demoParticipantId,
+    });
+    await ctx.runMutation(internal.seed.addMember, {
+      teamId,
+      userId: demoParticipantId,
+      memberRole: "leader",
+    });
+    if (teammateId) {
+      await ctx.runMutation(internal.seed.addMember, {
+        teamId,
+        userId: teammateId,
+        memberRole: "member",
+      });
+    }
+    return teamId;
+  };
+
   // The rubric the fixture scores were written against (3 weighted criteria).
   const criterionNames = Array.from(
     FIXTURES.scores.reduce((set, sc) => {
@@ -659,10 +716,13 @@ async function seedTestEvents(ctx: ActionCtx): Promise<string[]> {
       prizeDescription: "Opens at registration close",
       prizeAmount: 500,
     });
+    // Issue 52: solo enrolment, because this is the stage where someone is
+    // supposed to be forming a team for the first time.
+    await enrollDemoParticipant(eventId, "Demo Solo", null);
     await ctx.runMutation(internal.seed.logSeedAction, {
       eventId,
       action: "seed.test_events",
-      summary: "Seeded registration-stage demo event (0 projects, 0 judges, 0 votes).",
+      summary: "Seeded registration-stage demo event (0 projects, 0 judges, 0 votes, 1 enrolled participant).",
     });
     created.push(slug);
   }
@@ -701,10 +761,30 @@ async function seedTestEvents(ctx: ActionCtx): Promise<string[]> {
       const p = await createProject(eventId, trackId, i);
       if (p) projects.push(p);
     }
+    // Issue 52: enrolled with a second member so the team chat demo has two
+    // real accounts in it, and given a draft project so /workspace shows the
+    // submit flow rather than a blank team.
+    const demoTeamId = await enrollDemoParticipant(eventId, "Demo Crew", demoTeammateId);
+    if (demoTeamId) {
+      await ctx.runMutation(internal.seed.createSubmission, {
+        eventId,
+        teamId: demoTeamId,
+        trackId,
+        title: "Lantern Drift",
+        tagline: "A collaborative offline-first canvas for field research teams.",
+        description: "Seed project for the demo participant, left in draft so the submit flow is reachable.",
+        repositoryUrl: "https://github.com/example/lantern-drift",
+        videoUrl: "",
+        demoUrl: "",
+        tags: "",
+        status: "draft",
+        submittedAt: now,
+      });
+    }
     await ctx.runMutation(internal.seed.logSeedAction, {
       eventId,
       action: "seed.test_events",
-      summary: `Seeded submissions-stage demo event (${projects.length} projects, 0 judges, 0 votes).`,
+      summary: `Seeded submissions-stage demo event (${projects.length} projects, 0 judges, 0 votes, 1 enrolled participant).`,
     });
     created.push(slug);
   }
@@ -745,10 +825,11 @@ async function seedTestEvents(ctx: ActionCtx): Promise<string[]> {
     }
     const criteria = await createCriteria(eventId);
     await assignAndScore(eventId, projects.map((p) => p.submissionId), criteria, 4);
+    await enrollDemoParticipant(eventId, "Demo Crew", demoTeammateId);
     await ctx.runMutation(internal.seed.logSeedAction, {
       eventId,
       action: "seed.test_events",
-      summary: `Seeded judging-stage demo event (${projects.length} projects, ${judgeIds.length} judges assigned, 4 scored).`,
+      summary: `Seeded judging-stage demo event (${projects.length} projects, ${judgeIds.length} judges assigned, 4 scored, 1 enrolled participant).`,
     });
     created.push(slug);
   }
@@ -790,11 +871,15 @@ async function seedTestEvents(ctx: ActionCtx): Promise<string[]> {
     const criteria = await createCriteria(eventId);
     const submissionIds = projects.map((p) => p.submissionId);
     await assignAndScore(eventId, submissionIds, criteria, submissionIds.length);
+    // The 15 seeded votes are cast by fixture team leads, *not* by the demo
+    // participant (issue 52) — so signing in as them still has a full budget
+    // and the vote panel opens on an untouched ballot.
     await castVotes(eventId, submissionIds, 15);
+    await enrollDemoParticipant(eventId, "Demo Crew", demoTeammateId);
     await ctx.runMutation(internal.seed.logSeedAction, {
       eventId,
       action: "seed.test_events",
-      summary: `Seeded voting-stage demo event (${submissionIds.length} projects, all scored, 15 votes).`,
+      summary: `Seeded voting-stage demo event (${submissionIds.length} projects, all scored, 15 votes, 1 enrolled participant).`,
     });
     created.push(slug);
   }
@@ -839,6 +924,9 @@ async function seedTestEvents(ctx: ActionCtx): Promise<string[]> {
     const submissionIds = projects.map((p) => p.submissionId);
     await assignAndScore(eventId, submissionIds, criteria, submissionIds.length);
     await castVotes(eventId, submissionIds, 30);
+    // Issue 52: enrolled before the winner is crowned so the event is complete
+    // by the time anything ranks it.
+    await enrollDemoParticipant(eventId, "Demo Crew", demoTeammateId);
 
     // Crown a winner the same way the organizer console does: rank the event
     // and pin #1, so the results page shows a trophy instead of an empty state.

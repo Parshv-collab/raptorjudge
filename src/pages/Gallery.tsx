@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useParams, Link } from "react-router-dom";
-import { useQuery } from "convex/react";
+import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Input } from "@/components/ui/Input";
 import { Dropdown } from "@/components/ui/Dropdown";
@@ -28,6 +28,7 @@ const RESULTS_PUBLISHED_STATUSES = ["published", "archived"];
 
 export default function Gallery() {
   const { slug } = useParams<{ slug: string }>();
+  const { isAuthenticated } = useConvexAuth();
   const event = useQuery(api.events.getBySlug, slug ? { slug } : "skip");
 
   const [search, setSearch] = useState("");
@@ -56,6 +57,12 @@ export default function Gallery() {
 
   const galleryClosed = event && ["draft", "registration", "hacking"].includes(event.status);
   const resultsPublished = Boolean(event && RESULTS_PUBLISHED_STATUSES.includes(event.status));
+  // Whether the visitor already belongs to a team here — only used to word the
+  // voting hint accurately, never to gate anything.
+  const myTeamForEvent = useQuery(
+    api.teams.myTeams,
+    isAuthenticated && event ? {} : "skip",
+  )?.some((t: { eventId: string }) => t.eventId === event?._id);
 
   return (
     <div className="flex flex-col gap-8">
@@ -77,6 +84,28 @@ export default function Gallery() {
           </Link>
         }
       />
+
+      {/*
+        Issue 53: on a voting event the grid is where the work happens, but the
+        page gave no hint that a ballot was open. The event page's "Vote now"
+        button lands here, so the landing has to say what to do next.
+      */}
+      {event?.status === "voting" && (
+        <div className="rounded-card border border-accent/40 bg-accent/10 px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-primary">
+            <span className="font-medium">Community voting is open.</span>{" "}
+            <span className="text-secondary">
+              Open a project to cast your points. Tallies stay hidden until results are published.
+            </span>
+          </p>
+          <Link
+            to={myTeamForEvent ? `/workspace?event=${event.slug}` : `/e/${event.slug}`}
+            className="text-[13px] text-accent hover:text-accent-hover shrink-0"
+          >
+            {myTeamForEvent ? "Back to your workspace" : "About this event"} →
+          </Link>
+        </div>
+      )}
 
       {/* Filter bar */}
       <div className="flex flex-col gap-4">

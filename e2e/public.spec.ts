@@ -134,3 +134,40 @@ test("signed-out visitor is sent to sign in with a return path", async ({ page }
     "/dashboard",
   );
 });
+
+test("a voting event page leads to the ballot", async ({ page }) => {
+  // The demo event frozen at the voting stage. Its page used to offer a
+  // disabled "Registration closed" button and nothing else — technically true,
+  // completely useless, and a dead end with no route to the vote.
+  await page.goto("/e/test-hack-voting");
+  const heading = page.getByRole("heading", { level: 1, name: "Test Hack — Voting" });
+  // `count()` does not auto-wait, so settle first: a missing heading means this
+  // deployment was seeded without TEST_EVENTS, which is a supported stack.
+  await heading.waitFor({ timeout: 10_000 }).catch(() => {});
+  test.skip(!(await heading.isVisible()), "this deployment was seeded without TEST_EVENTS");
+
+  // Title and the one action that matters, above the fold (issue 54).
+  const box = (await heading.boundingBox())!;
+  expect(box.y).toBeLessThan(400);
+  const cta = page.getByRole("link", { name: /Vote now/ }).first();
+  await expect(cta).toBeVisible();
+  expect((await cta.boundingBox())!.y).toBeLessThan(300);
+
+  // No dead end: the old sidebar state is gone.
+  await expect(page.getByRole("button", { name: "Registration closed" })).toHaveCount(0);
+
+  // Following the CTA reaches the gallery, which says what to do there.
+  await cta.click();
+  await page.waitForURL(/\/gallery\/test-hack-voting/);
+  await expect(page.getByText(/Community voting is open/)).toBeVisible();
+});
+
+test("a judging event page points at the gallery", async ({ page }) => {
+  await page.goto("/e/test-hack-judging");
+  const heading = page.getByRole("heading", { level: 1, name: "Test Hack — Judging" });
+  await heading.waitFor({ timeout: 10_000 }).catch(() => {});
+  test.skip(!(await heading.isVisible()), "this deployment was seeded without TEST_EVENTS");
+  // Stage-appropriate primary action — not "Register".
+  await expect(page.getByRole("link", { name: /View gallery/ }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: /Register/ })).toHaveCount(0);
+});

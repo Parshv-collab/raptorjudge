@@ -138,6 +138,17 @@ time to pass or hand-editing dates:
 | Test Hack — Voting | `test-hack-voting` | `voting` | 6 projects all scored, 15 votes — community voting open, tallies hidden |
 | Test Hack — Results | `test-hack-results` | `published` | 8 projects all scored, 30 votes, winner crowned, certificates issued |
 
+**`participant@fixture.local` is enrolled in all five.** The main seed creates
+that account but never puts it on a team, which left the participant role's
+whole journey — workspace, team chat, vote panel, comments, results — empty on
+a `TEST_EVENTS` stack. It is now a solo member of `Demo Solo` in the
+registration event and leads `Demo Crew` (with `member1_1@example.org`, so team
+chat has two real accounts) in the other four, and it holds a draft project in
+the submissions event. This happens in the `TEST_EVENTS` branch only: Sample
+Hack 2026 and the acceptance suite are untouched. Its 15 seeded votes in the
+voting event come from other accounts, so signing in as it still opens a full,
+untouched ballot.
+
 **The five test events only appear when `TEST_EVENTS=true`.** The default is
 `false`, and with it the seed behaves exactly as before — only Sample Hack 2026
 is created, and the landing page shows the single-event layout it always had.
@@ -334,7 +345,7 @@ Four layers, each answering a question the others cannot.
 | Layer | Command | What it covers |
 |-------|---------|----------------|
 | Unit + integration | `npm test` | Backend logic, algorithms, security, audit chain (227 tests, 19 files) |
-| **E2E (browser)** | `npm run test:e2e` | **React pages, sign-in flows, role guards, admin nav** (38 tests, 5 specs) |
+| **E2E (browser)** | `npm run test:e2e` | **React pages, sign-in flows, role guards, admin nav** (40 tests, 5 specs) |
 | T1/T2 acceptance | `python3 run.py .dogfood.toml` | Official checker |
 | T3/T4 self-audit | `python3 run_t3_t4.py .dogfood.toml` | Self-audit |
 | Compose smoke | `npm run docker:verify` | Boots the real stack and asserts health + API surface |
