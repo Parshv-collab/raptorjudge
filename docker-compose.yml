@@ -19,6 +19,25 @@
 
 name: raptorjudge
 
+# The identity of the Convex instance, shared by `backend` and `admin_key`.
+#
+# `admin_key` runs the backend image's own `generate_admin_key.sh`, which is the
+# only supported way to mint a function-push key, and a key is only valid for
+# the instance it was minted for. Anything the generator needs to reach that
+# instance's state has to be identical to the backend's — hence one anchor
+# rather than a hand-copied subset that would silently rot the next time the
+# backend's configuration changes.
+x-convex-instance: &convex_instance
+  # Persist to Postgres rather than Convex's default embedded SQLite.
+  # POSTGRES_URL must NOT include the database name: the backend appends it
+  # from INSTANCE_NAME with '-' replaced by '_' (dogfood -> dogfood).
+  POSTGRES_URL: postgresql://dogfood:dogfood@db:5432
+  DO_NOT_REQUIRE_SSL: "1"
+  INSTANCE_NAME: dogfood
+  # Root secret: rotate for any real deployment (openssl rand -hex 32).
+  # Rotating it invalidates existing keys and sessions.
+  INSTANCE_SECRET: ${INSTANCE_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+
 services:
   # ------------------------------------------------------------------ db ----
   db:
@@ -51,15 +70,10 @@ services:
       db:
         condition: service_healthy
     environment:
-      # Persist to Postgres rather than Convex's default embedded SQLite.
-      # POSTGRES_URL must NOT include the database name: the backend appends it
-      # from INSTANCE_NAME with '-' replaced by '_' (dogfood -> dogfood).
-      POSTGRES_URL: postgresql://dogfood:dogfood@db:5432
-      DO_NOT_REQUIRE_SSL: "1"
-      INSTANCE_NAME: dogfood
-      # Root secret: rotate for any real deployment (openssl rand -hex 32).
-      # Rotating it invalidates existing keys and sessions.
-      INSTANCE_SECRET: ${INSTANCE_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      # The instance-defining half is shared with `admin_key` below, which runs
+      # the backend's own key generator and must present the same identity or it
+      # mints a key the running backend rejects with "BadAdminKey".
+      <<: *convex_instance
       # Origins the *browser* uses to reach the backend. Also determines the
       # built-in CONVEX_SITE_URL that src/convex/auth.config.ts reads.
       CONVEX_CLOUD_ORIGIN: ${CONVEX_CLOUD_ORIGIN:-http://localhost:3210}
@@ -113,14 +127,18 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    # MUST mirror the backend's INSTANCE_SECRET. A generated admin key is scoped
-    # to the instance it was minted for, so a sidecar that does not present the
-    # same secret mints a key the running backend rejects with
+    # MUST mirror the backend's instance identity, not just its secret. A
+    # generated admin key is scoped to the instance it was minted for, and the
+    # generator reaches that instance's state the same way the backend does, so
+    # a sidecar with less context mints a key the running backend rejects with
     # "BadAdminKey: The provided admin key was invalid for this instance".
-    # This is a copy of the backend's value, not a second setting for it.
-    environment:
-      INSTANCE_SECRET: ${INSTANCE_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+    #
+    # This mirrors `docker compose run --rm backend ./generate_admin_key.sh`,
+    # which is the documented manual step and inherits all of this. The anchor
+    # is shared with `backend` so the two can never drift apart.
+    environment: *convex_instance
     volumes:
+      - convex_data:/convex/data
       - admin_key:/keygen
     # `entrypoint` is set explicitly so this runs the generator rather than the
     # image's own entrypoint (which would start a second backend). The image's
