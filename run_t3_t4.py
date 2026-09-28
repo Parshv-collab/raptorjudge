@@ -16,10 +16,11 @@ verifiable certificates and judge records, the embed, bulk export/import).
 It shares ``.dogfood.toml`` with ``run.py`` (same ``[portal]``, ``[auth]`` and
 ``[routes]`` sections) and falls back to http://localhost:3000.
 
-A check is reported as PASS only when a real request proves it. When the
-surface genuinely cannot be exercised — no event is open for voting, the
-deployment cannot reach a local webhook receiver, no REST route creates
-submissions — the check is reported as SKIP with the reason, never as a pass.
+A check is reported as PASS only when real evidence proves it. Most checks make
+a real HTTP request; T3.8 cites the unit suite that covers the same write path,
+because no HTTP route creates submissions. When even that is impossible — no
+event is open for voting or judging, no session in the config — the check is
+reported as SKIP with its reason, never as a pass.
 """
 
 import argparse
@@ -28,6 +29,8 @@ import hmac
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -43,6 +46,16 @@ except ModuleNotFoundError:
 TIMEOUT = 10
 DEFAULT_PORTAL = "http://localhost:3000"
 DEFAULT_EVENT = "sample-hack-2026"
+
+# How long a webhook delivery is given to arrive before the next candidate host
+# is tried.
+WEBHOOK_WAIT_SECONDS = 15
+
+# `convex/voting.ts`: QUADRATIC_BUDGET credits, and a 1-point vote costs 1.
+QUADRATIC_BUDGET = 25
+
+# How many 1-point votes the rate-limit burst fires at one submission.
+RATE_LIMIT_BURST = 25
 
 PASS, FAIL, SKIP = "PASS", "FAIL", "SKIP"
 
@@ -159,12 +172,170 @@ class _WebhookHandler(BaseHTTPRequestHandler):
 
 
 def start_receiver():
-    """A local HTTP receiver the deployment can deliver a test webhook to."""
-    server = HTTPServer(("127.0.0.1", 0), _WebhookHandler)
+    """A local HTTP receiver the deployment can deliver a test webhook to.
+
+    Bound to every interface, not to 127.0.0.1: the delivery `fetch` runs inside
+    the backend container, so a loopback-only socket would never accept the
+    connection. It records POST bodies and answers 200 for the life of one
+    check, then is shut down — it executes nothing and reads nothing else.
+    """
+    server = HTTPServer(("0.0.0.0", 0), _WebhookHandler)
     server.captured = []
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server
+
+
+def webhook_targets(port):
+    """Candidate delivery targets for the receiver, most likely to work first.
+
+    A container cannot reach the host at 127.0.0.1 (that is the container's own
+    loopback), so the same receiver is offered under the addresses a container
+    *can* reach, in the order they are likely to resolve:
+
+      host.docker.internal  Docker Desktop, and Linux with the ``extra_hosts``
+                            host-gateway entry docker-compose.yml now carries
+      172.17.0.1            the docker0 bridge on a default Linux install
+      127.0.0.1             a non-Docker local deployment (``convex dev``)
+
+    ``RAPTORJUDGE_WEBHOOK_HOST`` overrides the list with a single host, for a
+    deployment whose gateway address is something else entirely.
+    """
+    override = os.environ.get("RAPTORJUDGE_WEBHOOK_HOST")
+    hosts = [override] if override else []
+    hosts += ["host.docker.internal", "172.17.0.1", "127.0.0.1"]
+    targets, seen = [], set()
+    for host in hosts:
+        host = (host or "").strip()
+        if host and host not in seen:
+            seen.add(host)
+            targets.append(f"http://{host}:{port}/hook")
+    return targets
+
+
+# ------------------------------------------------------------------ test proof ---
+
+
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+DUPLICATE_SUITE = os.path.join("tests", "duplicates.test.ts")
+
+
+# -------------------------------------------------------------- rate limiting ---
+
+
+def burst_votes(base, slug, submission_id, participant, attempts):
+    """Fire `attempts` 1-point votes at ONE submission as fast as HTTP allows.
+
+    Returns ``(accepted, rejected, first_refusal)`` where ``first_refusal`` is
+    ``(attempt_number, status, body_excerpt)`` for the first refusal, or None.
+    """
+    accepted = rejected = 0
+    first_refusal = None
+    for attempt in range(1, attempts + 1):
+        status, text = request(
+            f"{base}/api/v1/votes",
+            header=participant,
+            method="POST",
+            body={"slug": slug, "submissionId": submission_id, "points": 1},
+        )
+        if status == 200:
+            accepted += 1
+        else:
+            rejected += 1
+            if first_refusal is None:
+                first_refusal = (attempt, status, text.strip()[:120])
+    return accepted, rejected, first_refusal
+
+
+def votes_status(base, slug, participant):
+    """The participant's live vote status, or {} when it did not answer."""
+    payload = as_json(request(f"{base}/api/v1/votes/status?slug={slug}", header=participant)[1])
+    return payload if isinstance(payload, dict) else {}
+
+
+def wait_for_limiter_window(base, slug, submission_id, participant, deadline_s=70):
+    """Wait out the vote rate-limit window, then clear the probe vote.
+
+    The limiter is a fixed one-minute window per actor+event, so the burst
+    leaves this participant refused for the rest of the minute. Waiting here
+    (a) keeps the deployment usable for whoever clicks next in the UI as this
+    participant and (b) makes a second run of this script behave identically
+    instead of finding T3.1/T3.2 refused. Probing rather than assuming means we
+    only wait as long as the deployment actually needs.
+
+    Returns the number of seconds waited, or None if the window never rolled.
+    """
+    started = time.time()
+    while time.time() - started < deadline_s:
+        time.sleep(5)
+        status, _ = request(
+            f"{base}/api/v1/votes",
+            header=participant,
+            method="POST",
+            body={"slug": slug, "submissionId": submission_id, "points": 1},
+        )
+        if status == 200:
+            request(
+                f"{base}/api/v1/votes/revoke",
+                header=participant,
+                method="POST",
+                body={"slug": slug, "submissionId": submission_id},
+            )
+            return round(time.time() - started)
+    return None
+
+
+def duplicate_rule_proof():
+    """Run the duplicate-rule suite and report what it proves.
+
+    ``POST /api/submissions`` is a contract check against the closed
+    sample-hack-2026 event — it inserts nothing — so a 3-of-3 duplicate cannot
+    be *filed* over the wire on any deployment. The rule that refuses it is a
+    pure function (``src/lib/algorithms/duplicates.ts``) that the Convex write
+    path calls on every submission, and ``tests/duplicates.test.ts`` asserts the
+    3-of-3 write decision and the exact user-facing message. Running that suite
+    is a real proof of the rule; a skip here would hide a broken write path.
+
+    Returns ``(passed_count or None, detail_line)``.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    suite = os.path.join(here, DUPLICATE_SUITE)
+    if not os.path.exists(suite):
+        return None, f"{DUPLICATE_SUITE} is not next to this script — cannot prove the 3-of-3 rule"
+
+    runners = [
+        ["npx", "--no-install", "vitest", "run", DUPLICATE_SUITE, "--reporter=verbose"],
+        ["bunx", "vitest", "run", DUPLICATE_SUITE, "--reporter=verbose"],
+        ["bun", "run", "test", DUPLICATE_SUITE, "--reporter=verbose"],
+    ]
+    problems = []
+    for runner in runners:
+        if shutil.which(runner[0]) is None:
+            problems.append(f"{runner[0]} not installed")
+            continue
+        env = dict(os.environ, NO_COLOR="1", FORCE_COLOR="0", CI="1")
+        try:
+            proc = subprocess.run(
+                runner, cwd=here, env=env, capture_output=True, text=True, timeout=180
+            )
+        except Exception as exc:  # noqa: BLE001 - any runner failure is a reason, not a crash
+            problems.append(f"{runner[0]}: {type(exc).__name__}")
+            continue
+        output = ANSI.sub("", proc.stdout + proc.stderr)
+        decisive = (
+            "rejects a 3-of-3 match (team + title + repo)" in output
+            and "exposes a stable user-facing reject message" in output
+        )
+        if proc.returncode == 0 and decisive:
+            found = re.search(r"Tests\s+(\d+) passed", output) or re.search(r"(\d+) passed", output)
+            count = found.group(1) if found else "all"
+            return count, (
+                f"{DUPLICATE_SUITE}: {count} tests passed — the 3-of-3 write decision and the "
+                "'This project is already submitted by your team.' message are proven against "
+                "the mutation's own rule (no REST route creates submissions to file one over HTTP)"
+            )
+        problems.append(f"{runner[0]}: suite exited {proc.returncode} without the duplicate assertions")
+    return None, "could not execute the duplicate-rule proof — " + "; ".join(problems)
 
 
 # ------------------------------------------------------------------------ audit ---
@@ -403,48 +574,100 @@ def build_checks(cfg, base):
     checks.append(result)
 
     # T3.7 — rate limiting fires
+    #
+    # The limiter is per actor+event (20 actions per minute — see
+    # `src/lib/rateLimit.ts` and `voting.checkRateLimit`), NOT per project, so a
+    # burst has to hit ONE submission repeatedly. The old version spread 25
+    # requests over 25 *different* projects and never reached the cap on an
+    # event with six of them.
     result = Result("T3", "Rate limiting fires")
-    if needs_submission(result) and participant and cards:
-        targets = [c.get("id") for c in cards[:25] if c.get("id")]
-        last_status = 0
-        posted = []
-        for index, target in enumerate(targets):
-            status, _ = request(
-                f"{base}/api/v1/votes",
-                header=participant,
-                method="POST",
-                body={"slug": slug, "submissionId": target, "points": 1},
+    if needs_submission(result) and participant:
+        before = votes_status(base, slug, participant)
+        if not before.get("votingOpen"):
+            result.skip("voting is not open for this event from the participant session")
+        else:
+            spent_before = before.get("creditsSpent", 0)
+            accepted, rejected, first_refusal = burst_votes(
+                base, slug, submission_id, participant, RATE_LIMIT_BURST
             )
-            last_status = status
-            if status == 200:
-                posted.append(target)
-            else:
-                break
-        for target in posted:
+            mid = votes_status(base, slug, participant)
+            spent_after = mid.get("creditsSpent")
+            # One revoke clears every point cast on that submission and refunds
+            # them, so the deployment is left as it was found.
             request(
                 f"{base}/api/v1/votes/revoke",
                 header=participant,
                 method="POST",
-                body={"slug": slug, "submissionId": target},
+                body={"slug": slug, "submissionId": submission_id},
             )
-        if len(targets) < 21:
-            result.skip("the event has fewer than 21 projects, below the burst limit")
-        elif last_status >= 400:
-            result.pass_(f"request #{len(posted) + 1} was rejected with {last_status}")
-        elif last_status == 200:
-            result.fail("21 rapid votes were all accepted — the limiter did not fire")
+            refunded = votes_status(base, slug, participant).get("creditsSpent")
+            timed = None
+            if rejected:
+                timed = wait_for_limiter_window(base, slug, submission_id, participant)
+
+            attempt, status, body_excerpt = first_refusal or (0, 0, "")
+            result.note(
+                f"{accepted} of {RATE_LIMIT_BURST} votes accepted, {rejected} rejected; "
+                f"first refusal was request #{attempt} -> {status} {body_excerpt}"
+            )
+            # The REST bridge sanitizes thrown mutation errors to 400 (security
+            # item 65), so the app's 429-equivalent signal is "this identical
+            # request just succeeded and is now refused". The budget guard below
+            # is what makes that attribution safe.
+            tracked = spent_after is not None and spent_after - spent_before == accepted
+            budget = spent_before + accepted
+            if accepted < 1:
+                result.fail(
+                    f"the very first vote was refused ({status}) — voting is not usable for this session"
+                )
+            elif rejected < 1:
+                result.fail(
+                    f"{RATE_LIMIT_BURST} rapid votes on one submission were all accepted — no limiter fired"
+                )
+            elif budget >= QUADRATIC_BUDGET:
+                result.fail(
+                    f"the burst ran out of quadratic credits ({budget}/{QUADRATIC_BUDGET}) before the "
+                    "limiter refused anything, so this proves the budget, not the rate limit"
+                )
+            elif not tracked:
+                result.fail(
+                    f"creditsSpent went {spent_before}->{spent_after} across {accepted} accepted votes "
+                    "— votes are not accounted one-for-one"
+                )
+            elif refunded != spent_before:
+                result.fail(f"revoking the burst left creditsSpent at {refunded}, expected {spent_before}")
+            else:
+                result.note(
+                    f"creditsSpent {spent_before} -> {spent_after} across {accepted} accepted votes "
+                    f"(one credit each, no double counting), restored to {refunded} after the revoke"
+                )
+                result.pass_(
+                    f"refused after {accepted} of {RATE_LIMIT_BURST} votes while only "
+                    f"{budget}/{QUADRATIC_BUDGET} credits were spent — the limiter refused it, not the "
+                    "quadratic budget"
+                )
+                result.note(
+                    f"vote window rolled after ~{timed}s and the session votes again"
+                    if timed is not None
+                    else "vote window did not roll within 70s — expect a refused vote until it does"
+                )
     else:
         if not participant:
             result.skip("no participant session in the config")
     checks.append(result)
 
     # T3.8 — duplicate detection
+    #
+    # Nothing over HTTP creates a submission (`POST /api/submissions` is a
+    # contract check against the closed sample-hack-2026 event), so the 3-of-3
+    # rejection cannot be filed over the wire. It is proven where the rule
+    # lives: the suite that covers the same write path the mutation calls.
     result = Result("T3", "Duplicate detection (3-of-3 rejected)")
-    result.skip(
-        "the REST submit endpoint is a contract check only and does not create "
-        "submissions, so a 3-of-3 duplicate cannot be filed over HTTP; the rule "
-        "is covered by the Convex mutation and tests/duplicates.test.ts"
-    )
+    proven, detail = duplicate_rule_proof()
+    if proven is not None:
+        result.pass_(detail)
+    else:
+        result.fail(detail)
     checks.append(result)
 
     # T3.9 — audit chain verifies
@@ -485,63 +708,90 @@ def build_checks(cfg, base):
     checks.append(result)
 
     # T4.3 — signed webhook delivery
+    #
+    # The delivery `fetch` runs in the backend container, where 127.0.0.1 is the
+    # container's own loopback — which is why a loopback target never delivered.
+    # The receiver now listens on every interface and the deployment is handed
+    # addresses a container can actually reach (host.docker.internal first —
+    # Docker Desktop natively, Linux through the `extra_hosts: host-gateway`
+    # entry in docker-compose.yml). Each candidate is tried in turn, and a
+    # candidate that cannot deliver is left registered but unreachable in its
+    # own way; the first one that delivers wins the check.
     result = Result("T4", "Webhook delivery signed")
     if not organizer:
         result.skip("no organizer session in the config")
     else:
         receiver = start_receiver()
         port = receiver.server_address[1]
+        targets = webhook_targets(port)
+        delivered = False
         try:
-            reg_status, reg_text = request(
-                f"{base}/api/v1/webhooks",
-                header=organizer,
-                method="POST",
-                body={
-                    "slug": slug,
-                    "targetUrl": f"http://127.0.0.1:{port}/hook",
-                    "events": "*",
-                },
-            )
-            reg = as_json(reg_text) or {}
-            if reg_status != 200 or not reg.get("webhookId"):
-                result.skip(
-                    "the deployment refused to register a local webhook receiver "
-                    f"({reg_status} {reg_text.strip()[:120]})"
+            for target in targets:
+                receiver.captured.clear()
+                reg_status, reg_text = request(
+                    f"{base}/api/v1/webhooks",
+                    header=organizer,
+                    method="POST",
+                    body={"slug": slug, "targetUrl": target, "events": "*"},
                 )
-            else:
+                reg = as_json(reg_text) or {}
+                if reg_status != 200 or not reg.get("webhookId"):
+                    result.note(f"{target}: not registered ({reg_status} {reg_text.strip()[:90]})")
+                    continue
+
                 request(
                     f"{base}/api/v1/webhooks/test",
                     header=organizer,
                     method="POST",
                     body={"webhookId": reg["webhookId"]},
                 )
-                for _ in range(30):
-                    if receiver.captured:
-                        break
-                    time.sleep(0.5)
+                deadline = time.time() + WEBHOOK_WAIT_SECONDS
+                while time.time() < deadline and not receiver.captured:
+                    time.sleep(0.25)
                 if not receiver.captured:
-                    result.skip(
-                        "no delivery arrived within 15s — the backend cannot reach "
-                        "127.0.0.1 on this host (expected when the deployment runs "
-                        "inside containers)"
+                    result.note(
+                        f"{target}: no delivery within {WEBHOOK_WAIT_SECONDS}s "
+                        "(this address is not reachable from the backend container)"
                     )
-                else:
-                    delivery = receiver.captured[0]
-                    headers = delivery["headers"]
-                    signature = headers.get("x-raptorjudge-signature", "")
-                    timestamp = headers.get("x-raptorjudge-timestamp", "")
-                    delivery_id = headers.get("x-raptorjudge-delivery", "")
-                    expected = hmac.new(
-                        reg["secretKey"].encode(),
-                        f"{timestamp}.{delivery_id}.{delivery['body']}".encode(),
-                        hashlib.sha256,
-                    ).hexdigest()
-                    if signature == f"sha256={expected}" and timestamp and delivery_id:
-                        result.pass_("HMAC-SHA256 signature over timestamp.delivery.body matches")
-                    else:
-                        result.fail(f"signature mismatch: got {signature[:24]}…")
+                    continue
+
+                delivery = receiver.captured[0]
+                headers = delivery["headers"]
+                signature = headers.get("x-raptorjudge-signature", "")
+                timestamp = headers.get("x-raptorjudge-timestamp", "")
+                delivery_id = headers.get("x-raptorjudge-delivery", "")
+                payload = as_json(delivery["body"]) or {}
+                expected = hmac.new(
+                    reg["secretKey"].encode(),
+                    f"{timestamp}.{delivery_id}.{delivery['body']}".encode(),
+                    hashlib.sha256,
+                ).hexdigest()
+                signs_ok = signature == f"sha256={expected}" and bool(timestamp) and bool(delivery_id)
+                payload_ok = payload.get("type") == "ping" and (payload.get("data") or {}).get("test") is True
+                if signs_ok and payload_ok:
+                    result.pass_(
+                        f"delivered to {target} within {WEBHOOK_WAIT_SECONDS}s: "
+                        "HMAC-SHA256 over timestamp.delivery.body matches and the payload is the "
+                        "ping that was triggered"
+                    )
+                    delivered = True
+                    break
+                result.note(
+                    f"{target}: delivery arrived but did not verify "
+                    f"(signature={signature[:20]}…, type={payload.get('type')})"
+                )
+
+            if not delivered and result.status == SKIP:
+                hosts = ", ".join(t.split("//")[1] for t in targets)
+                result.fail(
+                    "no signed delivery arrived from any candidate host "
+                    f"({hosts}) — the backend could not reach this host. Add "
+                    "`extra_hosts: [\"host.docker.internal:host-gateway\"]` to the backend "
+                    "service (already in docker-compose.yml) or set RAPTORJUDGE_WEBHOOK_HOST."
+                )
         finally:
             receiver.shutdown()
+            receiver.server_close()
     checks.append(result)
 
     # T4.4 — certificates verify

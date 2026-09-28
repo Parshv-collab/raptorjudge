@@ -69,6 +69,12 @@ services:
       RUST_LOG: info
       NO_PROXY: "localhost,127.0.0.1,backend,db,dashboard"
       no_proxy: "localhost,127.0.0.1,backend,db,dashboard"
+    # Lets the backend reach a receiver on the *host* (its own 127.0.0.1 is the
+    # container's loopback). Docker Desktop provides host.docker.internal by
+    # itself; on Linux this entry is what makes it resolve, which is what the
+    # T4.3 webhook check in run_t3_t4.py needs.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "3210:3210"   # Convex client API: queries, mutations, actions, sync
       - "3211:3211"   # HTTP actions:      the /api/* REST + auth routes

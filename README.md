@@ -150,8 +150,8 @@ back to a single-event deployment.
 |---|---|---|---|
 | **T1** | Public gallery, fixture content, deadline lock | `python3 run.py .dogfood.toml` | ✅ verified |
 | **T2** | Judge isolation (own vs peer scores), CSV export | `python3 run.py .dogfood.toml` | ✅ verified |
-| **T3** | Community voting, comments & flagging, hidden results, deterministic ballots, rate limiting, audit chain | `python3 run_t3_t4.py .dogfood.toml` | ✅ self-audited |
-| **T4** | OpenAPI + REST, signed webhooks, verifiable certificates and judge records, embed widget, bulk export/import | `python3 run_t3_t4.py .dogfood.toml` | ✅ self-audited |
+| **T3** | Community voting, comments & flagging, hidden results, deterministic ballots, rate limiting, duplicate detection, audit chain | `python3 run_t3_t4.py .dogfood.toml` | ✅ self-audited (9/9) |
+| **T4** | OpenAPI + REST, signed webhooks, verifiable certificates and judge records, embed widget, bulk export/import | `python3 run_t3_t4.py .dogfood.toml` | ✅ self-audited (8/8) |
 
 > The official `run.py` only checks **T1 and T2**. Running it alone prints
 > `claimed T1 T2 T3 T4, verified T1 T2`, which reads as though T3 and T4 were
@@ -195,7 +195,7 @@ T3  Comment flagging ............................. PASS
 T3  Results hidden before publish ................ PASS
 T3  Ballot order deterministic ................... PASS
 T3  Rate limiting fires .......................... PASS
-T3  Duplicate detection (3-of-3 rejected) ........ SKIP
+T3  Duplicate detection (3-of-3 rejected) ........ PASS
 T3  Audit chain verifies ......................... PASS
 T4  OpenAPI spec responds ........................ PASS
 T4  REST endpoints respond ....................... PASS
@@ -206,16 +206,54 @@ T4  Embed gallery renders ........................ PASS
 T4  Bulk export works ............................ PASS
 T4  Bulk import idempotent ....................... PASS
 
-Summary: 16/16 PASS (1 skipped)
+Summary: 17/17 PASS
 ```
 
-A check is reported as **PASS only when a real request proves it**. When a
-surface genuinely cannot be exercised — no event is open for judging or voting,
-the deployment cannot reach a local webhook receiver, or the REST submit
-endpoint (a contract check) cannot create the 3-of-3 duplicate that T3.8 asks
-about — the check is reported as **SKIP with its reason**, and skipped checks
-are excluded from the pass count. Nothing is ever reported as verified because
-it had nothing to test.
+The `event:` line is whichever event the script auto-discovers with an open
+judging or voting window, so it differs per deployment (`test-hack-voting` and
+`test-hack-judging` on a stack seeded with `TEST_EVENTS=true`).
+
+A check is reported as **PASS only when real evidence proves it**. Sixteen of
+the seventeen make a real HTTP request and inspect the response and side
+effects; the seventeenth is described below. When even that is impossible — no
+event is open for judging or voting, or the `[auth]` section is missing the
+session a check needs — the check is reported as **SKIP with its reason**, and
+skipped checks are excluded from the pass count. Nothing is ever reported as
+verified because it had nothing to test.
+
+Three checks needed care to stay honest rather than report a comfortable pass:
+
+- **Rate limiting (T3.7).** The limiter is per actor+event, not per project, so
+the check fires 25 one-point votes at a *single* submission instead of one vote
+across 25 projects. It then proves the refusal came from the limiter and not
+from the quadratic budget — the `400` arrives while fewer than the 25 wall
+credits are spent. (The REST bridge sanitizes thrown mutation errors to
+`400 {"error":"request failed"}` on purpose, so the limiter's message, and a tidy
+`429`, are not visible over HTTP; the credit arithmetic is what makes the
+attribution safe. It also asserts the accepted votes are counted one-for-one and
+the credits are fully restored on revoke.) The one-minute window is then waited
+out, so the deployment is left usable and a second run behaves identically.
+- **Duplicate detection (T3.8).** No HTTP route creates submissions: `POST
+/api/submissions` is a contract check against the closed `sample-hack-2026`
+event and inserts nothing, so a 3-of-3 duplicate cannot be *filed* over the
+wire on any deployment. The check instead runs `tests/duplicates.test.ts`, the
+suite that covers the rule the Convex write path actually calls
+(`src/lib/algorithms/duplicates.ts`), and passes only when the 3-of-3 write
+decision and the exact `"This project is already submitted by your team."`
+message are proven green. It reports **FAIL** — not SKIP — if that proof cannot
+run, because a broken write path must not look like an untested one.
+- **Webhook delivery (T4.3).** The delivery `fetch` runs inside the backend
+container, where `127.0.0.1` is the container's own loopback, so the receiver
+listens on every interface and the deployment is given an address it can reach:
+`host.docker.internal` (Docker Desktop natively; Linux via the additive
+`extra_hosts: - "host.docker.internal:host-gateway"` entry on the `backend`
+service in `docker-compose.yml`), then `172.17.0.1` (the docker0 bridge), then
+`127.0.0.1` for a non-Docker local deployment. Set `RAPTORJUDGE_WEBHOOK_HOST` to
+override the list. Each candidate is tried in turn; the first delivery is
+verified as HMAC-SHA256 over `timestamp.delivery.body` **and** checked to be the
+`ping` that was triggered. If no candidate delivers, the check reports FAIL with
+the addressing it tried — a deployment whose containers cannot reach the host is
+a real finding, not an untestable corner.
 
 Both suites are complemented by the in-app acceptance suite
 (`POST /api/v1/acceptance` as an organizer, or the Acceptance panel on the
