@@ -90,6 +90,54 @@ services:
     networks:
       - dogfood-network
 
+  # ----------------------------------------------------------- admin key ----
+  # Self-hosted Convex mints its function-push admin key from the backend
+  # process itself, so there is no template variable for it and it cannot be
+  # derived from INSTANCE_SECRET. The only way to mint one is to run the
+  # backend image's own `generate_admin_key.sh`, which used to mean a human had
+  # to do that by hand before `docker compose up` could finish — breaking the
+  # "a fresh clone just works" promise.
+  #
+  # This one-shot service does it automatically. It runs the *same image* as the
+  # backend so the generator is present, waits for the backend to be healthy,
+  # and writes the key to a shared volume that `bootstrap` reads.
+  #
+  # It is deliberately best-effort. `bootstrap` takes a key from the environment
+  # when one is set, and only falls back to this file, so a deployment that
+  # already has CONVEX_SELF_HOSTED_ADMIN_KEY in .env is unaffected. And the
+  # command always exits 0 — on failure it writes nothing and warns — so
+  # `bootstrap` degrades to the previous behaviour (loud, actionable error)
+  # instead of the stack failing to start.
+  admin_key:
+    image: ghcr.io/get-convex/convex-backend:latest
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - admin_key:/keygen
+    # `entrypoint` is set explicitly so this runs the generator rather than the
+    # image's own entrypoint (which would start a second backend). The image's
+    # WORKDIR is /convex, which is where the generator lives.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -u
+        # The generator prints a table; the key is the row containing '|'.
+        # Mirrors scripts/ci-compose-runtime.sh, which mints from the host.
+        if ./generate_admin_key.sh 2>/dev/null | grep '|' | tail -1 | tr -d '\r' > /keygen/admin_key \
+           && [ -s /keygen/admin_key ]; then
+          echo "==> admin key generated for first boot (written to the admin_key volume)"
+        else
+          # Never fail: `bootstrap` only *prefers* this file, and an operator
+          # with CONVEX_SELF_HOSTED_ADMIN_KEY in .env must keep working.
+          echo "==> WARNING: could not mint an admin key; set CONVEX_SELF_HOSTED_ADMIN_KEY in .env" >&2
+          : > /keygen/admin_key
+        fi
+        exit 0
+    restart: "no"
+    networks:
+      - dogfood-network
+
   # ----------------------------------------------------------- dashboard ----
   dashboard:
     image: ghcr.io/get-convex/convex-dashboard:latest
@@ -116,9 +164,16 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      # Ordering only. `admin_key` always exits 0, so this can never block a
+      # deployment that already supplies its own key.
+      admin_key:
+        condition: service_completed_successfully
+    volumes:
+      - admin_key:/keygen:ro
     environment:
       CONVEX_SELF_HOSTED_URL: http://backend:3210
-      # One-time bootstrap value — see README / env.example.
+      # Optional. Leave blank and `bootstrap` uses the key the `admin_key`
+      # service generated on first boot — see README / env.example.
       CONVEX_SELF_HOSTED_ADMIN_KEY: ${CONVEX_SELF_HOSTED_ADMIN_KEY:-}
       SITE_URL: ${SITE_URL:-http://localhost:3000}
       SEED_ON_START: ${SEED_ON_START:-true}
@@ -160,3 +215,4 @@ networks:
 volumes:
   db_data:
   convex_data:
+  admin_key:

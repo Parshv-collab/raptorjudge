@@ -24,10 +24,24 @@ cp env.example .env
 docker compose config --quiet && echo "compose file is valid"
 ```
 
-## 2. The one-time admin key (do not skip)
+## 2. The admin key
 
-Self-hosted Convex mints its function-push admin key **from the backend itself**,
-so it cannot be supplied by a template variable. It is a single bootstrap step:
+Self-hosted Convex mints its function-push admin key **from the backend process
+itself** — it is not derived from `INSTANCE_SECRET`, so it cannot be a template
+variable. `docker compose up` now does this for you: the `admin_key` service
+runs the backend image's own `generate_admin_key.sh` and hands the key to
+`bootstrap` through a shared volume. There is no manual step.
+
+Leave `CONVEX_SELF_HOSTED_ADMIN_KEY` blank in `.env` and the generated key is
+used for that run only. To **persist** it across `docker compose down -v`, copy
+the value the bootstrap log prints:
+
+```
+==> To keep it across 'docker compose down -v', add this line to .env:
+==>   CONVEX_SELF_HOSTED_ADMIN_KEY=<key>
+```
+
+The only reason to do this by hand is if the `admin_key` service cannot run:
 
 ```bash
 docker compose up -d db backend
@@ -36,10 +50,10 @@ docker compose exec backend ./generate_admin_key.sh   # prints the key
 docker compose up --build
 ```
 
-`bootstrap` fails loudly with these exact instructions if the key is missing,
-rather than starting the frontend against an empty backend. That is deliberate:
-an SPA served without functions looks fine and then fails every query with
-`Could not find public function`.
+`bootstrap` still fails loudly with these instructions when no key can be found
+at all, rather than starting the frontend against an empty backend. That is
+deliberate: an SPA served without functions looks fine and then fails every query
+with `Could not find public function`.
 
 `bootstrap` also generates and publishes the Convex Auth RS256 keypair
 (`JWT_PRIVATE_KEY` + `JWKS`) needed to sign sessions, then pushes the function
@@ -85,7 +99,7 @@ Notes:
 | Variable | Default | Purpose |
 |---|---|---|
 | `INSTANCE_SECRET` | dev placeholder | Backend root secret. **Rotate for anything real** (`openssl rand -hex 32`) — rotating invalidates existing keys and sessions |
-| `CONVEX_SELF_HOSTED_ADMIN_KEY` | *(empty)* | One-time function-push key from `generate_admin_key.sh` |
+| `CONVEX_SELF_HOSTED_ADMIN_KEY` | *(blank)* | Function-push key. **Leave blank** — `admin_key` generates one on first boot and `bootstrap` uses it. Set it only to persist across `docker compose down -v` |
 | `CONVEX_CLOUD_ORIGIN` | `http://localhost:3210` | Browser → Convex client API (queries/mutations/sync) |
 | `CONVEX_SITE_ORIGIN` | `http://localhost:3211` | Browser → HTTP actions (the `/api/*` REST surface) |
 | `TRUSTED_ORIGINS` | `http://localhost:3000` | Origins the backend accepts requests from |
@@ -124,7 +138,7 @@ does not exist; the seed is the supported reset path.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `Could not find public function for 'users:me'` | Bootstrap has not pushed functions, or the frontend started before it finished | `docker compose logs bootstrap`; ensure `CONVEX_SELF_HOSTED_ADMIN_KEY` is set and re-run |
+| `Could not find public function for 'users:me'` | Bootstrap has not pushed functions, or the frontend started before it finished | `docker compose logs bootstrap`; if it reports no admin key, set `CONVEX_SELF_HOSTED_ADMIN_KEY` in `.env` and re-run |
 | Sign-in silently fails, no session | Auth keypair was never published | Check `bootstrap` output for `auth signing keys published`; ensure `SKIP_AUTH_KEYS` is not `true` unless you set the keys yourself |
 | Blank page, unstyled | Frontend built against the wrong origin | Rebuild with `VITE_CONVEX_URL` set to the browser-visible `CONVEX_CLOUD_ORIGIN` |
 | CORS / origin rejected | `TRUSTED_ORIGINS` does not list the exact origin (scheme + host + port) | Add it and restart the backend |

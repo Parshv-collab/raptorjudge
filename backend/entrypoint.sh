@@ -74,12 +74,33 @@ done
 echo "    backend is up."
 
 if [ -z "${CONVEX_SELF_HOSTED_ADMIN_KEY:-}" ]; then
+  echo "==> CONVEX_SELF_HOSTED_ADMIN_KEY not set — checking for a generated one ..."
+  # Self-hosted Convex mints the function-push key from the backend process, so
+  # it cannot be a template variable and cannot be derived from INSTANCE_SECRET.
+  # The `admin_key` service (docker-compose.yml) runs the backend image's own
+  # `generate_admin_key.sh` for us and writes the result here, which is what
+  # makes a fresh clone boot without a manual step. An explicit key in `.env`
+  # always wins, so this only ever fills a gap.
+  ADMIN_KEY_FILE="${ADMIN_KEY_FILE:-/keygen/admin_key}"
+  if [ -s "${ADMIN_KEY_FILE}" ]; then
+    CONVEX_SELF_HOSTED_ADMIN_KEY="$(tr -d '\r\n' < "${ADMIN_KEY_FILE}")"
+    export CONVEX_SELF_HOSTED_ADMIN_KEY
+    if [ -n "${CONVEX_SELF_HOSTED_ADMIN_KEY}" ]; then
+      echo "    using the admin key generated on first boot."
+      echo "==> To keep it across 'docker compose down -v', add this line to .env:"
+      echo "==>   CONVEX_SELF_HOSTED_ADMIN_KEY=${CONVEX_SELF_HOSTED_ADMIN_KEY}"
+    fi
+  fi
+fi
+
+if [ -z "${CONVEX_SELF_HOSTED_ADMIN_KEY:-}" ]; then
   cat >&2 <<'MSG'
-ERROR: CONVEX_SELF_HOSTED_ADMIN_KEY is not set.
+ERROR: CONVEX_SELF_HOSTED_ADMIN_KEY is not set, and none could be generated.
 
 Self-hosted Convex mints admin keys from the backend itself, so this is a
 one-time bootstrap step — it cannot be provisioned by an environment variable.
-Run it once, with the backend up:
+`docker compose up` normally does it for you via the `admin_key` service; that
+service could not run, so do it by hand with the backend up:
 
     docker compose up -d db backend
     docker compose exec backend ./generate_admin_key.sh

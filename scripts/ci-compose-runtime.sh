@@ -83,18 +83,16 @@ until curl -fsS --max-time 5 "${CONVEX_CLOUD_URL}/version" >/dev/null 2>&1; do
 done
 pass "backend is healthy"
 
-# Self-hosted Convex mints admin keys from the backend itself; this is the
-# documented one-time bootstrap step, done here so the job needs no secrets.
-say "minting the self-hosted admin key"
-ADMIN_KEY="$(docker compose exec -T backend ./generate_admin_key.sh 2>/dev/null | grep '|' | tail -1 | tr -d '\r')"
-if [ -z "${ADMIN_KEY}" ]; then
-  fail "could not mint an admin key from the backend"
-  docker compose exec -T backend ./generate_admin_key.sh || true
-  exit 1
-fi
-pass "admin key minted (${#ADMIN_KEY} chars, value not printed)"
-# Compose reads .env; the key only lives for this job.
-printf 'CONVEX_SELF_HOSTED_ADMIN_KEY=%s\n' "${ADMIN_KEY}" >> .env
+# The admin key is deliberately NOT minted here from the host any more (issue
+# 46). This job used to run `docker compose exec backend ./generate_admin_key.sh`
+# and write the key into .env, which meant the zero-config path — the one a real
+# fresh clone takes — was never exercised in CI, only the hand-bootstrapped one.
+#
+# The `admin_key` compose service now does it inside the stack and hands the key
+# to `bootstrap` through a shared volume, so leaving it out here is what makes
+# this job prove the promise the README makes: a fresh clone needs no manual
+# step. If that path regresses, phase 2 below fails on bootstrap.
+say "leaving CONVEX_SELF_HOSTED_ADMIN_KEY unset (the admin_key service mints it)"
 
 # --------------------------------------------------- 2. bootstrap + frontend ---
 say "phase 2 — bootstrap (schema push + seed) and frontend"

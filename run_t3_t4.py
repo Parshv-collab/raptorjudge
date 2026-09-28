@@ -294,25 +294,50 @@ def duplicate_rule_proof():
     pure function (``src/lib/algorithms/duplicates.ts``) that the Convex write
     path calls on every submission, and ``tests/duplicates.test.ts`` asserts the
     3-of-3 write decision and the exact user-facing message. Running that suite
-    is a real proof of the rule; a skip here would hide a broken write path.
+    is a real proof of the rule.
 
-    Returns ``(passed_count or None, detail_line)``.
+    Returns ``(outcome, detail_line)`` where outcome is ``"pass"``, ``"skip"``
+    or ``"fail"`` (issue 47).
+
+    The three outcomes are genuinely different and must not be collapsed:
+
+      * ``pass`` — a runner was available and the two decisive assertions were
+        observed passing. The rule is proven.
+      * ``fail`` — a runner was available and ran, but the suite did not prove
+        the assertions. That is a broken write path, and reporting it as a skip
+        would hide a real bug behind an environment excuse.
+      * ``skip`` — no test runner exists on this host at all, so the proof could
+        not be attempted. That is a property of the machine, not of the code.
+        Reporting it as a fail used to turn a host without bun or node into a
+        red audit for a rule that is in fact correct.
     """
     here = os.path.dirname(os.path.abspath(__file__))
     suite = os.path.join(here, DUPLICATE_SUITE)
     if not os.path.exists(suite):
-        return None, f"{DUPLICATE_SUITE} is not next to this script — cannot prove the 3-of-3 rule"
+        return "skip", f"{DUPLICATE_SUITE} is not next to this script — cannot prove the 3-of-3 rule"
 
+    # Preference order: bun first (it is what the project ships with and it
+    # resolves its own dependencies), then the node/npm path.
+    #
+    # `npx --no-install` is deliberate: without it, npx offers to download
+    # vitest from the network on first run, which hangs on an offline host and
+    # turns a missing dependency into a long timeout. With it, npx exits in
+    # seconds saying vitest is not installed, and the next runner is tried.
     runners = [
-        ["npx", "--no-install", "vitest", "run", DUPLICATE_SUITE, "--reporter=verbose"],
-        ["bunx", "vitest", "run", DUPLICATE_SUITE, "--reporter=verbose"],
         ["bun", "run", "test", DUPLICATE_SUITE, "--reporter=verbose"],
+        ["bunx", "vitest", "run", DUPLICATE_SUITE, "--reporter=verbose"],
+        ["npx", "--no-install", "vitest", "run", DUPLICATE_SUITE, "--reporter=verbose"],
     ]
+    available = [r for r in runners if shutil.which(r[0]) is not None]
+
+    if not available:
+        return "skip", (
+            "no test runner available on host (need bun or node/npm) — the 3-of-3 rule could "
+            f"not be exercised here; run `bun run test {DUPLICATE_SUITE}` to prove it"
+        )
+
     problems = []
-    for runner in runners:
-        if shutil.which(runner[0]) is None:
-            problems.append(f"{runner[0]} not installed")
-            continue
+    for runner in available:
         env = dict(os.environ, NO_COLOR="1", FORCE_COLOR="0", CI="1")
         try:
             proc = subprocess.run(
@@ -329,13 +354,14 @@ def duplicate_rule_proof():
         if proc.returncode == 0 and decisive:
             found = re.search(r"Tests\s+(\d+) passed", output) or re.search(r"(\d+) passed", output)
             count = found.group(1) if found else "all"
-            return count, (
-                f"{DUPLICATE_SUITE}: {count} tests passed — the 3-of-3 write decision and the "
-                "'This project is already submitted by your team.' message are proven against "
-                "the mutation's own rule (no REST route creates submissions to file one over HTTP)"
+            return "pass", (
+                f"{DUPLICATE_SUITE}: {count} tests passed via {runner[0]} — the 3-of-3 write "
+                "decision and the 'This project is already submitted by your team.' message "
+                "are proven against the mutation's own rule (no REST route creates "
+                "submissions to file one over HTTP)"
             )
         problems.append(f"{runner[0]}: suite exited {proc.returncode} without the duplicate assertions")
-    return None, "could not execute the duplicate-rule proof — " + "; ".join(problems)
+    return "fail", "could not execute the duplicate-rule proof — " + "; ".join(problems)
 
 
 # ------------------------------------------------------------------------ audit ---
@@ -663,9 +689,14 @@ def build_checks(cfg, base):
     # rejection cannot be filed over the wire. It is proven where the rule
     # lives: the suite that covers the same write path the mutation calls.
     result = Result("T3", "Duplicate detection (3-of-3 rejected)")
-    proven, detail = duplicate_rule_proof()
-    if proven is not None:
+    outcome, detail = duplicate_rule_proof()
+    if outcome == "pass":
         result.pass_(detail)
+    elif outcome == "skip":
+        # Issue 47: a host with neither bun nor node/npm cannot attempt the
+        # proof. That is an environment fact, and a skip says so honestly —
+        # unlike a fail, it does not accuse a write path that works.
+        result.skip(detail)
     else:
         result.fail(detail)
     checks.append(result)

@@ -52,9 +52,21 @@ What happens on first boot:
 
 1. `db` (PostgreSQL 16) starts and passes its healthcheck.
 2. `backend` (Convex) starts with `POSTGRES_URL` pointing at `db`.
-3. `bootstrap` publishes the Convex Auth signing keys, pushes `src/convex` as the
-   schema/function migration, and runs the fixture seed. It exits when done.
-4. `frontend` builds the Vite bundle and serves it through nginx on port 3000.
+3. `admin_key` asks the backend to mint its function-push admin key and writes it
+   to a shared volume.
+4. `bootstrap` takes that key, publishes the Convex Auth signing keys, pushes
+   `src/convex` as the schema/function migration, and runs the fixture seed. It
+   exits when done.
+5. `frontend` builds the Vite bundle and serves it through nginx on port 3000.
+
+A fresh clone requires no manual steps. On first boot, the
+bootstrap generates a Convex admin key and prints it to the log.
+To persist the key across `docker compose down -v`, copy it into
+.env as `CONVEX_SELF_HOSTED_ADMIN_KEY`.
+
+> The key is minted **by the backend process**, not derived from
+> `INSTANCE_SECRET`, which is why it cannot simply be a template variable. If
+> you already have a key, setting it in `.env` skips step 3 entirely.
 
 The seed is **idempotent** (`fixture-seeded-2026` flag) and deterministic. If you
 need to start from scratch, see [Resetting](#resetting-the-data).
@@ -160,6 +172,20 @@ back to a single-event deployment.
 | **T3** | Community voting, comments & flagging, hidden results, deterministic ballots, rate limiting, duplicate detection, audit chain | `python3 run_t3_t4.py .dogfood.toml` | ✅ self-audited (9/9) |
 | **T4** | OpenAPI + REST, signed webhooks, verifiable certificates and judge records, embed widget, bulk export/import | `python3 run_t3_t4.py .dogfood.toml` | ✅ self-audited (8/8) |
 
+Counts, as captured in `acceptance-report.txt` and `t3-t4-audit.txt`:
+
+| Tier | Verified by | Result |
+|---|---|---|
+| T1 | `run.py` | 3/3 PASS |
+| T2 | `run.py` | 4/4 PASS |
+| T1 + T2 combined | `run.py` | **7/7 PASS** |
+| T3 | `run_t3_t4.py` | 9/9 PASS |
+| T4 | `run_t3_t4.py` | 8/8 PASS |
+| T3 + T4 combined | `run_t3_t4.py` | **17/17 PASS, 0 skips** |
+
+> `run.py` reports one combined **7/7** for T1 and T2 — the 7 is the sum of the
+> two tiers (3 + 4), not a per-tier figure, so it is not repeated on both rows.
+
 > The official `run.py` only checks **T1 and T2**. Running it alone prints
 > `claimed T1 T2 T3 T4, verified T1 T2`, which reads as though T3 and T4 were
 > unverified. `run_t3_t4.py` is the companion that closes that gap — see
@@ -252,8 +278,14 @@ wire on any deployment. The check instead runs `tests/duplicates.test.ts`, the
 suite that covers the rule the Convex write path actually calls
 (`src/lib/algorithms/duplicates.ts`), and passes only when the 3-of-3 write
 decision and the exact `"This project is already submitted by your team."`
-message are proven green. It reports **FAIL** — not SKIP — if that proof cannot
-run, because a broken write path must not look like an untested one.
+message are proven green. If a runner **is** available but the suite does not
+prove those assertions, it reports **FAIL** — not SKIP — because a broken write
+path must not look like an untested one. If the host has **no** test runner at
+all (neither `bun` nor `node`/`npm`), it reports **SKIP** with that reason,
+because a missing toolchain is a property of the machine, not a verdict on the
+rule. Runners are tried in the order `bun` → `bunx` → `npx`; the `npx` attempt
+uses `--no-install` so an offline host fails in seconds instead of hanging while
+npx offers to download vitest.
 - **Webhook delivery (T4.3).** The delivery `fetch` runs inside the backend
 container, where `127.0.0.1` is the container's own loopback, so the receiver
 listens on every interface and the deployment is given an address it can reach:
