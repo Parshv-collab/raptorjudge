@@ -7,6 +7,7 @@ import { bradleyTerry, type PairwiseMatchRecord } from "../lib/algorithms/pairwi
 import { appendAudit } from "./lib/audit";
 import { assertRoleChangeAllowed } from "./lib/rbac";
 import { runSecurityChecks } from "./lib/securityChecks";
+import { verifyAuditChain } from "../lib/auditChain";
 
 /**
  * Internal helpers backing the public REST routes in http.ts.
@@ -493,28 +494,18 @@ async function requireStaffUser(ctx: any, userId: Id<"users">) {
   return user;
 }
 
-/** Audit hash-chain verification for `GET /api/v1/audit/verify` (T3.9). */
+/**
+ * Audit hash-chain verification for `GET /api/v1/audit/verify` (T3.9).
+ *
+ * Shares the walk with `audit.verifyChain` and the unit tests
+ * (`src/lib/auditChain.ts`) so the order the chain is read in cannot regress.
+ */
 export const auditVerifyPublic = internalQuery({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
     await requireStaffUser(ctx, args.userId);
     const rows = await ctx.db.query("auditLogs").collect();
-    rows.sort((a, b) => a.timestamp - b.timestamp || String(a._id).localeCompare(String(b._id)));
-    let prevHash = "GENESIS";
-    let valid = true;
-    let brokenAt: string | null = null;
-    for (const r of rows) {
-      const recomputed = await sha256Hex(
-        [prevHash, r.timestamp, r.eventId ?? "", r.actorId ?? "", r.action, r.targetType, r.targetId, r.beforeState, r.afterState, r.ipAddress].join("|"),
-      );
-      if (r.prevHash !== prevHash || recomputed !== r.entryHash) {
-        valid = false;
-        brokenAt = String(r._id);
-        break;
-      }
-      prevHash = r.entryHash;
-    }
-    return { valid, entries: rows.length, brokenAt };
+    return await verifyAuditChain(rows, sha256Hex);
   },
 });
 

@@ -1,6 +1,7 @@
 import { MutationCtx } from "../_generated/server";
 import { Id } from "../_generated/dataModel";
 import { sha256Hex } from "../crypto";
+import { auditChainMaterial, AUDIT_GENESIS } from "../../lib/auditChain";
 
 /**
  * Append-only, tamper-evident audit log (T3).
@@ -23,7 +24,9 @@ export async function appendAudit(
   },
 ): Promise<void> {
   const prev = await ctx.db.query("auditLogs").order("desc").first();
-  const prevHash = prev?.entryHash ?? "GENESIS";
+  // `order("desc").first()` is the newest row in Convex's own document order,
+  // which is the order the verifier walks (`lib/auditChain.ts`).
+  const prevHash = prev?.entryHash ?? AUDIT_GENESIS;
   const timestamp = Date.now();
   const beforeState = entry.beforeState ?? "";
   const afterState = entry.afterState ?? "";
@@ -31,8 +34,22 @@ export async function appendAudit(
   const eventId = entry.eventId ? String(entry.eventId) : "";
   const ipAddress = entry.ipAddress ?? "local";
 
+  // The hashed material is shared with the verifier so the two cannot drift.
   const entryHash = await sha256Hex(
-    [prevHash, timestamp, eventId, actorId, entry.action, entry.targetType, entry.targetId, beforeState, afterState, ipAddress].join("|"),
+    auditChainMaterial(
+      {
+        timestamp,
+        eventId,
+        actorId,
+        action: entry.action,
+        targetType: entry.targetType,
+        targetId: entry.targetId,
+        beforeState,
+        afterState,
+        ipAddress,
+      },
+      prevHash,
+    ),
   );
 
   await ctx.db.insert("auditLogs", {

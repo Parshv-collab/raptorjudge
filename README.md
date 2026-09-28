@@ -359,9 +359,18 @@ Honest, specific, and current:
   service; there is no wrapper script.
 - **Container images are not digest-pinned.**
 - **The Compose runtime path is only as tested as your host.** `npm run
-  docker:verify` exercises it end to end; the sandbox this was developed in had no
-  Docker, so the acceptance suite was validated by static analysis, unit tests and
-  the REST contract rather than a live Compose run.
+  docker:verify` exercises it end to end. The sandbox this was developed in has no
+  container runtime, so Compose itself was never started there; both acceptance
+  suites *were* run against a live deployment (the self-hosted Convex backend on a
+  real SQLite deployment, with a local front door standing in for nginx), which is
+  where the audit-chain verifier bug below was found.
+- **Chain verification orders by creation time, not by timestamp.** `appendAudit`
+  links each entry to the newest row at write time (Convex's document order), so
+  the verifier has to walk that same order. It previously sorted by the wall-clock
+  `timestamp` field, and since entries share a millisecond in bulk writes the
+  `localeCompare` tie-break reordered an intact chain and reported it as tampered.
+  Fixed in `src/lib/auditChain.ts` (unit-tested in `tests/auditChain.test.ts`) and
+  shared by the public query, the REST route and the seed's writer.
 
 ## License
 

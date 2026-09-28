@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { requireOrganizer, requireUser } from "./lib/common";
 import { sha256Hex } from "./crypto";
+import { verifyAuditChain } from "../lib/auditChain";
 
 /**
  * Audit log API (T3). Append-only; this module can only read and verify.
@@ -37,28 +38,20 @@ export const list = query({
   },
 });
 
-/** Verify the whole hash chain (tamper evidence). */
+/**
+ * Verify the whole hash chain (tamper evidence).
+ *
+ * The walk itself lives in `src/lib/auditChain.ts` so this query, the REST
+ * verifier and the unit tests all order and hash entries identically — sorting
+ * by the wall-clock `timestamp` here reported an intact chain as tampered
+ * whenever two entries shared a millisecond.
+ */
 export const verifyChain = query({
   args: {},
   handler: async (ctx) => {
     await requireUser(ctx);
     const rows = await ctx.db.query("auditLogs").collect();
-    rows.sort((a, b) => a.timestamp - b.timestamp || String(a._id).localeCompare(String(b._id)));
-    let prevHash = "GENESIS";
-    let valid = true;
-    let brokenAt: string | null = null;
-    for (const r of rows) {
-      const recomputed = await sha256Hex(
-        [prevHash, r.timestamp, r.eventId ?? "", r.actorId ?? "", r.action, r.targetType, r.targetId, r.beforeState, r.afterState, r.ipAddress].join("|"),
-      );
-      if (r.prevHash !== prevHash || recomputed !== r.entryHash) {
-        valid = false;
-        brokenAt = String(r._id);
-        break;
-      }
-      prevHash = r.entryHash;
-    }
-    return { valid, entries: rows.length, brokenAt };
+    return await verifyAuditChain(rows, sha256Hex);
   },
 });
 
