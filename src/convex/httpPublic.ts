@@ -6,8 +6,9 @@ import { normalizeScores, type JudgeScoreSet } from "../lib/algorithms/normaliza
 import { bradleyTerry, type PairwiseMatchRecord } from "../lib/algorithms/pairwise";
 import { appendAudit } from "./lib/audit";
 import { assertRoleChangeAllowed } from "./lib/rbac";
-import { runSecurityChecks } from "./lib/securityChecks";
+import { runSecurityChecks, type SecurityCheck } from "./lib/securityChecks";
 import { verifyAuditChain } from "../lib/auditChain";
+import { isResultsPublished, rankEventProjects, rankMap } from "./lib/results";
 
 /**
  * Internal helpers backing the public REST routes in http.ts.
@@ -162,6 +163,30 @@ export const galleryPublic = internalQuery({
       cards = cards.filter((c) =>
         [c.title, c.tagline, c.tags, c.teamName, c.trackName].join(" ").toLowerCase().includes(q),
       );
+    }
+    // This bridge used to be a thinner copy of `submissions.publicGallery` and
+    // never attached `rank` / `isWinner` / `score`, so the documented REST
+    // surface disagreed with the SPA: `/gallery/<slug>` showed a trophy and a
+    // #N badge for a published event while `GET /api/v1/gallery/<slug>` on the
+    // same event returned unranked cards. One rule, both surfaces.
+    const resultsPublished = isResultsPublished(event);
+    if (resultsPublished) {
+      const { ranking } = await rankEventProjects(ctx, args.eventId);
+      const ranks = rankMap(ranking);
+      const scoreOf = new Map(ranking.map((r) => [r.submissionId, r.score]));
+      cards = cards
+        .map((card) => ({
+          ...card,
+          rank: ranks.get(card.id),
+          isWinner: ranks.get(card.id) === 1,
+          score: scoreOf.get(card.id),
+        }))
+        .sort(
+          (a, b) =>
+            (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER) ||
+            a.title.localeCompare(b.title),
+        );
+      return cards;
     }
     if (args.randomize) {
       cards = seededShuffle(cards, args.seed ?? seedFromString(String(args.eventId)));
@@ -557,22 +582,14 @@ export const acceptanceBridge = internalMutation({
     const auditRows = await ctx.db.query("auditLogs").collect();
     const certs = await ctx.db.query("certificates").collect();
 
-    const checks = [
+    const checks: SecurityCheck[] = [
       { tier: "T1", id: "t1.roles", description: "All 4 roles present", pass: roles.size >= 4 },
       { tier: "T1", id: "t1.event", description: "Event with timeline exists", pass: !!event },
       { tier: "T1", id: "t1.submissions", description: "Submitted projects exist", pass: submitted.length > 0 },
       { tier: "T2", id: "t2.assignments", description: "Judge assignments cover submissions", pass: submitted.every((s) => assignments.some((a) => a.submissionId === s._id)) && assignments.length > 0 },
       { tier: "T2", id: "t2.scores", description: "Judge scores recorded", pass: scores.length > 0 },
       { tier: "T3", id: "t3.audit", description: "Audit log populated", pass: auditRows.length > 0 },
-      { tier: "T3", id: "t3.audit_chain", description: "Audit hash chain intact", pass: (() => {
-          let prev = "GENESIS";
-          const sorted = [...auditRows].sort((a, b) => a.timestamp - b.timestamp);
-          for (const r of sorted) {
-            if (r.prevHash !== prev) return false;
-            prev = r.entryHash;
-          }
-          return true;
-        })() },
+      { tier: "T3", id: "t3.audit_chain", description: "Audit hash chain intact", pass: (await verifyAuditChain(auditRows, sha256Hex)).valid },
       { tier: "T4", id: "t4.certificates", description: "Signed certificates exist", pass: certs.every((c) => c.signatureHash.length === 64) && certs.length > 0 },
     ];
 
@@ -582,8 +599,20 @@ export const acceptanceBridge = internalMutation({
       checks.push(check);
     }
 
-    const passed = checks.filter((c) => c.pass).length;
-    return { runAt: Date.now(), summary: `${passed}/${checks.length} checks passed`, checks };
+    // Skipped checks are excluded from the pass count, exactly as
+    // `acceptance.runSuite` does (security item 63). This bridge used to count
+    // a check as passed simply because it had nothing to evaluate, so a
+    // deployment missing a webhook or a rubric could report a perfect score for
+    // the checks it never actually ran.
+    const skipped = checks.filter((c) => c.skipped === true).length;
+    const evaluated = checks.length - skipped;
+    const passed = checks.filter((c) => c.pass && c.skipped !== true).length;
+    const failed = evaluated - passed;
+    const summary =
+      `${passed}/${evaluated} checks passed` +
+      (failed > 0 ? `, ${failed} failing` : "") +
+      (skipped > 0 ? ` (${skipped} skipped, not counted as passes)` : "");
+    return { runAt: Date.now(), summary, checks };
   },
 });
 

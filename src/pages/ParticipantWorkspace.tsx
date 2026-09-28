@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/Textarea";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { Alert } from "@/components/ui/Alert";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmDialog } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -393,7 +394,24 @@ export default function ParticipantWorkspace() {
       </section>
 
       {/* Team chat */}
-      {team && <TeamChatSection teamId={team._id} />}
+      {/* `listMessages` re-checks membership on every call and throws if the
+          caller is no longer on the team. Without this boundary a stale
+          selection (or a membership removed mid-session) replaced the whole
+          app with the root "Could not load page" screen. `key` remounts on
+          team change so a recovered panel is not stuck on the fallback. */}
+      {team && (
+        <ErrorBoundary
+          key={String(team._id)}
+          fallback={
+            <Alert variant="warning" title="This conversation is not available">
+              You are not a member of this team any more, or the team was removed. Reload the workspace
+              to pick up your current teams.
+            </Alert>
+          }
+        >
+          <TeamChatSection teamId={team._id} />
+        </ErrorBoundary>
+      )}
 
       {/* Submission */}
       {team && (
@@ -728,10 +746,21 @@ export function TeamChatSection({ teamId, className = "" }: { teamId: Id<"teams"
             </div>
           ))}
 
-          {(!messages || messages.length === 0) && (
-            <p className="text-[13px] text-muted text-center py-10">
-              No team messages yet. Start the conversation with your team.
-            </p>
+          {messages === undefined ? (
+            <div className="flex flex-col gap-3 py-2" aria-hidden="true">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="rounded-card bg-surface-2 border border-line p-3.5 animate-pulse">
+                  <div className="h-3 w-32 rounded-btn bg-surface-1" />
+                  <div className="h-3 w-3/4 rounded-btn bg-surface-1 mt-2" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            messages.length === 0 && (
+              <p className="text-[13px] text-muted text-center py-10">
+                No team messages yet. Start the conversation with your team.
+              </p>
+            )
           )}
         </div>
 

@@ -205,10 +205,25 @@ export const adminDelete = mutation({
 });
 
 export const updateProfile = mutation({
-  args: { bio: v.optional(v.string()), avatarUrl: v.optional(v.string()) },
+  args: {
+    // `name` was previously absent, so the Profile screen rendered a *disabled*
+    // "Full name" field whose helper text promised "Names are managed by
+    // organizers" — and no organizer control existed either. It is now the
+    // caller's own display name, editable from the one place that shows it.
+    // Optional, so the avatar-upload call site (`{ avatarUrl }` only) is
+    // unchanged.
+    name: v.optional(v.string()),
+    bio: v.optional(v.string()),
+    avatarUrl: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
+    const nextName = args.name?.trim();
+    if (args.name !== undefined && (!nextName || nextName.length > 80)) {
+      throw new Error("Name must be between 1 and 80 characters");
+    }
     await ctx.db.patch(user._id, {
+      ...(nextName ? { name: nextName } : {}),
       bio: args.bio ?? user.bio,
       avatarUrl: args.avatarUrl ?? user.avatarUrl,
     });

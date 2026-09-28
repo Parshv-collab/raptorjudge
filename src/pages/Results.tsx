@@ -41,7 +41,14 @@ export default function Results() {
     event ? { eventId: event._id } : "skip",
   );
 
-  if (authLoading || (isAuthenticated && (event === undefined || me === undefined))) {
+  // `gallery` is included in the hold: on a published event, `projects` is
+  // `(gallery ?? [])`, so before the query resolved the page fell straight
+  // through to the "No ranked projects" empty state and told a participant
+  // their event had nothing on record.
+  if (
+    authLoading ||
+    (isAuthenticated && (event === undefined || me === undefined || gallery === undefined))
+  ) {
     return (
       <div className="max-w-4xl mx-auto flex flex-col gap-6">
         <SkeletonCard lines={4} />

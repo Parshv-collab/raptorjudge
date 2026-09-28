@@ -3,6 +3,8 @@ import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { Alert } from "@/components/ui/Alert";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { EventPicker } from "@/components/participant/EventPicker";
@@ -49,7 +51,12 @@ export default function TeamChat() {
   if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
   const list = teams ?? [];
-  const activeTeamId = selected ?? list[0]?.teamId ?? null;
+  // `selected` is sticky state, but the team list changes when the participant
+  // switches events. Honouring a selection that is no longer in the list would
+  // point `TeamChatSection` at a team from the previous event, and
+  // `teamChat.listMessages` refuses a non-member — so the panel would either
+  // throw or show the wrong conversation. Fall back to the first team instead.
+  const activeTeamId = list.some((t: any) => t.teamId === selected) ? selected : list[0]?.teamId ?? null;
 
   return (
     <div className="flex flex-col gap-8">
@@ -103,7 +110,23 @@ export default function TeamChat() {
             </div>
           )}
 
-          {activeTeamId && <TeamChatSection teamId={activeTeamId} />}
+          {/* `listMessages` throws when the caller is not a member of the
+              team. A boundary here keeps that from replacing the whole page
+              with the root error screen; `key` clears a previous failure when
+              the participant switches to a team they do belong to. */}
+          {activeTeamId && (
+            <ErrorBoundary
+              key={String(activeTeamId)}
+              fallback={
+                <Alert variant="warning" title="This conversation is not available">
+                  You are not a member of this team any more, or the team was removed. Pick another
+                  channel above, or reload the page.
+                </Alert>
+              }
+            >
+              <TeamChatSection teamId={activeTeamId} />
+            </ErrorBoundary>
+          )}
         </>
       )}
     </div>

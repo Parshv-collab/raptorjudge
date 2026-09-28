@@ -38,7 +38,10 @@ export default function Browse() {
       } else if (statusFilter === "judging") {
         matchStatus = e.status === "judging";
       } else if (statusFilter === "closed") {
-        matchStatus = ["published", "archived"].includes(e.status);
+        // "closed" was missing here, so Sample Hack 2026 — the event the whole
+        // fixture is built around, and the only event present when TEST_EVENTS
+        // is off — vanished the moment you picked "Closed / Results".
+        matchStatus = ["published", "archived", "closed"].includes(e.status);
       }
 
       return matchSearch && matchStatus;

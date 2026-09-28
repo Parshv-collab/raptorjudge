@@ -492,8 +492,14 @@ export const featuredForVisitors = query({
       .sort((a, b) => a.event.registrationStart - b.event.registrationStart);
     if (upcoming.length > 0) return { ...upcoming[0].event, participantCount: upcoming[0].participantCount, phase: "upcoming" as const };
 
+    // `closed` belongs here. A deployment seeded with the default
+    // `TEST_EVENTS=false` has exactly one event — Sample Hack 2026 — and its
+    // status is `closed`; with only `published`/`archived` matched, the featured
+    // event resolved to `null` and the landing page opened with no event, "—"
+    // stat tiles and an `/e/` link that 404s. Closing an event is how this
+    // product says "results are out".
     const published = withCounts
-      .filter(({ event }) => ["published", "archived"].includes(event.status))
+      .filter(({ event }) => ["published", "archived", "closed"].includes(event.status))
       .sort((a, b) => (b.event.publishedAt ?? 0) - (a.event.publishedAt ?? 0));
     if (published.length > 0) return { ...published[0].event, participantCount: published[0].participantCount, phase: "results" as const };
 

@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { Input } from "@/components/ui/Input";
 import { Tabs } from "@/components/ui/Tabs";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { Badge } from "@/components/ui/Badge";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { usePrimaryEvent } from "@/lib/featuredEvent";
@@ -54,6 +55,13 @@ export default function Search() {
 
   const totalResults = matchedEvents.length + matchedProjects.length + matchedTeams.length;
 
+  // All three sources are still resolving. Without this the page computed
+  // `totalResults === 0` on the very first paint and greeted the visitor with
+  // `No results for ""` before it had searched for anything.
+  const sourcesLoading =
+    events === undefined ||
+    (event ? gallery === undefined || teams === undefined : false);
+
   const tabItems = [
     { id: "all", label: "All results", badge: totalResults },
     { id: "events", label: "Events", badge: matchedEvents.length },
@@ -93,10 +101,19 @@ export default function Search() {
 
       <Tabs tabs={tabItems} activeTab={activeTab} onChange={(id) => setActiveTab(id)} />
 
-      {totalResults === 0 ? (
+      {sourcesLoading && queryParam.trim() ? (
+        <div className="flex flex-col gap-4">
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={3} />
+        </div>
+      ) : totalResults === 0 ? (
         <EmptyState
-          title={`No results for "${queryParam}"`}
-          description="Try searching with different keywords or check spelling."
+          title={queryParam.trim() ? `No results for "${queryParam.trim()}"` : "Search RaptorJudge"}
+          description={
+            queryParam.trim()
+              ? "Try searching with different keywords or check the spelling. Projects are matched on their title and tagline, teams on their name."
+              : "Type a project name, an event host or a team name above. Results are grouped into Events, Projects and Teams."
+          }
         />
       ) : (
         <div className="flex flex-col gap-12">

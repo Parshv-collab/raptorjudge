@@ -131,6 +131,20 @@ export function OrganizerEventManage() {
     );
   }
 
+  // `getBySlug` returns `undefined` while loading and `null` when the slug is
+  // unknown. Collapsing both into "Event not found" showed an organizer a dead
+  // end — with a "Back to events" button — for the ~200ms before the real
+  // event arrived, so a slow load could throw them out of the console they
+  // just opened.
+  if (event === undefined) {
+    return (
+      <div className="flex flex-col gap-6">
+        <SkeletonCard lines={3} />
+        <SkeletonCard lines={8} />
+      </div>
+    );
+  }
+
   if (!event) {
     return (
       <EmptyState
@@ -716,7 +730,7 @@ export function OrganizerEventManage() {
                 </div>
               </div>
             ))}
-            {(!flaggedComments || flaggedComments.length === 0) && (
+            {flaggedComments !== undefined && (!flaggedComments || flaggedComments.length === 0) && (
               <EmptyState
                 title="No flagged comments"
                 description="Comments reported by users land here for review. Deleting removes them permanently."
@@ -795,7 +809,7 @@ export function OrganizerEventManage() {
                 )}
               </div>
             ))}
-            {(!flagsData || flagsData.length === 0) && (
+            {flagsData !== undefined && (!flagsData || flagsData.length === 0) && (
               <EmptyState
                 title="No duplicate flags"
                 description="Run a duplicate scan to check every submitted project for matching titles or repository URLs."
@@ -852,7 +866,7 @@ export function OrganizerEventManage() {
                 </div>
               </div>
             ))}
-            {(!submissions || submissions.length === 0) && (
+            {submissions !== undefined && (!submissions || submissions.length === 0) && (
               <EmptyState
                 title="No submissions yet"
                 description="Teams submit from their workspace once the event is in its submission window."
@@ -897,7 +911,7 @@ export function OrganizerEventManage() {
                 </div>
               );
             })}
-            {(!voteStatusData?.tally || voteStatusData.tally.length === 0) && (
+            {voteStatusData !== undefined && (!voteStatusData?.tally || voteStatusData.tally.length === 0) && (
               <EmptyState
                 title="No community votes yet"
                 description="Votes cast from the public event page will appear here once judging is live."
@@ -983,7 +997,7 @@ export function OrganizerEventManage() {
                   </div>
                 </div>
               ))}
-              {(!webhooks || webhooks.length === 0) && (
+              {webhooks !== undefined && (!webhooks || webhooks.length === 0) && (
                 <EmptyState
                   title="No webhooks registered"
                   description="Register an HTTPS endpoint to receive signed events when submissions and results change."
@@ -1015,7 +1029,7 @@ export function OrganizerEventManage() {
                   </div>
                 </div>
               ))}
-              {(!webhookDeliveries || webhookDeliveries.length === 0) && (
+              {webhookDeliveries !== undefined && (!webhookDeliveries || webhookDeliveries.length === 0) && (
                 <EmptyState
                   title="No delivery history yet"
                   description="Test deliveries and webhook events will be logged here with their HTTP status."

@@ -291,12 +291,16 @@ export function JudgesTab({ eventId, judgingLocked = false }: { eventId: any; ju
             </div>
           ))}
 
-          {(!progress?.perJudge || progress.perJudge.length === 0) && (
-            <EmptyState
-              title="No assignments yet"
-              description='Click "Distribute fairly" or "Manual assign" to give judges their scoring queues.'
-            />
-          )}
+          {/* Only once the progress query has resolved — while it is `undefined`
+              the condition below is trivially true and the panel would flash
+              "No assignments yet" at an organizer who has every judge assigned. */}
+          {progress !== undefined &&
+            (!progress.perJudge || progress.perJudge.length === 0) && (
+              <EmptyState
+                title="No assignments yet"
+                description='Click "Distribute fairly" or "Manual assign" to give judges their scoring queues.'
+              />
+            )}
         </div>
       </div>
 

@@ -68,7 +68,9 @@ const ROLE_NAV: Record<string, NavItem[]> = {
     { label: "My Team", href: "/workspace", icon: <Users size={20} strokeWidth={1.75} /> },
     { label: "Chat", href: "/workspace/chat", icon: <MessageSquare size={20} strokeWidth={1.75} /> },
     { label: "Results", href: "/results", icon: <Trophy size={20} strokeWidth={1.75} /> },
-    { label: "Profile", href: "/profile", icon: <UserIcon size={20} strokeWidth={1.75} /> },
+    // "Profile" is deliberately absent here: `ACCOUNT_NAV` renders it for every
+    // role, and listing it in both places showed two identical rows that both
+    // lit up on /profile.
   ],
   judge: [
     {
@@ -88,7 +90,6 @@ const ROLE_NAV: Record<string, NavItem[]> = {
       icon: <Star size={20} strokeWidth={1.75} />,
       match: (pathname, search) => pathname === "/judge" && search.includes("view=scores"),
     },
-    { label: "Profile", href: "/profile", icon: <UserIcon size={20} strokeWidth={1.75} /> },
   ],
   organizer: [
     { label: "Overview", href: "/organizer", icon: <Gauge size={20} strokeWidth={1.75} /> },
@@ -107,7 +108,6 @@ const ROLE_NAV: Record<string, NavItem[]> = {
     // event's management page; the only honest cross-event destination here is
     // the public list, so it is labelled for what it is.
     { label: "Public events", href: "/events", icon: <ClipboardList size={20} strokeWidth={1.75} /> },
-    { label: "Profile", href: "/profile", icon: <UserIcon size={20} strokeWidth={1.75} /> },
   ],
   admin: [
     { label: "Overview", href: "/admin", icon: <LayoutDashboard size={20} strokeWidth={1.75} /> },
@@ -168,7 +168,7 @@ function buildParticipantNav(slug: string | null): NavItem[] {
       icon: <Trophy size={20} strokeWidth={1.75} />,
       match: (pathname: string) => pathname.startsWith("/results"),
     },
-    { label: "Profile", href: "/profile", icon: <UserIcon size={20} strokeWidth={1.75} /> },
+    // "Profile" comes from ACCOUNT_NAV below this group.
   ];
 }
 

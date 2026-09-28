@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/Textarea";
 import { Badge } from "@/components/ui/Badge";
 import { Modal, ConfirmDialog } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { humanizeConvexError } from "@/lib/errors";
 
 export function RubricTab({
@@ -40,6 +41,20 @@ export function RubricTab({
   const [minScore, setMinScore] = useState(1);
   const [maxScore, setMaxScore] = useState(10);
   const [, setSortOrder] = useState(10);
+
+  // `rubricData` is undefined while the rubric query is in flight. Rendering
+  // the "no criteria defined" empty state during that window is a lie — the
+  // event almost always has criteria, and an "Add criterion" button that appears
+  // for 200ms and then turns into a populated table reads as a glitch. Hold a
+  // skeleton instead.
+  if (rubricData === undefined) {
+    return (
+      <div className="flex flex-col gap-6">
+        <SkeletonCard lines={3} />
+        <SkeletonCard lines={6} />
+      </div>
+    );
+  }
 
   const criteria = rubricData?.criteria || [];
   const isDefault = rubricData?.isDefault;

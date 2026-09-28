@@ -55,8 +55,12 @@ export default function JudgePairwise() {
     api.events.getBySlug,
     skip || !activeEventSlug ? "skip" : { slug: activeEventSlug },
   );
-  const judgingClosed =
-    activeEvent !== undefined && activeEvent !== null && activeEvent.status !== "judging";
+  // While the event row is still loading the stage is genuinely unknown, so the
+  // pick buttons must not render as actionable: the server refuses a write the
+  // moment judging closes, and an enabled-then-disabled button is exactly the
+  // "clicked and nothing happened" dead end to avoid.
+  const eventStatusKnown = activeEvent != null;
+  const judgingClosed = activeEvent != null && activeEvent.status !== "judging";
 
   const [busy, setBusy] = useState(false);
 
@@ -167,7 +171,9 @@ export default function JudgePairwise() {
         }
       />
 
-      {judgingClosed ? (
+      {!eventStatusKnown ? (
+        <SkeletonCard lines={6} />
+      ) : judgingClosed ? (
         <div className="flex flex-col gap-6">
           <Alert variant="warning" title="Judging is closed for this event">
             Pairwise comparisons can only be recorded while the event is in its judging stage.

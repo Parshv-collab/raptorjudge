@@ -21,7 +21,14 @@ import { bradleyTerry, type PairwiseMatchRecord } from "../../lib/algorithms/pai
  *     would let a lenient judge decide the winner.
  */
 
-export const PUBLISHED_STATUSES = ["published", "archived"];
+// `closed` is a results-announced state in this product, not a hidden one: the
+// seed crowns a winner and issues certificates for a closed event, and the
+// organizer console already treats it as published (`JUDGING_LOCKED_STAGES`).
+// Leaving it out meant the flagship fixture event — `sample-hack-2026`, status
+// `closed`, 41 projects, 126 score rows — showed "Results are not published yet"
+// on the public gallery and on `/results/<slug>` while its certificates
+// verified publicly.
+export const PUBLISHED_STATUSES = ["published", "archived", "closed"];
 
 /** True once the event has announced its results. */
 export function isResultsPublished(event: { status?: string } | null | undefined): boolean {

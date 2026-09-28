@@ -265,12 +265,23 @@ verified as HMAC-SHA256 over `timestamp.delivery.body` **and** checked to be the
 the addressing it tried — a deployment whose containers cannot reach the host is
 a real finding, not an untestable corner.
 
-Both suites are complemented by the in-app acceptance suite
-(`POST /api/v1/acceptance` as an organizer, or the Acceptance panel on the
-organizer dashboard): 22 tier checks (T1–T4) plus the 17-check T5 security
-battery — JWT forgery, open redirects, webhook replay and target validation,
-assignment and score uniqueness, certificate idempotency, platform-secret
-projection, duplicate flagging, load cap and rubric weights.
+Both suites are complemented by the in-app acceptance suite, runnable as an
+organizer from `POST /api/v1/acceptance` or from the Acceptance panel on the
+organizer dashboard. It reports two different batteries and the counts are not
+interchangeable:
+
+| Surface | Tier checks | T5 security checks | Total |
+|---|---|---|---|
+| `POST /api/v1/acceptance` (REST bridge) | 8 | 17 | **25** |
+| Acceptance panel (in-app mutation) | 19 tier + 2 bonus | 17 | **38** |
+
+The T5 battery is shared, so both agree on it: JWT forgery, open redirects,
+webhook replay and target validation, assignment and score uniqueness,
+certificate idempotency, MFA secret sealing and role scope, link schemes,
+input bounds, platform-secret projection, duplicate flagging, load cap and
+rubric weights. Skipped checks (a check with nothing to evaluate) are reported
+and **excluded from the pass count** on both surfaces — a check that reports
+success because it had no input is a fail-open check, not a pass.
 
 ## Feature matrix
 
@@ -372,6 +383,20 @@ Honest, specific, and current:
 - **No database dump command.** Full-volume backup is `pg_dump` on the `db`
   service; there is no wrapper script.
 - **Container images are not digest-pinned.**
+- **`/admin/settings` persists platform preferences the runtime does not read.**
+  The fourteen keys it writes (branding, timezone, date format, certificate URL,
+  and the maintenance / MFA-required / gallery-visible / show-scores / voting-mode
+  flags) are stored and audit-logged, but no query, mutation or component
+  consumes them yet. The page carries a banner saying exactly that, and badges
+  the flag section "Not enforced yet", so nobody turns on "Maintenance mode"
+  expecting a maintenance window. The lookup-table CRUD on the same page is
+  fully wired. Enforcing `mfa_required` in particular is an auth-layer change
+  and is the single highest-value follow-up in this repository.
+- **`/security` covers two-factor authentication only.** There is no self-service
+  password change and no session list. Password reset is human-mediated by
+  design (no mail service offline): an admin resets it from
+  `/admin/users → Reset password`, which is audit-logged and invalidates live
+  sessions, and the same screen force-logs-out an individual device.
 - **Two public Convex queries have no frontend caller.** `events.listMine` (now
   superseded by `events.listWithCounts`) and `events.getStorageUrl` are reachable
   from an external client but unused by the SPA. They are documented rather than

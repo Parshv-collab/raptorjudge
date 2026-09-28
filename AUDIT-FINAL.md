@@ -269,8 +269,83 @@ message cannot reach an API consumer even if a caller forgets to sanitize.
 
 ## Known gaps, honestly
 
+### Phase 2 — full role × event sweep
+
 - **`events.listMine` and `events.getStorageUrl`** are public queries with no caller
   (§1). Documented rather than deleted.
+- **`/admin/settings` stores 14 platform keys and reads none of them.** A
+  code-wide sweep found no query, mutation or component that consumes
+  `maintenance_mode`, `mfa_required`, `gallery_visible_during_submission`,
+  `show_scores_during_judging`, `voting_mode`, `site_name`, `site_tagline`,
+  `logo_url`, `footer_copyright`, `support_email`, `timezone`, `date_format` or
+  `cert_base_url`. The values persist and are audit-logged, but the runtime
+  ignores them — turning on "Maintenance mode" does not take the site down, and
+  "Require 2FA" requires nothing. The page now says so in a banner and badges
+  the flags section "Not enforced yet"; the lookup-table CRUD below it is fully
+  wired and does take effect. **Implementing the flags is the single highest-value
+  follow-up in this repo** and was deliberately not attempted in a polish pass,
+  because `mfa_required` in particular changes the auth path.
+- **`/settings` was a page of lies** and has been replaced. It offered a
+  display-language dropdown and two "email me when…" checkboxes that were pure
+  `useState`; "Save settings" fired a toast and wrote nothing, and the product
+  has no mail service. It now states what is true and links to the places where
+  real, persisted settings live.
+- **`/security` has 2FA and nothing else.** There is no sessions list and no
+  password change. Password reset is human-mediated (an admin resets it from
+  `/admin/users`, which invalidates live sessions) and per-device revocation is
+  the same screen's "Force logout". Both are new audited mutations plus auth
+  integration, so they were reported rather than built here.
+- **Every participant/organizer/judge sidebar showed "Profile" twice** — once in
+  the role list and once in the shared account group, both highlighting on
+  `/profile`. The role lists no longer repeat it.
+- **`/events` "Closed / Results" filter excluded `closed`.** Sample Hack 2026 —
+  the only event present on a default `TEST_EVENTS=false` deployment — has
+  status `closed` and disappeared the moment you picked the filter.
+- **Eight panels showed a false empty state while their query loaded.** The
+  condition `!x || x.length === 0` is trivially true when `x` is `undefined`, so
+  the organizer console flashed "No submissions" / "No flagged comments" /
+  "No duplicate flags" / "No votes yet" / "No webhooks registered" /
+  "No deliveries yet" / "No assignments yet" and the rubric tab flashed "No
+  criteria defined" — each for the ~200ms before the data landed. All now hold a
+  skeleton until the query resolves. The same class of bug made the embed
+  gallery flash "No public projects found", the results page flash "No ranked
+  projects", and `/search` greet you with `No results for ""` before it had
+  searched for anything.
+- **`/organizer/events/<slug>` showed "Event not found" while loading**, with a
+  "Back to events" button — a dead end that threw an organizer out of the
+  console they had just opened. `getBySlug` returns `undefined` while loading
+  and `null` when unknown; the two are now handled separately.
+- **`/organizer/events/<slug>` load state** is listed above; the remaining
+  consequence there is that the publish button computes its blockers from
+  `(submissions ?? [])`, so during the load it can briefly show "the event has
+  no submitted projects". The button re-enables when the query resolves, and the
+  server refuses a premature publish regardless.
+- **`POST /api/v1/acceptance` could inflate its own score.** The REST bridge
+  counted a check as passed even when the check was `skipped`, and re-implemented
+  the audit-chain walk with the old timestamp sort that was fixed in
+  `src/lib/auditChain.ts` — a third copy of the bug the live T3.9 run caught in
+  the other two. It now calls the shared verifier and excludes skips from the
+  count, exactly as the in-app mutation does.
+- **`GET /api/v1/gallery/<slug>` disagreed with `/gallery/<slug>`.** The bridge
+  handler was a thinner copy of `submissions.publicGallery` that never attached
+  `rank` / `isWinner` / `score`, so the documented REST surface returned
+  unranked cards for an event whose UI showed a trophy and a #N badge. Both
+  surfaces now use the same ranking rule.
+- **`closed` did not count as results-announced.** `isResultsPublished` matched
+  only `published`/`archived`, while the organizer console, `JUDGING_LOCKED_STAGES`
+  and the seed (which crowns a winner and issues certificates for a closed
+  event) all treat `closed` as published. The flagship fixture event therefore
+  told participants "Results are not published yet" on the public gallery and on
+  `/results/<slug>` while its certificates verified publicly. `closed` is now in
+  the list, and the landing page's featured-event fallback includes it — without
+  that, a default `TEST_EVENTS=false` deployment resolved to *no* primary event
+  at all and the hero opened with "—" stat tiles and an `/e/` link that 404s.
+- **One instance could not be fixed in this pass.** The organizer console's
+  Audit tab still has the `!auditLogs || length === 0` guard. That block is in
+  the last 60 lines of a 1,438-line file whose tail this environment's editor
+  cannot match against; every attempt returned "not found". The audit query
+  loads with the page rather than on tab click, so the flash only appears if an
+  organizer clicks "Audit" within the first ~200ms of the console opening.
 - **The event timeline row in the organizer audit tab** keeps seconds; the other 28
   date sites were migrated. A one-line difference, left because the file's tail
   region resists the editor used in this environment, not because it is right.

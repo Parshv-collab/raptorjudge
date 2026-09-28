@@ -80,7 +80,7 @@ export default function Profile() {
     e.preventDefault();
     setBusy(true);
     try {
-      await updateProfile({ bio, avatarUrl: avatarStorageId });
+      await updateProfile({ name, bio, avatarUrl: avatarStorageId });
       toast.success("Profile updated.");
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
@@ -152,7 +152,13 @@ export default function Profile() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input label="Full name" value={name} disabled helperText="Names are managed by organizers." />
+            <Input
+              label="Full name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={80}
+              helperText="Shown on your profile, in team chat and on certificates you receive."
+            />
             <Input label="Email address" value={me?.email || ""} disabled />
           </div>
 

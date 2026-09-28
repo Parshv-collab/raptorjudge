@@ -1,4 +1,5 @@
 import { Component, ErrorInfo, ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 
 interface Props {
@@ -37,11 +38,19 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
             <h2 className="text-h3 text-primary">Could not load page</h2>
             <p className="text-[13px] text-secondary max-w-sm leading-relaxed">
-              An unexpected error occurred while rendering this page. Please refresh and try again.
+              Something on this screen failed to render. Reloading usually clears it; if it keeps happening,
+              go back to your workspace and try the page again.
             </p>
-            <Button variant="primary" onClick={() => window.location.reload()}>
-              Refresh page
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button variant="primary" onClick={() => window.location.reload()}>
+                Refresh page
+              </Button>
+              {/* `/` is role-aware: a signed-in user lands on their own console,
+                  a signed-out visitor on the public page. Never a dead end. */}
+              <Link to="/">
+                <Button variant="secondary">Go to my workspace</Button>
+              </Link>
+            </div>
           </div>
         </div>
       );
