@@ -17,6 +17,7 @@ import { Markdown } from "@/components/ui/Markdown";
 import { EventPicker } from "@/components/participant/EventPicker";
 import { humanizeConvexError } from "@/lib/errors";
 import { usePrimaryEventSlug } from "@/lib/featuredEvent";
+import type { Id } from "@/convex/_generated/dataModel";
 
 export default function ParticipantWorkspace() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -619,10 +620,10 @@ export default function ParticipantWorkspace() {
  * Exported so the dedicated `/workspace/chat` route can reuse the exact same
  * composer instead of maintaining a second copy of the upload logic.
  */
-export function TeamChatSection({ teamId, className = "" }: { teamId: any; className?: string }) {
-  const messages = useQuery((api as any).teamChat.listMessages, { teamId });
-  const sendMessage = useMutation((api as any).teamChat.sendMessage);
-  const generateUploadUrl = useMutation((api as any).teamChat.generateUploadUrl);
+export function TeamChatSection({ teamId, className = "" }: { teamId: Id<"teams">; className?: string }) {
+  const messages = useQuery(api.teamChat.listMessages, { teamId });
+  const sendMessage = useMutation(api.teamChat.sendMessage);
+  const generateUploadUrl = useMutation(api.teamChat.generateUploadUrl);
 
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);

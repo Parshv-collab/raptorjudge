@@ -65,7 +65,7 @@ export default function AdminEvents() {
   const unpublish = useMutation(api.events.unpublish);
   const deleteEvent = useMutation(api.events.deleteEvent);
   const transferOwnership = useMutation(api.events.adminTransferOwnership);
-  const importEventFromJson = useMutation((api as any).imports.eventFromJson);
+  const importEventFromJson = useMutation(api.imports.eventFromJson);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");

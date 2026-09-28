@@ -331,6 +331,161 @@ const OPENAPI_SPEC = {
         },
       },
     },
+    // ------------------------------------------------------------- T3/T4 ---
+    // The community-voting, comment, audit, certificate, judge-record,
+    // import and webhook routes below back the T3/T4 self-audit
+    // (`run_t3_t4.py`). They were live long before they were documented, which
+    // made `/api/openapi.json` an incomplete contract (issue 44).
+    "/api/v1/events": {
+      get: { summary: "Public list of published events", responses: { "200": { description: "Event summaries" } } },
+    },
+    "/api/v1/votes/status": {
+      get: {
+        summary: "The caller's voting status for an event (credits, spent, tally)",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        parameters: [{ name: "slug", in: "query", required: true, schema: { type: "string" } }],
+        responses: {
+          "200": { description: "Voting status" },
+          "401": { description: "Unauthenticated" },
+          "404": { description: "Event not found" },
+        },
+      },
+    },
+    "/api/v1/votes": {
+      post: {
+        summary: "Cast a quadratic community vote (cost = points²)",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        responses: {
+          "200": { description: "Vote recorded" },
+          "400": { description: "Voting closed or insufficient credits" },
+          "401": { description: "Unauthenticated" },
+          "404": { description: "Event not found" },
+        },
+      },
+    },
+    "/api/v1/votes/revoke": {
+      post: {
+        summary: "Remove a vote and restore its credits",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        responses: {
+          "200": { description: "Vote removed" },
+          "400": { description: "Voting closed" },
+          "401": { description: "Unauthenticated" },
+          "404": { description: "Event not found" },
+        },
+      },
+    },
+    "/api/v1/comments": {
+      get: {
+        summary: "Comments on a submission",
+        parameters: [{ name: "submissionId", in: "query", required: true, schema: { type: "string" } }],
+        responses: { "200": { description: "Comment list" }, "400": { description: "submissionId is required" } },
+      },
+      post: {
+        summary: "Add a comment to a submission",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        responses: {
+          "200": { description: "Comment created" },
+          "401": { description: "Unauthenticated" },
+        },
+      },
+    },
+    "/api/v1/comments/flag": {
+      post: {
+        summary: "Flag a comment for organizer review",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        responses: { "200": { description: "Comment flagged" }, "401": { description: "Unauthenticated" } },
+      },
+    },
+    "/api/v1/comments/delete": {
+      post: {
+        summary: "Delete a comment (author, organizer or admin)",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        responses: { "200": { description: "Comment deleted" }, "401": { description: "Unauthenticated" } },
+      },
+    },
+    "/api/v1/audit/verify": {
+      get: {
+        summary: "Verify the hash-chained audit log (organizer/admin)",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        responses: {
+          "200": { description: "Chain verification result (valid, entries, brokenAt)" },
+          "401": { description: "Unauthenticated" },
+          "403": { description: "Organizer or admin token required" },
+        },
+      },
+    },
+    "/api/v1/certificates/sample": {
+      get: {
+        summary: "A real issued certificate plus its signature, for verification drills",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        parameters: [{ name: "slug", in: "query", schema: { type: "string" } }],
+        responses: {
+          "200": { description: "Certificate sample" },
+          "401": { description: "Unauthenticated" },
+          "403": { description: "Organizer or admin token required" },
+          "404": { description: "No certificates issued" },
+        },
+      },
+    },
+    "/api/v1/judge-records/sample": {
+      get: {
+        summary: "A judge's signed scoring record for an event",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        parameters: [{ name: "slug", in: "query", required: true, schema: { type: "string" } }],
+        responses: {
+          "200": { description: "Judge record" },
+          "401": { description: "Unauthenticated" },
+          "403": { description: "Organizer or admin token required" },
+          "404": { description: "No judge records for this event" },
+        },
+      },
+    },
+    "/api/v1/judge-records/verify": {
+      get: {
+        summary: "Verify a judge record signature (public)",
+        parameters: [
+          { name: "judgeId", in: "query", required: true, schema: { type: "string" } },
+          { name: "eventId", in: "query", required: true, schema: { type: "string" } },
+          { name: "signature", in: "query", required: true, schema: { type: "string" } },
+        ],
+        responses: { "200": { description: "Signature valid" }, "404": { description: "Signature invalid" } },
+      },
+    },
+    "/api/v1/import": {
+      post: {
+        summary: "Idempotent event JSON import (organizer/admin)",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        responses: {
+          "200": { description: "Imported, or already present" },
+          "401": { description: "Unauthenticated" },
+          "403": { description: "Organizer or admin token required" },
+        },
+      },
+    },
+    "/api/v1/webhooks": {
+      post: {
+        summary: "Register a webhook for an event (organizer/admin)",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        responses: {
+          "200": { description: "Webhook created (secret returned once)" },
+          "401": { description: "Unauthenticated" },
+          "403": { description: "Organizer or admin token required" },
+          "404": { description: "Event not found" },
+        },
+      },
+    },
+    "/api/v1/webhooks/test": {
+      post: {
+        summary: "Queue a signed test delivery for a webhook (organizer/admin)",
+        security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+        responses: {
+          "200": { description: "Delivery queued" },
+          "401": { description: "Unauthenticated" },
+          "403": { description: "Organizer or admin token required" },
+        },
+      },
+    },
     "/.well-known/openid-configuration": {
       get: { summary: "OIDC discovery document (full, RFC 8414)", responses: { "200": { description: "OIDC discovery document" } } },
     },

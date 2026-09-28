@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { EventPicker } from "@/components/participant/EventPicker";
 import { TeamChatSection } from "@/pages/ParticipantWorkspace";
 import { usePrimaryEventSlug } from "@/lib/featuredEvent";
+import type { Id } from "@/convex/_generated/dataModel";
 
 /**
  * `/workspace/chat` — pick a team you belong to and talk to it.
@@ -31,10 +32,10 @@ export default function TeamChat() {
   );
 
   const teams = useQuery(
-    (api as any).teamChat.myTeamChat,
+    api.teamChat.myTeamChat,
     skip ? "skip" : selectedEventId ? { eventId: selectedEventId } : {},
   );
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Id<"teams"> | null>(null);
 
   if (authLoading) {
     return (
@@ -47,7 +48,7 @@ export default function TeamChat() {
 
   if (!isAuthenticated) return <Navigate to="/auth" replace />;
 
-  const list = (teams ?? []) as any[];
+  const list = teams ?? [];
   const activeTeamId = selected ?? list[0]?.teamId ?? null;
 
   return (

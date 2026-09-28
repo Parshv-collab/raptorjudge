@@ -8,6 +8,7 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { nextDeadline } from "@/lib/eventStatus";
 
 const STATUS_OPTIONS = [
@@ -31,9 +32,13 @@ export function OrganizerEvents() {
     );
   }, [events, statusFilter]);
 
-  if (authLoading) {
+  // Issue 44: also wait for the query itself. Without this the table renders
+  // "No events yet" for the first paint of every visit, because an undefined
+  // query result and an empty result were indistinguishable here.
+  if (authLoading || (isAuthenticated && events === undefined)) {
     return (
       <div className="flex flex-col gap-6">
+        <SkeletonCard lines={2} />
         <SkeletonCard lines={6} />
       </div>
     );
@@ -67,9 +72,14 @@ export function OrganizerEvents() {
 
       {/* Events table */}
       {filteredEvents.length === 0 ? (
-        <p className="text-[13px] text-muted text-center py-12">
-          No events found matching the current filter.
-        </p>
+        <EmptyState
+          title={(events ?? []).length === 0 ? "No events yet" : "No events match this filter"}
+          description={
+            (events ?? []).length === 0
+              ? "Create your first event to start collecting teams and submissions."
+              : "Try a different lifecycle status, or clear the filter to see every event you organize."
+          }
+        />
       ) : (
         <Table caption="Events">
           <THead>

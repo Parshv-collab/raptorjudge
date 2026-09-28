@@ -146,7 +146,9 @@ export const myTeamChat = query({
         .withIndex("by_team", (q) => q.eq("teamId", team._id))
         .collect();
       teams.push({
-        teamId: String(team._id),
+        // Typed id (not `String(...)`) so the frontend can pass it straight to
+        // `listMessages`, which validates `v.id("teams")` (issue 44).
+        teamId: team._id,
         teamName: team.name,
         eventId: String(team.eventId),
         eventTitle: event?.title ?? "—",

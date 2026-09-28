@@ -99,13 +99,13 @@ const ROLE_NAV: Record<string, NavItem[]> = {
       href: "/organizer/judges",
       icon: <Users size={20} strokeWidth={1.75} />,
     },
-    { label: "Submissions", href: "/events", icon: <ClipboardList size={20} strokeWidth={1.75} /> },
-    {
-      label: "Results",
-      href: "/organizer/events",
-      icon: <Scale size={20} strokeWidth={1.75} />,
-      match: () => false,
-    },
+    // Issue 44: this entry used to read "Submissions" while pointing at the
+    // public event list, and a sibling "Results" entry pointed back at
+    // /organizer/events with `match: () => false` (so it never highlighted and
+    // duplicated "Events"). Per-event submissions and results live inside an
+    // event's management page; the only honest cross-event destination here is
+    // the public list, so it is labelled for what it is.
+    { label: "Public events", href: "/events", icon: <ClipboardList size={20} strokeWidth={1.75} /> },
     { label: "Profile", href: "/profile", icon: <UserIcon size={20} strokeWidth={1.75} /> },
   ],
   admin: [
@@ -114,7 +114,8 @@ const ROLE_NAV: Record<string, NavItem[]> = {
     { label: "Events", href: "/admin/events", icon: <CalendarDays size={20} strokeWidth={1.75} /> },
     { label: "Judging", href: "/admin/judging", icon: <Scale size={20} strokeWidth={1.75} /> },
     {
-      label: "Overrides",
+      // Issue 44: label matched the page H1 ("Winner overrides").
+      label: "Winner overrides",
       href: "/admin/winner-overrides",
       icon: <Crown size={20} strokeWidth={1.75} />,
     },

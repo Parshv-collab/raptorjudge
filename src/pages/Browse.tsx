@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { deriveEventStatus } from "@/lib/eventStatus";
+import { deriveEventStatus, nextDeadline } from "@/lib/eventStatus";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All Events" },
@@ -58,7 +58,8 @@ export default function Browse() {
 
   return (
     <div className="flex flex-col gap-8">
-      <PageHeader title="Browse events" description="Discover active, upcoming, and past hackathons." />
+      {/* H1 matches the "Events" sidebar entry that leads here (issue 44). */}
+      <PageHeader title="Events" description="Discover active, upcoming, and past hackathons." />
 
       {/* Search & status filter */}
       <div className="bg-surface-1 border border-line rounded-card p-4 flex flex-col sm:flex-row gap-4 items-center">
@@ -105,8 +106,15 @@ export default function Browse() {
               </div>
 
               <div className="pt-4 border-t border-line flex items-center justify-between">
+                {/* Issue 36/44: label the *next relevant* phase, not always the
+                    submission deadline (meaningless once an event has moved on). */}
                 <span className="text-[13px] text-muted tnum">
-                  Deadline: {new Date(event.submissionDeadline).toLocaleDateString()}
+                  {(() => {
+                    const next = nextDeadline(event);
+                    return next.date
+                      ? `${next.label}: ${new Date(next.date).toLocaleDateString()}`
+                      : next.label;
+                  })()}
                 </span>
                 <Link to={`/e/${event.slug}`}>
                   <Button variant="secondary" size="sm">
