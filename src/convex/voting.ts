@@ -1,5 +1,7 @@
 import { v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   getCurrentUser,
   requireUser,
@@ -116,63 +118,89 @@ export function maskVoteTally(
   return [];
 }
 
-/** Public vote status: counts only revealed after publish (hidden results). */
-export const voteStatus = query({
-  args: { eventId: v.id("events") },
-  handler: async (ctx, args) => {
-    const event = await ctx.db.get(args.eventId);
-    if (!event) throw new Error("Event not found");
-    const user = await getCurrentUser(ctx);
+/**
+ * Vote status core, shared by the Convex query and the REST bridge.
+ *
+ * `user` is resolved by the caller (identity in Convex, verified session in
+ * HTTP) so the hidden-tally rules are written exactly once.
+ */
+async function voteStatusCore(
+  ctx: QueryCtx,
+  user: Doc<"users"> | null,
+  eventId: Id<"events">,
+) {
+  const event = await ctx.db.get(eventId);
+  if (!event) throw new Error("Event not found");
 
-    const votes = await ctx.db
-      .query("communityVotes")
-      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
-      .collect();
+  const votes = await ctx.db
+    .query("communityVotes")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))
+    .collect();
 
     const resultsVisible = stageAllowsVoteResults(event.status as never);
     const votingOpen = stageAllowsVoting(event.status as never);
     const votingType = (event.settings ?? "").includes("voting_type=upvote") ? "upvote" : "quadratic";
 
-    // per-user state
-    let myVotes: { submissionId: string; points: number; creditsSpent: number }[] = [];
-    if (user) {
-      const mine = votes.filter((v) => v.userId === user._id);
-      myVotes = mine.map((v) => ({
-        submissionId: String(v.submissionId),
-        points: v.points,
-        creditsSpent: v.creditsSpent,
-      }));
-    }
-    const creditsSpent = myVotes.reduce((a, v) => a + v.creditsSpent, 0);
+  // per-user state
+  let myVotes: { submissionId: string; points: number; creditsSpent: number }[] = [];
+  if (user) {
+    const mine = votes.filter((v) => v.userId === user._id);
+    myVotes = mine.map((v) => ({
+      submissionId: String(v.submissionId),
+      points: v.points,
+      creditsSpent: v.creditsSpent,
+    }));
+  }
+  const creditsSpent = myVotes.reduce((a, v) => a + v.creditsSpent, 0);
 
-    // leader board hidden until published; send zeros otherwise
-    const counts: Record<string, number> = {};
-    for (const v of votes) {
-      const key = String(v.submissionId);
-      counts[key] = (counts[key] ?? 0) + v.points;
-    }
-    const tally = Object.entries(counts)
-      .map(([submissionId, points]) => ({ submissionId, points }))
-      .sort((a, b) => b.points - a.points);
+  // leader board hidden until published; send zeros otherwise
+  const counts: Record<string, number> = {};
+  for (const v of votes) {
+    const key = String(v.submissionId);
+    counts[key] = (counts[key] ?? 0) + v.points;
+  }
+  const tally = Object.entries(counts)
+    .map(([submissionId, points]) => ({ submissionId, points }))
+    .sort((a, b) => b.points - a.points);
 
-    return {
-      votingOpen,
-      votingType,
-      resultsVisible,
-      budget: QUADRATIC_BUDGET,
-      creditsSpent,
-      myVotes,
-      tally: maskVoteTally(tally, votingOpen, resultsVisible),
-      totalVotes: resultsVisible ? votes.length : 0,
-    };
+  return {
+    votingOpen,
+    votingType,
+    resultsVisible,
+    budget: QUADRATIC_BUDGET,
+    creditsSpent,
+    myVotes,
+    tally: maskVoteTally(tally, votingOpen, resultsVisible),
+    totalVotes: resultsVisible ? votes.length : 0,
+  };
+}
+
+/** Public vote status: counts only revealed after publish (hidden results). */
+export const voteStatus = query({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, args) => voteStatusCore(ctx, await getCurrentUser(ctx), args.eventId),
+});
+
+/** REST bridge: same status for a verified session user (T3/T4 audit surface). */
+export const voteStatusInternal = internalQuery({
+  args: { userId: v.id("users"), eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    return voteStatusCore(ctx, user, args.eventId);
   },
 });
 
-/** Cast a community vote. Enforces stage, duplicates, quadratic budget, rate limits. */
-export const castVote = mutation({
-  args: { eventId: v.id("events"), submissionId: v.id("submissions"), points: v.number() },
-  handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
+/**
+ * Cast a community vote core. Enforces stage, duplicates, quadratic budget,
+ * rate limits. Shared by the public mutation and the REST bridge so both apply
+ * identical rules (issue 44 backend/HTTP parity).
+ */
+async function castVoteCore(
+  ctx: MutationCtx,
+  user: Doc<"users">,
+  args: { eventId: Id<"events">; submissionId: Id<"submissions">; points: number },
+) {
+  {
     const event = await ctx.db.get(args.eventId);
     if (!event) throw new Error("Event not found");
     if (user.role !== "organizer" && user.role !== "admin") {
@@ -262,20 +290,57 @@ export const castVote = mutation({
       afterState: JSON.stringify({ points: args.points, cost }),
     });
     return { ok: true, cost, creditsLeft: QUADRATIC_BUDGET - spent - cost };
+  }
+}
+
+/** Cast a community vote. Enforces stage, duplicates, quadratic budget, rate limits. */
+export const castVote = mutation({
+  args: { eventId: v.id("events"), submissionId: v.id("submissions"), points: v.number() },
+  handler: async (ctx, args) => castVoteCore(ctx, await requireUser(ctx), args),
+});
+
+/** REST bridge for `POST /api/v1/votes`. */
+export const castVoteInternal = internalMutation({
+  args: {
+    userId: v.id("users"),
+    eventId: v.id("events"),
+    submissionId: v.id("submissions"),
+    points: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    if (!user) throw new Error("User not found");
+    return castVoteCore(ctx, user, args);
   },
 });
+
+/** Clear a user's votes on a submission (un-vote; refunds quadratic credits). */
+async function removeVoteCore(
+  ctx: MutationCtx,
+  user: Doc<"users">,
+  args: { eventId: Id<"events">; submissionId: Id<"submissions"> },
+) {
+  const votes = await ctx.db
+    .query("communityVotes")
+    .withIndex("by_user_event", (q) => q.eq("userId", user._id).eq("eventId", args.eventId))
+    .collect();
+  const mine = votes.filter((v) => v.submissionId === args.submissionId);
+  for (const v of mine) await ctx.db.delete(v._id);
+  return { ok: true, removed: mine.length };
+}
 
 /** Clear my votes on a submission (un-vote; refunds quadratic credits). */
 export const removeVote = mutation({
   args: { eventId: v.id("events"), submissionId: v.id("submissions") },
+  handler: async (ctx, args) => removeVoteCore(ctx, await requireUser(ctx), args),
+});
+
+/** REST bridge for `DELETE /api/v1/votes`. */
+export const removeVoteInternal = internalMutation({
+  args: { userId: v.id("users"), eventId: v.id("events"), submissionId: v.id("submissions") },
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
-    const votes = await ctx.db
-      .query("communityVotes")
-      .withIndex("by_user_event", (q) => q.eq("userId", user._id).eq("eventId", args.eventId))
-      .collect();
-    const mine = votes.filter((v) => v.submissionId === args.submissionId);
-    for (const v of mine) await ctx.db.delete(v._id);
-    return { ok: true, removed: mine.length };
+    const user = await ctx.db.get(args.userId);
+    if (!user) throw new Error("User not found");
+    return removeVoteCore(ctx, user, args);
   },
 });

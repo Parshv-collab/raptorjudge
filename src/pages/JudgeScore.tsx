@@ -59,7 +59,11 @@ export default function JudgeScore() {
     if (hydratedFor === key) return;
     const saved: Record<string, number> = {};
     for (const s of item.scoredCriteria ?? []) saved[String(s.criterionId)] = s.score;
-    let restoredNotes = "";
+    // Start from the notes actually stored on the assignment, then let a local
+    // draft override them (previously the stored notes were never loaded, so
+    // revisiting a scored project showed an empty notes box).
+    let restoredNotes =
+      (item.scoredCriteria ?? []).find((s: any) => s.notes)?.notes ?? "";
     try {
       const raw = localStorage.getItem(key);
       if (raw) {
@@ -254,7 +258,7 @@ export default function JudgeScore() {
                   </span>
                 </div>
 
-                <p className="text-[13px] text-secondary">{criterion.description}</p>
+                <Markdown content={criterion.description ?? ""} className="text-[13px]" />
 
                 <input
                   id={`criterion-${criterion._id}`}
@@ -279,16 +283,26 @@ export default function JudgeScore() {
           })}
         </div>
 
-        {/* Private notes */}
-        <Textarea
-          id="judge-private-notes"
-          label="Private notes for the organizer"
-          rows={3}
-          value={notes}
-          disabled={locked}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Optional private observations or feedback..."
-        />
+        {/* Private notes — editable while judging, rendered as Markdown once locked. */}
+        {locked ? (
+          <div className="bg-surface-2 border border-line rounded-card p-4">
+            <p className="text-[13px] text-secondary mb-1.5">Private notes for the organizer</p>
+            {notes.trim() ? (
+              <Markdown content={notes} className="text-[13px]" />
+            ) : (
+              <p className="text-[13px] text-muted">No notes were left for this project.</p>
+            )}
+          </div>
+        ) : (
+          <Textarea
+            id="judge-private-notes"
+            label="Private notes for the organizer"
+            rows={3}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Optional private observations or feedback (Markdown supported)..."
+          />
+        )}
 
         {/* Sticky action bar */}
         <div className="sticky bottom-4 bg-surface-1 border border-line rounded-card p-4 flex items-center justify-between gap-4 shadow-modal">

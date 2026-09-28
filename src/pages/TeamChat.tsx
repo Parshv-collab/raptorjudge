@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { EventPicker } from "@/components/participant/EventPicker";
 import { TeamChatSection } from "@/pages/ParticipantWorkspace";
 import { usePrimaryEventSlug } from "@/lib/featuredEvent";
 
@@ -20,7 +21,19 @@ export default function TeamChat() {
   const fallbackSlug = usePrimaryEventSlug();
   const navigate = useNavigate();
 
-  const teams = useQuery((api as any).teamChat.myTeamChat, skip ? "skip" : {});
+  // Issue 40: scope the chat list to the selected enrolled event.
+  const [searchParams] = useSearchParams();
+  const enrolled = useQuery(api.events.enrolled, skip ? "skip" : {});
+  const selectedSlug = searchParams.get("event") ?? (enrolled?.[0]?.slug ?? null);
+  const selectedEventId = useMemo(
+    () => (enrolled ?? []).find((e: any) => e.slug === selectedSlug)?._id ?? null,
+    [enrolled, selectedSlug],
+  );
+
+  const teams = useQuery(
+    (api as any).teamChat.myTeamChat,
+    skip ? "skip" : selectedEventId ? { eventId: selectedEventId } : {},
+  );
   const [selected, setSelected] = useState<string | null>(null);
 
   if (authLoading) {
@@ -50,6 +63,11 @@ export default function TeamChat() {
             ← Back to workspace
           </Link>
         }
+      />
+
+      <EventPicker
+        events={((enrolled ?? []) as any[]).map((e) => ({ slug: e.slug, title: e.title, status: e.status }))}
+        value={selectedSlug}
       />
 
       {teams === undefined ? (

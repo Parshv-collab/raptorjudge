@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useConvexAuth } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
@@ -59,13 +59,13 @@ interface NavItem {
  * participant → Dashboard, Gallery, My Team, Chat, Profile.
  */
 const ROLE_NAV: Record<string, NavItem[]> = {
+  // Participant entries that depend on the selected event are built in
+  // `buildParticipantNav` (issue 40); the static list here is the fallback.
   participant: [
     { label: "Dashboard", href: "/dashboard", icon: <LayoutDashboard size={20} strokeWidth={1.75} /> },
-    { label: "Gallery", href: "/events", icon: <LayoutGrid size={20} strokeWidth={1.75} /> },
+    { label: "Events", href: "/events", icon: <LayoutGrid size={20} strokeWidth={1.75} /> },
     { label: "My Team", href: "/workspace", icon: <Users size={20} strokeWidth={1.75} /> },
     { label: "Chat", href: "/workspace/chat", icon: <MessageSquare size={20} strokeWidth={1.75} /> },
-    // Issue 23.1: results stay hidden until the participant is actually in an
-    // event — the enrolled query below points this at that event's results.
     { label: "Results", href: "/results", icon: <Trophy size={20} strokeWidth={1.75} /> },
     { label: "Profile", href: "/profile", icon: <UserIcon size={20} strokeWidth={1.75} /> },
   ],
@@ -93,13 +93,11 @@ const ROLE_NAV: Record<string, NavItem[]> = {
     { label: "Overview", href: "/organizer", icon: <Gauge size={20} strokeWidth={1.75} /> },
     { label: "Events", href: "/organizer/events", icon: <CalendarDays size={20} strokeWidth={1.75} /> },
     {
-      // Judge assignment lives inside an event console, so this is a shortcut to
-      // the event list rather than a separate screen — it never claims the
-      // active state that "Events" owns.
+      // Issue 35: the judges roster is a real cross-event page, not a shortcut
+      // back to the event list.
       label: "Judges",
-      href: "/organizer/events",
+      href: "/organizer/judges",
       icon: <Users size={20} strokeWidth={1.75} />,
-      match: () => false,
     },
     { label: "Submissions", href: "/events", icon: <ClipboardList size={20} strokeWidth={1.75} /> },
     {
@@ -126,6 +124,51 @@ const ROLE_NAV: Record<string, NavItem[]> = {
     { label: "Audit", href: "/admin/audit", icon: <ScrollText size={20} strokeWidth={1.75} /> },
   ],
 };
+
+/**
+ * Participant navigation, scoped to the currently selected event (issue 40).
+ *
+ * Without this, "My Team", "Chat" and "Results" had no idea which event they
+ * belonged to and dumped the user on a page that then guessed. Now every entry
+ * carries the selected event slug in the URL, so switching events keeps you on
+ * the same sub-page and any link is shareable.
+ */
+function buildParticipantNav(slug: string | null): NavItem[] {
+  const query = slug ? `?event=${slug}` : "";
+  return [
+    { label: "Dashboard", href: "/dashboard", icon: <LayoutDashboard size={20} strokeWidth={1.75} /> },
+    { label: "Events", href: "/events", icon: <LayoutGrid size={20} strokeWidth={1.75} /> },
+    ...(slug
+      ? [
+          {
+            label: "Gallery",
+            href: `/gallery/${slug}`,
+            icon: <LayoutGrid size={20} strokeWidth={1.75} />,
+            match: (pathname: string) => pathname.startsWith("/gallery/"),
+          },
+        ]
+      : []),
+    {
+      label: "My Team",
+      href: `/workspace${query}`,
+      icon: <Users size={20} strokeWidth={1.75} />,
+      match: (pathname: string) => pathname === "/workspace",
+    },
+    {
+      label: "Chat",
+      href: `/workspace/chat${query}`,
+      icon: <MessageSquare size={20} strokeWidth={1.75} />,
+      match: (pathname: string) => pathname === "/workspace/chat",
+    },
+    {
+      label: "Results",
+      href: slug ? `/results/${slug}` : "/results",
+      icon: <Trophy size={20} strokeWidth={1.75} />,
+      match: (pathname: string) => pathname.startsWith("/results"),
+    },
+    { label: "Profile", href: "/profile", icon: <UserIcon size={20} strokeWidth={1.75} /> },
+  ];
+}
 
 /** Account links shared by every role (bottom group). */
 const ACCOUNT_NAV: NavItem[] = [
@@ -184,6 +227,8 @@ export function AppShell() {
   const { signOut } = useAuthActions();
   const skip = isLoading || !isAuthenticated;
   const me = useQuery(api.users.me, skip ? "skip" : {}) ?? null;
+  // Issue 38: the sidebar avatar renders the uploaded picture, not just initials.
+  const myAvatar = useQuery(api.users.myAvatarUrl, skip ? "skip" : {});
   const isAdmin = me?.role === "admin";
   const pendingOverrides = useQuery(
     api.winnerOverrides.pendingCount,
@@ -218,7 +263,18 @@ export function AppShell() {
   // Issue 23.1: "Results" only appears once this participant belongs to a team
   // in at least one event.
   const enrolled = useQuery(api.events.enrolled, skip || role !== "participant" ? "skip" : {});
-  const navLinks = (ROLE_NAV[role] ?? ROLE_NAV.participant)
+
+  // Issue 40: the event a participant page is currently about — URL `?event=`
+  // wins, then the most recent enrollment.
+  const selectedEventSlug = useMemo(() => {
+    if (role !== "participant") return null;
+    const fromUrl = new URLSearchParams(location.search).get("event");
+    if (fromUrl) return fromUrl;
+    return enrolled?.[0]?.slug ?? null;
+  }, [role, location.search, enrolled]);
+
+  const baseNav = role === "participant" ? buildParticipantNav(selectedEventSlug) : (ROLE_NAV[role] ?? ROLE_NAV.participant);
+  const navLinks = baseNav
     .filter((item) => item.label !== "Pairwise" || anyOpenEvent !== false)
     .filter((item) => item.label !== "Results" || (enrolled !== undefined && enrolled.length > 0))
     .map((item) =>
@@ -445,7 +501,7 @@ export function AppShell() {
           {/* User footer */}
           <div className="border-t border-line p-3 shrink-0">
             <div className="flex items-center gap-3 md:justify-center lg:justify-start">
-              <Avatar name={me?.name || me?.email || "User"} size="sm" />
+              <Avatar src={myAvatar ?? undefined} name={me?.name || me?.email || "User"} size="sm" />
               <div className="min-w-0 flex-1 md:hidden lg:block">
                 <p className="text-[13px] font-medium text-primary truncate">{me?.name || me?.email}</p>
                 <Badge variant={role === "admin" ? "accent" : "default"} className="mt-1">

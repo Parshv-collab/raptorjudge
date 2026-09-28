@@ -13,8 +13,9 @@ export default function OrganizerDashboard() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const skip = authLoading || !isAuthenticated;
 
-  // `listMine`: organizers see the events they own, admins see everything.
-  const events = useQuery(api.events.listMine, skip ? "skip" : {});
+  // `listWithCounts`: organizers see the events they own, admins see everything,
+  // each row carrying its own team/submission counts (issues 33/37).
+  const events = useQuery(api.events.listWithCounts, skip ? "skip" : {});
   const { event: primaryEvent } = usePrimaryEvent();
   // The organizer's own first event, falling back to the public featured event.
   const event = skip ? primaryEvent : (events?.[0] ?? primaryEvent);
@@ -110,10 +111,10 @@ export default function OrganizerDashboard() {
                   </Badge>
                 </TD>
                 <TD numeric mono>
-                  {e._id === event?._id ? teams?.length ?? 0 : "—"}
+                  {e.teamCount}
                 </TD>
                 <TD numeric mono>
-                  {e._id === event?._id ? submissions?.length ?? 0 : "—"}
+                  {e.submissionCount}
                 </TD>
                 <TD numeric>
                   <Link to={`/organizer/events/${e.slug}`}>

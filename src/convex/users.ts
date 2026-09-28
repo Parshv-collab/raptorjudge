@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { requireOrganizer, requireUser, type Role } from "./lib/common";
+import type { Id } from "./_generated/dataModel";
+import { getCurrentUser, requireOrganizer, requireUser, type Role } from "./lib/common";
 import { assertRoleChangeAllowed } from "./lib/rbac";
 import { appendAudit } from "./lib/audit";
 
@@ -53,6 +54,29 @@ export const list = query({
   handler: async (ctx) => {
     await requireOrganizer(ctx);
     return ctx.db.query("users").collect();
+  },
+});
+
+/**
+ * The caller's avatar as a displayable URL (issue 38).
+ *
+ * `users.avatarUrl` stores a Convex storage id (or, for legacy rows, an http
+ * URL). Rendering the raw id in an `<img>` produces a broken image, which is
+ * exactly what the sidebar did — it had no avatar at all. Resolving the id to
+ * a signed storage URL here means every surface (profile, sidebar, chat) shows
+ * the same picture with one server round trip.
+ */
+export const myAvatarUrl = query({
+  args: {},
+  handler: async (ctx): Promise<string | null> => {
+    const user = await getCurrentUser(ctx);
+    if (!user?.avatarUrl) return null;
+    if (/^https?:/i.test(user.avatarUrl)) return user.avatarUrl;
+    try {
+      return await ctx.storage.getUrl(user.avatarUrl as Id<"_storage">);
+    } catch {
+      return null;
+    }
   },
 });
 

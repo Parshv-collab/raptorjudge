@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/Button";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Badge } from "@/components/ui/Badge";
+import { Alert } from "@/components/ui/Alert";
 import { Dropdown } from "@/components/ui/Dropdown";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Markdown } from "@/components/ui/Markdown";
 
 export default function JudgePairwise() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
@@ -40,6 +42,21 @@ export default function JudgePairwise() {
     skip || !activeEventId ? "skip" : { eventId: activeEventId as never }
   );
   const submitMatch = useMutation(api.pairwise.submitMatch);
+
+  // Issue 39: comparisons are a judging-phase action. The queue items carry the
+  // event slug, so we can ask for the event's status and refuse to render the
+  // pick buttons once judging has closed (the server would reject the write).
+  const eventSlugById = new Map<string, string>();
+  allItems.forEach((i: any) => {
+    if (i.eventId && i.eventSlug) eventSlugById.set(String(i.eventId), String(i.eventSlug));
+  });
+  const activeEventSlug = eventSlugById.get(activeEventId) ?? null;
+  const activeEvent = useQuery(
+    api.events.getBySlug,
+    skip || !activeEventSlug ? "skip" : { slug: activeEventSlug },
+  );
+  const judgingClosed =
+    activeEvent !== undefined && activeEvent !== null && activeEvent.status !== "judging";
 
   const [busy, setBusy] = useState(false);
 
@@ -101,6 +118,32 @@ export default function JudgePairwise() {
     }
   }
 
+  // History block, rendered in both the open and closed states (issue 39 keeps
+  // the recent comparisons visible after judging closes).
+  const history = (
+    <>
+      <p className="text-[13px] text-muted text-center tnum">
+        {myMatches?.length ?? 0} comparison{(myMatches?.length ?? 0) === 1 ? "" : "s"} recorded by you in this event.
+      </p>
+
+      {(myMatches?.length ?? 0) > 0 && (
+        <div className="bg-surface-1 border border-line rounded-card p-5">
+          <h3 className="text-[15px] font-semibold text-primary mb-3">Your recent comparisons</h3>
+          <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto">
+            {(myMatches || []).slice(0, 12).map((m: any) => (
+              <div key={m.id} className="flex flex-wrap items-center gap-2 text-[13px] p-2.5 rounded-btn bg-surface-2 border border-line">
+                <span className="text-primary truncate">{m.a}</span>
+                <span className="text-muted">vs</span>
+                <span className="text-primary truncate">{m.b}</span>
+                <span className="ml-auto font-medium text-accent truncate max-w-[45%]">{m.winner}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div className="flex flex-col gap-10">
       <PageHeader
@@ -124,7 +167,15 @@ export default function JudgePairwise() {
         }
       />
 
-      {!pair ? (
+      {judgingClosed ? (
+        <div className="flex flex-col gap-6">
+          <Alert variant="warning" title="Judging is closed for this event">
+            Pairwise comparisons can only be recorded while the event is in its judging stage.
+            Your comparison history is kept below for reference.
+          </Alert>
+          {history}
+        </div>
+      ) : !pair ? (
         <EmptyState
           title="No active pairwise comparison"
           description="No pairwise comparisons available for this event yet."
@@ -137,8 +188,10 @@ export default function JudgePairwise() {
               <div className="flex flex-col gap-2">
                 <Badge variant="accent" className="w-max">Project A</Badge>
                 <h2 className="text-h2 text-primary">{pair.a.title}</h2>
-                <p className="text-[13px] font-medium text-secondary">{pair.a.tagline}</p>
-                <p className="text-[13px] text-primary mt-2 line-clamp-6 leading-relaxed">{pair.a.description}</p>
+                {pair.a.tagline ? (
+                  <Markdown content={pair.a.tagline} className="text-[13px] font-medium" />
+                ) : null}
+                <Markdown content={pair.a.description ?? ""} className="text-[13px] mt-2 line-clamp-6" />
               </div>
 
               <div className="mt-6 pt-4 border-t border-line flex flex-col gap-3">
@@ -170,8 +223,10 @@ export default function JudgePairwise() {
               <div className="flex flex-col gap-2">
                 <Badge variant="accent" className="w-max">Project B</Badge>
                 <h2 className="text-h2 text-primary">{pair.b.title}</h2>
-                <p className="text-[13px] font-medium text-secondary">{pair.b.tagline}</p>
-                <p className="text-[13px] text-primary mt-2 line-clamp-6 leading-relaxed">{pair.b.description}</p>
+                {pair.b.tagline ? (
+                  <Markdown content={pair.b.tagline} className="text-[13px] font-medium" />
+                ) : null}
+                <Markdown content={pair.b.description ?? ""} className="text-[13px] mt-2 line-clamp-6" />
               </div>
 
               <div className="mt-6 pt-4 border-t border-line flex flex-col gap-3">
@@ -205,25 +260,7 @@ export default function JudgePairwise() {
             </Button>
           </div>
 
-          <p className="text-[13px] text-muted text-center tnum">
-            {myMatches?.length ?? 0} comparison{(myMatches?.length ?? 0) === 1 ? "" : "s"} recorded by you in this event.
-          </p>
-
-          {(myMatches?.length ?? 0) > 0 && (
-            <div className="bg-surface-1 border border-line rounded-card p-5">
-              <h3 className="text-[15px] font-semibold text-primary mb-3">Your recent comparisons</h3>
-              <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto">
-                {(myMatches || []).slice(0, 12).map((m: any) => (
-                  <div key={m.id} className="flex flex-wrap items-center gap-2 text-[13px] p-2.5 rounded-btn bg-surface-2 border border-line">
-                    <span className="text-primary truncate">{m.a}</span>
-                    <span className="text-muted">vs</span>
-                    <span className="text-primary truncate">{m.b}</span>
-                    <span className="ml-auto font-medium text-accent truncate max-w-[45%]">{m.winner}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {history}
         </div>
       )}
     </div>

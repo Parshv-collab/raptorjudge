@@ -1,8 +1,8 @@
 import { v } from "convex/values";
-import { mutation, query, type QueryCtx } from "./_generated/server";
+import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { getCurrentUser, requireOrganizer, requireUser } from "./lib/common";
+import { getCurrentUser, parseSettings, requireOrganizer, requireUser } from "./lib/common";
 import { appendAudit } from "./lib/audit";
 
 const eventArgs = {
@@ -22,6 +22,29 @@ export const listMine = query({ args: {}, handler: async (ctx) => {
   const user = await requireOrganizer(ctx);
   const all = await ctx.db.query("events").collect();
   return (user.role === "admin" ? all : all.filter((e) => e.organizerId === user._id));
+} });
+
+/**
+ * The caller's events (admins: all of them) with their team and submission
+ * counts inlined (issues 33/37).
+ *
+ * The organizer dashboard used to load counts for only its *first* event and
+ * print an em dash for every other row, which read as blank data. One query
+ * now returns every count, so no row is ever missing its numbers. Scoping
+ * matches `listMine`: organizers see the events they own, admins see all.
+ */
+export const listWithCounts = query({ args: {}, handler: async (ctx) => {
+  const user = await requireOrganizer(ctx);
+  const all = await ctx.db.query("events").collect();
+  const visible = user.role === "admin" ? all : all.filter((e) => e.organizerId === user._id);
+  const teams = await ctx.db.query("teams").collect();
+  const submissions = await ctx.db.query("submissions").collect();
+  return visible.map((event) => ({
+    ...event,
+    teamCount: teams.filter((t) => t.eventId === event._id).length,
+    submissionCount: submissions.filter((s) => s.eventId === event._id).length,
+    submittedCount: submissions.filter((s) => s.eventId === event._id && s.status === "submitted").length,
+  }));
 } });
 export const listPublic = query({ args: {}, handler: async (ctx) => (await ctx.db.query("events").collect()).filter((e) => e.status !== "draft") });
 
@@ -236,9 +259,53 @@ export const deleteEvent = mutation({ args: { eventId: v.id("events") }, handler
   await ctx.db.delete(args.eventId); await appendAudit(ctx, { actorId: actor._id, action: "event.delete", targetType: "event", targetId: String(args.eventId), beforeState: JSON.stringify(event), afterState: "deleted" }); return { ok: true };
 } });
 
+/**
+ * Publication readiness gate (issue 34).
+ *
+ * Announcing results is irreversible in practice — the public gallery re-sorts
+ * by the final ranking and the winner badge unlocks — so it must not be
+ * possible to publish an event that has nothing to rank, has judging still in
+ * flight, or is still accepting community votes. Each refusal names the exact
+ * blocker so the organizer knows what to fix.
+ */
+async function assertPublishReady(ctx: MutationCtx, event: Doc<"events">): Promise<void> {
+  const submissions = await ctx.db
+    .query("submissions")
+    .withIndex("by_event", (q) => q.eq("eventId", event._id))
+    .collect();
+  const submitted = submissions.filter((s) => s.status === "submitted");
+  if (submitted.length === 0) {
+    throw new Error("Cannot publish: the event has no submitted projects.");
+  }
+
+  const assignments = await ctx.db
+    .query("judgeAssignments")
+    .withIndex("by_event", (q) => q.eq("eventId", event._id))
+    .collect();
+  const unscored = assignments.filter((a) => a.status !== "completed").length;
+  if (unscored > 0) {
+    throw new Error(
+      `Cannot publish: ${unscored} of ${assignments.length} assignments are unscored.`,
+    );
+  }
+
+  // Voting is opt-out: only an explicit `voting_type=none` turns it off.
+  const votingEnabled = parseSettings(event.settings ?? "").voting_type !== "none";
+  if (votingEnabled && Date.now() < event.votingEnd) {
+    const closes = new Date(event.votingEnd).toLocaleString("en-US", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+    throw new Error(`Cannot publish: voting closes on ${closes}.`);
+  }
+}
+
 export const setStage = mutation({ args: { eventId: v.id("events"), stage: v.string() }, handler: async (ctx, args) => {
   const actor = await requireOrganizer(ctx); const event = await ctx.db.get(args.eventId); if (!event) throw new Error("Event not found");
   const stages = ["draft", "registration", "hacking", "judging", "voting", "published", "archived"]; if (!stages.includes(args.stage)) throw new Error("Invalid stage");
+  if (args.stage === "published" && event.status !== "published") {
+    await assertPublishReady(ctx, event);
+  }
   await ctx.db.patch(args.eventId, { status: args.stage }); await appendAudit(ctx, { eventId: args.eventId, actorId: actor._id, action: "event.stage_change", targetType: "event", targetId: String(args.eventId), beforeState: event.status, afterState: args.stage });
   // Announcing results is the one transition subscribers act on: it changes the
   // public gallery for everyone, so it gets a webhook of its own — and it now
@@ -340,6 +407,50 @@ export const anyOpenForJudging = query({
   handler: async (ctx) => {
     const events = await ctx.db.query("events").collect();
     return events.some((e) => !["published", "archived", "closed"].includes(e.status));
+  },
+});
+
+/**
+ * Flat public event feed for the landing page's discovery sections (issue 43).
+ *
+ * `stageOverview` deliberately buckets by lifecycle stage for the demo-event
+ * showcase; this one returns every published event with its counts and the
+ * booleans the marketing page groups on (open / upcoming / past), so the pages
+ * can filter and search client-side without N more round trips.
+ */
+export const browse = query({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const all = (await ctx.db.query("events").collect()).filter((e) => e.status !== "draft");
+    const teams = await ctx.db.query("teams").collect();
+    const members = await ctx.db.query("teamMembers").collect();
+    const submissions = await ctx.db.query("submissions").collect();
+    return all
+      .map((event) => {
+        const teamIds = new Set(
+          teams.filter((t) => t.eventId === event._id).map((t) => String(t._id)),
+        );
+        const isPast = ["published", "archived", "closed"].includes(event.status);
+        return {
+          slug: event.slug,
+          title: event.title,
+          tagline: event.tagline,
+          description: event.description,
+          status: event.status,
+          registrationStart: event.registrationStart,
+          registrationEnd: event.registrationEnd,
+          submissionDeadline: event.submissionDeadline,
+          votingEnd: event.votingEnd,
+          projectCount: submissions.filter((s) => s.eventId === event._id).length,
+          teamCount: teamIds.size,
+          participantCount: members.filter((m) => teamIds.has(String(m.teamId))).length,
+          isOpen: ["registration", "hacking", "judging", "voting"].includes(event.status),
+          isUpcoming: !isPast && (event.registrationOpens ?? event.registrationStart ?? 0) > now,
+          isPast,
+        };
+      })
+      .sort((a, b) => b.projectCount - a.projectCount || a.title.localeCompare(b.title));
   },
 });
 

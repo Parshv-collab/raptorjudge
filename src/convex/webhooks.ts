@@ -7,6 +7,7 @@ import {
   internalQuery,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { requireOrganizer } from "./lib/common";
 import { appendAudit } from "./lib/audit";
 import { hmacSha256Hex, randomHex } from "./crypto";
@@ -60,14 +61,12 @@ export const deliveries = query({
   },
 });
 
-export const register = mutation({
-  args: {
-    eventId: v.id("events"),
-    targetUrl: v.string(),
-    events: v.string(),
-  },
-  handler: async (ctx, args) => {
-    await requireOrganizer(ctx);
+/** Register a webhook core, shared by the mutation and the REST bridge. */
+async function registerWebhookCore(
+  ctx: any,
+  args: { eventId: Id<"events">; targetUrl: string; events: string },
+) {
+  {
     // Security items 64 + 67: the old check was a `^https?://` regex, which let
     // `https://user:pass@host`, cloud-metadata addresses and trailing garbage
     // through to the delivery `fetch`. See src/lib/webhookTarget.ts.
@@ -91,7 +90,25 @@ export const register = mutation({
       afterState: JSON.stringify({ targetUrl, events: args.events }),
     });
     return { webhookId: id, secretKey }; // secret shown once at registration
+  }
+}
+
+export const register = mutation({
+  args: {
+    eventId: v.id("events"),
+    targetUrl: v.string(),
+    events: v.string(),
   },
+  handler: async (ctx, args) => {
+    await requireOrganizer(ctx);
+    return registerWebhookCore(ctx, args);
+  },
+});
+
+/** REST bridge for `POST /api/v1/webhooks` (organizer/admin). */
+export const registerInternal = internalMutation({
+  args: { eventId: v.id("events"), targetUrl: v.string(), events: v.string() },
+  handler: async (ctx, args) => registerWebhookCore(ctx, args),
 });
 
 export const setActive = mutation({
@@ -228,18 +245,29 @@ export const logDelivery = internalMutation({
   },
 });
 
+/** Queue a test delivery core, shared by the mutation and the REST bridge. */
+async function queueTestDeliveryCore(ctx: any, webhookId: any) {
+  const hook = await ctx.db.get(webhookId);
+  if (!hook) throw new Error("Webhook not found");
+  await ctx.scheduler.runAfter(0, internal.webhooks.deliver, {
+    webhookId,
+    eventType: "ping",
+    payload: JSON.stringify({ test: true, source: "raptorjudge" }),
+  });
+  return { ok: true };
+}
+
 /** Test delivery (organizer). */
 export const testDelivery = mutation({
   args: { webhookId: v.id("webhooks") },
   handler: async (ctx, args) => {
     await requireOrganizer(ctx);
-    const hook = await ctx.db.get(args.webhookId);
-    if (!hook) throw new Error("Webhook not found");
-    await ctx.scheduler.runAfter(0, internal.webhooks.deliver, {
-      webhookId: args.webhookId,
-      eventType: "ping",
-      payload: JSON.stringify({ test: true, source: "raptorjudge" }),
-    });
-    return { ok: true };
+    return queueTestDeliveryCore(ctx, args.webhookId);
   },
+});
+
+/** REST bridge for `POST /api/v1/webhooks/:id/test` (organizer/admin). */
+export const testDeliveryInternal = internalMutation({
+  args: { webhookId: v.id("webhooks") },
+  handler: async (ctx, args) => queueTestDeliveryCore(ctx, args.webhookId),
 });

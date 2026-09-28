@@ -145,7 +145,7 @@ export default function ProjectDetail() {
         </div>
 
         <h1 className="text-h1 text-primary">{detail.title}</h1>
-        <p className="text-base text-secondary">{detail.tagline}</p>
+        {detail.tagline ? <Markdown content={detail.tagline} className="text-base" /> : null}
         <p className="text-sm text-primary">
           Team <span className="font-semibold">{detail.teamName}</span>
         </p>

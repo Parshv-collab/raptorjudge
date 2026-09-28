@@ -1,7 +1,8 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
+import type { Doc } from "./_generated/dataModel";
 import {
   assertJudgingOpen,
   requireOrganizer,
@@ -22,6 +23,40 @@ async function getCertSecretReadOnly(ctx: any): Promise<string> {
     .unique();
   if (row) return row.value;
   return "raptor-cert-default-secret-key-fallback";
+}
+
+/**
+ * Build the signed judge attestation (T4.4/T4.5).
+ *
+ * The canonical payload lives here so `judgeRecord`, `verifyJudgeRecord` and
+ * the REST audit surface can never drift apart — a mismatch between issuer and
+ * verifier would make every signature look forged.
+ */
+async function judgeAttestation(
+  ctx: any,
+  judge: Doc<"users">,
+  event: Doc<"events">,
+  judgeScores: Doc<"judgeScores">[],
+): Promise<{ projectsScored: number; totalScores: number; signature: string; issuedAt: number }> {
+  const projectsScored = new Set(judgeScores.map((s) => String(s.submissionId))).size;
+  const payloadStr = [
+    judge._id,
+    event._id,
+    judge.name,
+    event.title,
+    projectsScored,
+    judgeScores.length,
+  ].join("|");
+  const secret = await getCertSecretReadOnly(ctx);
+  const signature = await hmacSha256Hex(secret, payloadStr);
+  return {
+    projectsScored,
+    totalScores: judgeScores.length,
+    signature,
+    // Attestation time = the judge's last submission (a fresh Date.now() made
+    // the record look re-issued on every read even though it never changed).
+    issuedAt: judgeScores.reduce((max, s) => Math.max(max, s.submittedAt), 0),
+  };
 }
 
 /** Default per-judge ceiling for the algorithmic assigner. */
@@ -979,6 +1014,106 @@ export const progress = query({
 });
 
 /**
+ * Cross-event judge roster for the organizer judges page (issue 35).
+ *
+ * Every account with the `judge` role is listed, each with the events they are
+ * assigned to and their scoring progress per event — so an organizer can see a
+ * judge who has assignments in three events and none in a fourth at a glance,
+ * instead of opening each event console in turn. `eventId` narrows it to one
+ * event; judges with nothing in that event drop out.
+ */
+export const judgesOverview = query({
+  args: { eventId: v.optional(v.id("events")) },
+  handler: async (ctx, args) => {
+    await requireOrganizer(ctx);
+    const users = await ctx.db.query("users").collect();
+    const events = await ctx.db.query("events").collect();
+    const assignments = await ctx.db.query("judgeAssignments").collect();
+
+    return users
+      .filter((u) => u.role === "judge")
+      .map((judge) => {
+        const mine = assignments.filter(
+          (a) => a.judgeId === judge._id && (!args.eventId || a.eventId === args.eventId),
+        );
+        const perEvent = new Map<string, { assigned: number; completed: number }>();
+        for (const a of mine) {
+          const key = String(a.eventId);
+          const acc = perEvent.get(key) ?? { assigned: 0, completed: 0 };
+          acc.assigned++;
+          if (a.status === "completed") acc.completed++;
+          perEvent.set(key, acc);
+        }
+        return {
+          _id: judge._id,
+          name: judge.name,
+          email: judge.email,
+          disabled: judge.disabledAt !== undefined || judge.disabled_at !== undefined,
+          totalAssigned: mine.length,
+          totalCompleted: mine.filter((a) => a.status === "completed").length,
+          events: [...perEvent.entries()]
+            .map(([eventId, acc]) => {
+              const event = events.find((e) => String(e._id) === eventId);
+              return {
+                eventId,
+                eventTitle: event?.title ?? "—",
+                eventStatus: event?.status ?? "",
+                assigned: acc.assigned,
+                completed: acc.completed,
+                percent: acc.assigned > 0 ? Math.round((acc.completed / acc.assigned) * 100) : 0,
+              };
+            })
+            .sort((a, b) => a.eventTitle.localeCompare(b.eventTitle)),
+        };
+      })
+      .filter((judge) => !args.eventId || judge.events.length > 0)
+      .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
+  },
+});
+
+/**
+ * Remove a judge from an event (issue 35): deletes that judge's assignments and
+ * any scores recorded against them, so re-running assignment no longer counts a
+ * departed judge against the cap. Judging-side write, so it obeys the same
+ * publication lock as every other assignment mutation.
+ */
+export const removeJudgeFromEvent = mutation({
+  args: { judgeId: v.id("users"), eventId: v.id("events") },
+  handler: async (ctx, args) => {
+    const actor = await requireOrganizer(ctx);
+    await assertJudgingOpen(ctx, args.eventId);
+    const assignments = await ctx.db
+      .query("judgeAssignments")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect()
+      .then((rows) => rows.filter((a) => a.judgeId === args.judgeId));
+
+    let scoresDeleted = 0;
+    for (const assignment of assignments) {
+      const scores = await ctx.db
+        .query("judgeScores")
+        .withIndex("by_assignment", (q) => q.eq("assignmentId", assignment._id))
+        .collect();
+      for (const score of scores) {
+        await ctx.db.delete(score._id);
+        scoresDeleted++;
+      }
+      await ctx.db.delete(assignment._id);
+    }
+
+    await appendAudit(ctx, {
+      eventId: args.eventId,
+      actorId: actor._id,
+      action: "judging.remove_judge",
+      targetType: "user",
+      targetId: String(args.judgeId),
+      afterState: JSON.stringify({ assignmentsRemoved: assignments.length, scoresRemoved: scoresDeleted }),
+    });
+    return { removed: assignments.length, scoresDeleted };
+  },
+});
+
+/**
  * Verifiable signed judge participation record (T4.4).
  *
  * Visibility: a judge may always read their own record, staff may read any,
@@ -1008,23 +1143,12 @@ export const judgeRecord = query({
       .collect();
     const judgeScores = scores.filter((s) => s.judgeId === args.judgeId);
 
-    const projectsScoredCount = new Set(judgeScores.map((s) => String(s.submissionId))).size;
-    // Attestation time = the judge's last submission. Using `Date.now()` here
-    // made the record look freshly issued on every read even though the
-    // signature (and therefore the record) never changes.
-    const issuedAt = judgeScores.reduce((max, s) => Math.max(max, s.submittedAt), 0);
-
-    const secret = await getCertSecretReadOnly(ctx);
-    const payloadStr = [
-      judge._id,
-      event._id,
-      judge.name,
-      event.title,
-      projectsScoredCount,
-      judgeScores.length,
-    ].join("|");
-
-    const signature = await hmacSha256Hex(secret, payloadStr);
+    const {
+      projectsScored: projectsScoredCount,
+      totalScores: totalScoresSubmitted,
+      signature,
+      issuedAt,
+    } = await judgeAttestation(ctx, judge, event, judgeScores);
 
     return {
       uuid: String(judge._id),
@@ -1032,10 +1156,10 @@ export const judgeRecord = query({
       eventName: event.title,
       eventSlug: event.slug,
       projectsScored: projectsScoredCount,
-      totalScoresSubmitted: judgeScores.length,
+      totalScoresSubmitted,
       issuedAt,
       signature,
-      verificationUrl: `/verify/judge/${judge._id}?signature=${signature}&eventId=${event._id}&projectsScored=${projectsScoredCount}&totalScores=${judgeScores.length}&judgeName=${encodeURIComponent(judge.name)}&eventName=${encodeURIComponent(event.title)}`,
+      verificationUrl: `/verify/judge/${judge._id}?signature=${signature}&eventId=${event._id}&projectsScored=${projectsScoredCount}&totalScores=${totalScoresSubmitted}&judgeName=${encodeURIComponent(judge.name)}&eventName=${encodeURIComponent(event.title)}`,
     };
   },
 });
@@ -1076,19 +1200,13 @@ export const verifyJudgeRecord = query({
       .withIndex("by_event", (q) => q.eq("eventId", event._id))
       .collect();
     const judgeScores = scores.filter((s) => s.judgeId === judge._id);
-    const projectsScored = new Set(judgeScores.map((s) => String(s.submissionId))).size;
-
-    // Identical payload to `judgeRecord` — the two must never drift.
-    const payloadStr = [
-      judge._id,
-      event._id,
-      judge.name,
-      event.title,
-      projectsScored,
-      judgeScores.length,
-    ].join("|");
-    const secret = await getCertSecretReadOnly(ctx);
-    const expected = await hmacSha256Hex(secret, payloadStr);
+    // Identical payload to `judgeRecord` — one shared helper, so they can never drift.
+    const { projectsScored, signature: expected } = await judgeAttestation(
+      ctx,
+      judge,
+      event,
+      judgeScores,
+    );
     const valid = safeEqualHex(expected, args.signature);
 
     if (!valid) return invalid;
@@ -1101,6 +1219,49 @@ export const verifyJudgeRecord = query({
       projectsScored,
       totalScoresSubmitted: judgeScores.length,
       issuedAt: judgeScores.reduce((max, s) => Math.max(max, s.submittedAt), 0),
+    };
+  },
+});
+
+/**
+ * A signable judge record for the REST audit surface (T4.5).
+ *
+ * Produces the same (judgeId, eventId, signature) triple `judgeRecord` hands to
+ * a judge, so the HTTP checker can verify a real record and then a tampered
+ * one — rather than only proving that garbage is rejected. Organizer-gated at
+ * the route; the query itself is internal so it is never directly reachable.
+ */
+export const judgeRecordSample = internalQuery({
+  args: { eventId: v.id("events"), judgeId: v.optional(v.id("users")) },
+  handler: async (ctx, args) => {
+    const event = await ctx.db.get(args.eventId);
+    if (!event) return null;
+    // No judge given: attest whichever judge has assignments in this event first,
+    // so the checker does not need to know any judge ids up front.
+    const judgeId =
+      args.judgeId ??
+      (
+        await ctx.db
+          .query("judgeAssignments")
+          .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+          .collect()
+      )[0]?.judgeId;
+    if (!judgeId) return null;
+    const judge = await ctx.db.get(judgeId);
+    if (!judge) return null;
+    const scores = await ctx.db
+      .query("judgeScores")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    const mine = scores.filter((s) => s.judgeId === judgeId);
+    const { signature, projectsScored, totalScores } = await judgeAttestation(ctx, judge, event, mine);
+    return {
+      judgeId: String(judge._id),
+      eventId: String(event._id),
+      judgeName: judge.name,
+      projectsScored,
+      totalScores,
+      signature,
     };
   },
 });

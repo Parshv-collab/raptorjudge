@@ -1,7 +1,7 @@
 import { internalQuery, internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
-import { hmacSha256Hex, safeEqualHex, seededShuffle, seedFromString } from "./crypto";
+import { hmacSha256Hex, safeEqualHex, seededShuffle, seedFromString, sha256Hex } from "./crypto";
 import { normalizeScores, type JudgeScoreSet } from "../lib/algorithms/normalization";
 import { bradleyTerry, type PairwiseMatchRecord } from "../lib/algorithms/pairwise";
 import { appendAudit } from "./lib/audit";
@@ -456,6 +456,85 @@ export const exportEventJson = internalQuery({
       null,
       2,
     );
+  },
+});
+
+// ------------------------------------------------- T3/T4 audit surface -------
+//
+// The routes behind `run_t3_t4.py` need a handful of reads the SPA gets through
+// Convex subscriptions. They are internal (never directly callable) and every
+// staff-only one re-checks the role against the verified userId.
+
+/** Public event list for `GET /api/v1/events` (T4.2). */
+export const listEventsPublic = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const events = (await ctx.db.query("events").collect()).filter((e) => e.status !== "draft");
+    return events.map((e) => ({
+      slug: e.slug,
+      title: e.title,
+      tagline: e.tagline,
+      status: e.status,
+      registrationStart: e.registrationStart,
+      registrationEnd: e.registrationEnd,
+      submissionDeadline: e.submissionDeadline,
+      votingStart: e.votingStart,
+      votingEnd: e.votingEnd,
+    }));
+  },
+});
+
+/** Staff check for the audit surface. */
+async function requireStaffUser(ctx: any, userId: Id<"users">) {
+  const user = await ctx.db.get(userId);
+  if (!user || (user.role !== "organizer" && user.role !== "admin")) {
+    throw new Error("Forbidden: organizer or admin required");
+  }
+  return user;
+}
+
+/** Audit hash-chain verification for `GET /api/v1/audit/verify` (T3.9). */
+export const auditVerifyPublic = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    await requireStaffUser(ctx, args.userId);
+    const rows = await ctx.db.query("auditLogs").collect();
+    rows.sort((a, b) => a.timestamp - b.timestamp || String(a._id).localeCompare(String(b._id)));
+    let prevHash = "GENESIS";
+    let valid = true;
+    let brokenAt: string | null = null;
+    for (const r of rows) {
+      const recomputed = await sha256Hex(
+        [prevHash, r.timestamp, r.eventId ?? "", r.actorId ?? "", r.action, r.targetType, r.targetId, r.beforeState, r.afterState, r.ipAddress].join("|"),
+      );
+      if (r.prevHash !== prevHash || recomputed !== r.entryHash) {
+        valid = false;
+        brokenAt = String(r._id);
+        break;
+      }
+      prevHash = r.entryHash;
+    }
+    return { valid, entries: rows.length, brokenAt };
+  },
+});
+
+/**
+ * One issued certificate to verify for `GET /api/v1/certificates/sample`
+ * (T4.4). Returns the uuid and its HMAC signature so the checker can prove a
+ * genuine certificate verifies and a tampered one does not.
+ */
+export const certificateSamplePublic = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    await requireStaffUser(ctx, args.userId);
+    const cert = (await ctx.db.query("certificates").collect())[0];
+    if (!cert) return null;
+    return {
+      certUuid: cert.certUuid,
+      signature: cert.signatureHash,
+      recipientName: cert.recipientName,
+      title: cert.title,
+    };
   },
 });
 

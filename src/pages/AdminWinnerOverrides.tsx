@@ -12,6 +12,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Textarea } from "@/components/ui/Textarea";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
+import { Markdown } from "@/components/ui/Markdown";
 import { Crown, ArrowRight } from "lucide-react";
 
 /**
@@ -147,9 +148,9 @@ export default function AdminWinnerOverrides() {
                 <span className="text-[11px] uppercase tracking-[0.05em] text-muted">
                   Organizer&apos;s reason
                 </span>
-                <p className="text-[13px] text-secondary leading-relaxed mt-1 whitespace-pre-line">
-                  {request.reason}
-                </p>
+                <div className="mt-1">
+                  <Markdown content={request.reason ?? ""} className="text-[13px]" />
+                </div>
               </div>
 
               <div className="flex flex-wrap justify-end gap-3">

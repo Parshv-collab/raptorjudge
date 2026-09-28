@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { StatCard } from "@/components/ui/StatCard";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { BrowseAllEvents, FeaturedEvents } from "@/components/events/EventDiscovery";
 import { usePrimaryEvent } from "@/lib/featuredEvent";
 
 /** Judging pipeline steps, rendered as a numbered rail. */
@@ -240,6 +241,10 @@ export default function Landing() {
           <StatCard label="Normalisation" value="z → 0–10" subtext="per judge, clamped" />
         </div>
       </section>
+
+      {/* --------------------------------------- featured + browse-all (43.1/43.2) */}
+      <FeaturedEvents />
+      <BrowseAllEvents />
 
       {/* ------------------------------------------ stage-grouped test events */}
       <StageSections />

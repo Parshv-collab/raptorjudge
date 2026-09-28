@@ -22,3 +22,7 @@ dist-ssr/
 # logs
 *.log
 npm-debug.log*
+
+# python bytecode (run.py / run_t3_t4.py are stdlib-only scripts)
+__pycache__/
+*.pyc

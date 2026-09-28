@@ -29,6 +29,7 @@ import Security from "@/pages/Security";
 import RoleHome from "@/pages/RoleHome";
 import { OrganizerEvents } from "@/pages/OrganizerEvents";
 import { OrganizerEventManage as OrganizerEventManagement } from "@/pages/OrganizerEventManage";
+import OrganizerJudges from "@/pages/OrganizerJudges";
 import EventForm from "@/pages/EventForm";
 import AdminDashboard from "@/pages/AdminDashboard";
 import AdminUsers from "@/pages/AdminUsers";
@@ -228,6 +229,12 @@ export default function App() {
           <Route
             path="/organizer/events"
             element={<ProtectedRoute requiredRole={["organizer", "admin"]}><OrganizerEvents /></ProtectedRoute>}
+          />
+          {/* Issue 35: cross-event judge management, the destination the sidebar
+              "Judges" entry now points at. */}
+          <Route
+            path="/organizer/judges"
+            element={<ProtectedRoute requiredRole={["organizer", "admin"]}><OrganizerJudges /></ProtectedRoute>}
           />
           <Route
             path="/organizer/events/new"

@@ -146,6 +146,18 @@ back to a single-event deployment.
 
 ## Acceptance status
 
+| Tier | What it covers | Verified by | Status |
+|---|---|---|---|
+| **T1** | Public gallery, fixture content, deadline lock | `python3 run.py .dogfood.toml` | ✅ verified |
+| **T2** | Judge isolation (own vs peer scores), CSV export | `python3 run.py .dogfood.toml` | ✅ verified |
+| **T3** | Community voting, comments & flagging, hidden results, deterministic ballots, rate limiting, audit chain | `python3 run_t3_t4.py .dogfood.toml` | ✅ self-audited |
+| **T4** | OpenAPI + REST, signed webhooks, verifiable certificates and judge records, embed widget, bulk export/import | `python3 run_t3_t4.py .dogfood.toml` | ✅ self-audited |
+
+> The official `run.py` only checks **T1 and T2**. Running it alone prints
+> `claimed T1 T2 T3 T4, verified T1 T2`, which reads as though T3 and T4 were
+> unverified. `run_t3_t4.py` is the companion that closes that gap — see
+> [Verifying T3 and T4](#verifying-t3-and-t4).
+
 `run.py .dogfood.toml` against the running stack reports **7/7** — see
 `acceptance-report.txt`:
 
@@ -159,8 +171,54 @@ T2  participant blocked ............... PASS
 T2  csv export works .................. PASS
 ```
 
-T3 and T4 are wired through the same REST surface and verified by the in-app
-suite (`POST /api/v1/acceptance` as an organizer, or the Acceptance panel on the
+### Verifying T3 and T4
+
+The official checker ships only the T1/T2 tiers, so this repository also carries
+a T3/T4 self-audit. It reads the same `.dogfood.toml` (so it inherits your
+`[portal]`, `[auth]` and `[routes]` settings), needs nothing but the Python
+standard library, and drives the running portal over real HTTP:
+
+```bash
+python3 run_t3_t4.py .dogfood.toml
+```
+
+```
+DOGFOOD 2026 — T3/T4 self-audit report
+portal: http://localhost:3000
+fixtures: fixtures.json
+event: test-hack-voting (voting)
+
+T3  Community voting works (credits round-trip) .. PASS
+T3  Quadratic credit spend (cost = N²) ........... PASS
+T3  Comments add/delete .......................... PASS
+T3  Comment flagging ............................. PASS
+T3  Results hidden before publish ................ PASS
+T3  Ballot order deterministic ................... PASS
+T3  Rate limiting fires .......................... PASS
+T3  Duplicate detection (3-of-3 rejected) ........ SKIP
+T3  Audit chain verifies ......................... PASS
+T4  OpenAPI spec responds ........................ PASS
+T4  REST endpoints respond ....................... PASS
+T4  Webhook delivery signed ...................... PASS
+T4  Certificates verify .......................... PASS
+T4  Judge records verify ......................... PASS
+T4  Embed gallery renders ........................ PASS
+T4  Bulk export works ............................ PASS
+T4  Bulk import idempotent ....................... PASS
+
+Summary: 16/16 PASS (1 skipped)
+```
+
+A check is reported as **PASS only when a real request proves it**. When a
+surface genuinely cannot be exercised — no event is open for judging or voting,
+the deployment cannot reach a local webhook receiver, or the REST submit
+endpoint (a contract check) cannot create the 3-of-3 duplicate that T3.8 asks
+about — the check is reported as **SKIP with its reason**, and skipped checks
+are excluded from the pass count. Nothing is ever reported as verified because
+it had nothing to test.
+
+Both suites are complemented by the in-app acceptance suite
+(`POST /api/v1/acceptance` as an organizer, or the Acceptance panel on the
 organizer dashboard): 22 tier checks (T1–T4) plus the 17-check T5 security
 battery — JWT forgery, open redirects, webhook replay and target validation,
 assignment and score uniqueness, certificate idempotency, platform-secret
@@ -183,7 +241,8 @@ projection, duplicate flagging, load cap and rubric weights.
 | `npm run dev` | Vite dev server (frontend) |
 | `npm run build` | Production build to `dist/` |
 | `npm run typecheck` | `tsc -b --noEmit` |
-| `npm test` | Vitest suite (202 tests, 17 files) |
+| `npm test` | Vitest suite (220 tests, 18 files) |
+| `python3 run_t3_t4.py .dogfood.toml` | T3/T4 self-audit against a running stack |
 | `npm run test:watch` | Vitest in watch mode |
 | `npm run preview` | Preview the production build locally |
 | `npm run seed` | Re-run the fixture seed against a deployment |
@@ -205,6 +264,7 @@ tests/               Vitest suites, including fixture-driven proofs
 scripts/             seed / acceptance / proof / key-generation tooling
 frontend/, backend/  Docker images and entrypoints
 run.py, .dogfood.toml official acceptance checker and its config
+run_t3_t4.py         companion T3/T4 self-audit (same config, stdlib only)
 ```
 
 ## Documentation

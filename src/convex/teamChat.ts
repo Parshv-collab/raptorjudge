@@ -47,12 +47,28 @@ export const listMessages = query({
         fileUrl = await ctx.storage.getUrl(msg.fileStorageId);
       }
 
+      // Issue 38: `avatarUrl` stores a storage id, which is not a renderable
+      // URL — resolve it (or pass a legacy http URL straight through).
+      let authorAvatar: string | undefined;
+      const rawAvatar = author?.avatarUrl;
+      if (rawAvatar) {
+        if (/^https?:/i.test(rawAvatar)) {
+          authorAvatar = rawAvatar;
+        } else {
+          try {
+            authorAvatar = (await ctx.storage.getUrl(rawAvatar as never)) ?? undefined;
+          } catch {
+            authorAvatar = undefined;
+          }
+        }
+      }
+
       out.push({
         id: String(msg._id),
         teamId: String(msg.teamId),
         userId: String(msg.userId),
         authorName: author?.name || author?.email || "Team Member",
-        authorAvatar: author?.avatarUrl || undefined,
+        authorAvatar,
         content: msg.content,
         fileUrl,
         fileName: msg.fileName,

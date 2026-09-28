@@ -1,5 +1,7 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
 import { requireOrganizer, requireUser } from "./lib/common";
 import { appendAudit } from "./lib/audit";
 import { checkRateLimit } from "./voting";
@@ -12,27 +14,36 @@ import { MAX_COMMENT_LENGTH } from "../lib/validation";
  * audit chain, so a burst of spam leaves both a refusal and a trail.
  */
 
+/** Comment-list core, shared by the public query and the REST bridge. */
+async function listCommentsCore(ctx: any, submissionId: Id<"submissions">) {
+  const rows = await ctx.db
+    .query("comments")
+    .withIndex("by_submission", (q: any) => q.eq("submissionId", submissionId))
+    .collect();
+  const out = [];
+  for (const c of rows) {
+    const user = await ctx.db.get(c.userId);
+    out.push({
+      id: String(c._id),
+      content: c.content,
+      isFlagged: c.isFlagged,
+      createdAt: c.createdAt,
+      authorName: user?.name ?? "—",
+      authorId: String(c.userId),
+    });
+  }
+  return out.sort((a: any, b: any) => a.createdAt - b.createdAt);
+}
+
 export const listForSubmission = query({
   args: { submissionId: v.id("submissions") },
-  handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("comments")
-      .withIndex("by_submission", (q) => q.eq("submissionId", args.submissionId))
-      .collect();
-    const out = [];
-    for (const c of rows) {
-      const user = await ctx.db.get(c.userId);
-      out.push({
-        id: String(c._id),
-        content: c.content,
-        isFlagged: c.isFlagged,
-        createdAt: c.createdAt,
-        authorName: user?.name ?? "—",
-        authorId: String(c.userId),
-      });
-    }
-    return out.sort((a, b) => a.createdAt - b.createdAt);
-  },
+  handler: async (ctx, args) => listCommentsCore(ctx, args.submissionId),
+});
+
+/** REST bridge read for `GET /api/v1/comments` (public, like the gallery). */
+export const listInternal = internalQuery({
+  args: { submissionId: v.id("submissions") },
+  handler: async (ctx, args) => listCommentsCore(ctx, args.submissionId),
 });
 
 /**
@@ -68,10 +79,19 @@ export const listFlagged = query({
   },
 });
 
-export const add = mutation({
-  args: { submissionId: v.id("submissions"), content: v.string() },
-  handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
+/**
+ * Add-comment core, shared by the Convex mutation and the REST bridge.
+ *
+ * `user` is resolved by the caller (identity in Convex, verified session in
+ * HTTP) so the T3.5 rate limit and the audit trail behave identically on both
+ * surfaces.
+ */
+async function addCommentCore(
+  ctx: MutationCtx,
+  user: Doc<"users">,
+  args: { submissionId: Id<"submissions">; content: string },
+) {
+  {
     const submission = await ctx.db.get(args.submissionId);
     if (!submission) throw new Error("Submission not found");
     const content = args.content.trim();
@@ -107,28 +127,59 @@ export const add = mutation({
       afterState: JSON.stringify({ submissionId: String(args.submissionId), length: content.length }),
     });
     return id;
+  }
+}
+
+export const add = mutation({
+  args: { submissionId: v.id("submissions"), content: v.string() },
+  handler: async (ctx, args) => addCommentCore(ctx, await requireUser(ctx), args),
+});
+
+/** REST bridge for `POST /api/v1/comments`. */
+export const addInternal = internalMutation({
+  args: { userId: v.id("users"), submissionId: v.id("submissions"), content: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    if (!user) throw new Error("User not found");
+    return addCommentCore(ctx, user, args);
   },
 });
 
+/** Flag-comment core, shared by the Convex mutation and the REST bridge. */
+async function flagCommentCore(
+  ctx: MutationCtx,
+  user: Doc<"users">,
+  commentId: Id<"comments">,
+) {
+  const comment = await ctx.db.get(commentId);
+  if (!comment) throw new Error("Comment not found");
+  if (comment.isFlagged) throw new Error("This comment has already been flagged for review");
+  await ctx.db.patch(commentId, { isFlagged: true });
+  const submission = await ctx.db.get(comment.submissionId);
+  await appendAudit(ctx, {
+    eventId: submission?.eventId,
+    actorId: user._id,
+    action: "comment.flag",
+    targetType: "comment",
+    targetId: String(commentId),
+    beforeState: JSON.stringify({ isFlagged: false }),
+    afterState: JSON.stringify({ isFlagged: true }),
+  });
+  return { ok: true };
+}
+
 export const flag = mutation({
   args: { commentId: v.id("comments") },
+  handler: async (ctx, args) => flagCommentCore(ctx, await requireUser(ctx), args.commentId),
+});
+
+/** REST bridge for `POST /api/v1/comments/:id/flag`. */
+export const flagInternal = internalMutation({
+  args: { userId: v.id("users"), commentId: v.id("comments") },
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
-    const comment = await ctx.db.get(args.commentId);
-    if (!comment) throw new Error("Comment not found");
-    if (comment.isFlagged) throw new Error("This comment has already been flagged for review");
-    await ctx.db.patch(args.commentId, { isFlagged: true });
-    const submission = await ctx.db.get(comment.submissionId);
-    await appendAudit(ctx, {
-      eventId: submission?.eventId,
-      actorId: user._id,
-      action: "comment.flag",
-      targetType: "comment",
-      targetId: String(args.commentId),
-      beforeState: JSON.stringify({ isFlagged: false }),
-      afterState: JSON.stringify({ isFlagged: true }),
-    });
-    return { ok: true };
+    const user = await ctx.db.get(args.userId);
+    if (!user) throw new Error("User not found");
+    return flagCommentCore(ctx, user, args.commentId);
   },
 });
 
@@ -154,30 +205,46 @@ export const unflag = mutation({
   },
 });
 
+/** Delete-comment core, shared by the Convex mutation and the REST bridge. */
+async function deleteCommentCore(
+  ctx: MutationCtx,
+  user: Doc<"users">,
+  commentId: Id<"comments">,
+) {
+  const comment = await ctx.db.get(commentId);
+  if (!comment) throw new Error("Comment not found");
+  if (comment.userId !== user._id && user.role !== "admin" && user.role !== "organizer") {
+    throw new Error("Unauthorized to delete this comment");
+  }
+  const submission = await ctx.db.get(comment.submissionId);
+  await ctx.db.delete(commentId);
+  await appendAudit(ctx, {
+    eventId: submission?.eventId,
+    actorId: user._id,
+    action: "comment.delete",
+    targetType: "comment",
+    targetId: String(commentId),
+    beforeState: JSON.stringify({
+      submissionId: String(comment.submissionId),
+      authorId: String(comment.userId),
+    }),
+    afterState: "deleted",
+  });
+  return { ok: true };
+}
+
 export const deleteComment = mutation({
   args: { commentId: v.id("comments") },
+  handler: async (ctx, args) => deleteCommentCore(ctx, await requireUser(ctx), args.commentId),
+});
+
+/** REST bridge for `DELETE /api/v1/comments/:id`. */
+export const deleteCommentInternal = internalMutation({
+  args: { userId: v.id("users"), commentId: v.id("comments") },
   handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
-    const comment = await ctx.db.get(args.commentId);
-    if (!comment) throw new Error("Comment not found");
-    if (comment.userId !== user._id && user.role !== "admin" && user.role !== "organizer") {
-      throw new Error("Unauthorized to delete this comment");
-    }
-    const submission = await ctx.db.get(comment.submissionId);
-    await ctx.db.delete(args.commentId);
-    await appendAudit(ctx, {
-      eventId: submission?.eventId,
-      actorId: user._id,
-      action: "comment.delete",
-      targetType: "comment",
-      targetId: String(args.commentId),
-      beforeState: JSON.stringify({
-        submissionId: String(comment.submissionId),
-        authorId: String(comment.userId),
-      }),
-      afterState: "deleted",
-    });
-    return { ok: true };
+    const user = await ctx.db.get(args.userId);
+    if (!user) throw new Error("User not found");
+    return deleteCommentCore(ctx, user, args.commentId);
   },
 });
 

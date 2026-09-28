@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { EventPicker } from "@/components/participant/EventPicker";
 import { usePrimaryEventSlug } from "@/lib/featuredEvent";
 import { Trophy, Medal } from "lucide-react";
 
@@ -29,6 +30,8 @@ export default function Results() {
     event ? { eventId: event._id } : "skip",
   );
   const me = useQuery(api.users.me, authLoading || !isAuthenticated ? "skip" : {});
+  // Issue 40: results are per event — offer the participant's enrollments.
+  const enrolled = useQuery(api.events.enrolled, authLoading || !isAuthenticated ? "skip" : {});
   // “Own project highlighted”: resolve this user's team + submission for this
   // event. Null when they never participated — the table simply renders
   // unhighlighted then.
@@ -86,6 +89,13 @@ export default function Results() {
       >
         ← Back to {event.title} gallery
       </Link>
+
+      <EventPicker
+        events={((enrolled ?? []) as any[]).map((e) => ({ slug: e.slug, title: e.title, status: e.status }))}
+        value={event.slug}
+        variant="path"
+        basePath="/results"
+      />
 
       <PageHeader
         title={`${event.title} results`}

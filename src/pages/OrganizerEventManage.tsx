@@ -33,6 +33,10 @@ export function OrganizerEventManage() {
   const setStage = useMutation(api.events.setStage);
   const tracks = useQuery(api.tracks.listByEvent, skip || !event ? "skip" : { eventId: event._id });
   const submissions = useQuery(api.submissions.byEvent, skip || !event ? "skip" : { eventId: event._id });
+  // Issue 34: judging progress drives the publication gate in the UI so the
+  // "Publish results" button is disabled with a named reason before the server
+  // would refuse it anyway.
+  const judgingProgress = useQuery(api.judging.progress, skip || !event ? "skip" : { eventId: event._id });
   const createTrack = useMutation(api.tracks.create);
 
   const submissionsCsv = useQuery(api.exports.submissionsCsv, skip || !event ? "skip" : { eventId: event._id });
@@ -130,6 +134,29 @@ export function OrganizerEventManage() {
   // Issue 21+25: once results are out, judging-side writes are refused
   // server-side; the UI mirrors that by hiding the controls that would fail.
   const isPublished = ["published", "archived", "closed"].includes(event.status);
+
+  // Publication readiness (issue 34) — mirrors `events.setStage`'s server-side
+  // gate so the button explains itself instead of failing on click.
+  const submittedCount = (submissions ?? []).filter((s: any) => s.status === "submitted").length;
+  const unscoredCount = Math.max(
+    0,
+    (judgingProgress?.totalAssignments ?? 0) - (judgingProgress?.completedAssignments ?? 0),
+  );
+  const votingEnabled = !(event.settings ?? "").includes("voting_type=none");
+  const votingStillOpen = votingEnabled && Date.now() < event.votingEnd;
+  const publishBlockers: string[] = [];
+  if (submittedCount === 0) publishBlockers.push("the event has no submitted projects");
+  if (unscoredCount > 0) {
+    publishBlockers.push(
+      `${unscoredCount} of ${judgingProgress?.totalAssignments ?? 0} assignments ${unscoredCount === 1 ? "is" : "are"} unscored`,
+    );
+  }
+  if (votingStillOpen) {
+    publishBlockers.push(
+      `voting closes ${new Date(event.votingEnd).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}`,
+    );
+  }
+  const canPublish = publishBlockers.length === 0;
 
   async function togglePublish() {
     if (!event) return;
@@ -515,7 +542,7 @@ export function OrganizerEventManage() {
                       <div className="min-w-0">
                         <h4 className="text-[15px] font-semibold text-primary">{t.name}</h4>
                         {t.description && (
-                          <p className="text-[13px] text-secondary mt-1">{t.description}</p>
+                          <Markdown content={t.description} className="text-[13px] mt-1" />
                         )}
                       </div>
                       <Button
@@ -931,6 +958,11 @@ export function OrganizerEventManage() {
                 <Badge variant={event.status === "published" ? "success" : "default"}>{event.status}</Badge>
                 {event.status === "published" && <span className="text-[12px] text-muted">results live</span>}
               </div>
+              {event.status !== "published" && !canPublish && (
+                <p className="text-[12px] text-warning mt-2">
+                  Before you can publish: {publishBlockers.join("; ")}.
+                </p>
+              )}
             </div>
             <div className="flex gap-2 shrink-0">
               {event.status !== "judging" && (
@@ -944,7 +976,14 @@ export function OrganizerEventManage() {
                 </Button>
               )}
               {event.status !== "published" && (
-                <Button variant="primary" size="sm" isLoading={busy} onClick={() => handleSetStage("published")}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  isLoading={busy}
+                  disabled={!canPublish}
+                  title={canPublish ? undefined : `Cannot publish: ${publishBlockers.join("; ")}.`}
+                  onClick={() => handleSetStage("published")}
+                >
                   Publish results
                 </Button>
               )}

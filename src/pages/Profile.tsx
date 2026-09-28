@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import { Avatar } from "@/components/ui/Avatar";
+import { Markdown } from "@/components/ui/Markdown";
 import { ConfirmDialog } from "@/components/ui/Modal";
 
 export default function Profile() {
@@ -31,17 +32,11 @@ export default function Profile() {
   const [busy, setBusy] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
-  // Resolve the display URL when avatarUrl is a Convex storage ID (not an http URL).
-  const avatarUrlQuery = useQuery(
-    api.events.getStorageUrl,
-    avatarStorageId && !avatarStorageId.startsWith("http")
-      ? { storageId: avatarStorageId as never }
-      : "skip"
-  );
-
-  const displayAvatarUrl = avatarStorageId.startsWith("http")
-    ? avatarStorageId
-    : avatarUrlQuery || "";
+  // Issue 38: resolve the stored avatar (a Convex storage id, or a legacy http
+  // URL) to a displayable URL server-side. Rendering the raw storage id in an
+  // <img> was what produced the broken picture.
+  const myAvatar = useQuery(api.users.myAvatarUrl, skip ? "skip" : {});
+  const displayAvatarUrl = myAvatar || "";
 
   useEffect(() => {
     if (me) {
@@ -162,13 +157,22 @@ export default function Profile() {
           </div>
 
           <Textarea
-            label="Bio"
+            label="Bio (Markdown supported)"
             rows={3}
             value={bio}
             onChange={(e) => setBio(e.target.value)}
             placeholder="Tell other participants what you build…"
             maxLength={500}
           />
+
+          {bio.trim() && (
+            <div className="bg-surface-2 border border-line rounded-card p-4">
+              <p className="text-[11px] uppercase tracking-[0.05em] text-muted mb-2">
+                Bio preview
+              </p>
+              <Markdown content={bio} className="text-[13px]" />
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end">

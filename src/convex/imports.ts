@@ -1,13 +1,19 @@
 import { v } from "convex/values";
-import { mutation } from "./_generated/server";
+import { internalMutation, mutation } from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { requireUser } from "./lib/common";
 import { appendAudit } from "./lib/audit";
 
-/** Idempotent Event JSON import (T4.6). Admin/organizer can import a full event JSON file. */
-export const eventFromJson = mutation({
-  args: { jsonString: v.string() },
-  handler: async (ctx, args) => {
-    const user = await requireUser(ctx);
+/**
+ * Idempotent Event JSON import core (T4.6).
+ *
+ * Shared by the Convex mutation and the REST bridge so the "same slug already
+ * exists → imported:false" rule is written once.
+ */
+async function importEventJsonCore(ctx: MutationCtx, user: Doc<"users">, jsonString: string) {
+  {
+    const args = { jsonString };
     if (user.role !== "admin" && user.role !== "organizer") {
       throw new Error("Admin or organizer access required");
     }
@@ -94,5 +100,21 @@ export const eventFromJson = mutation({
     });
 
     return { ok: true, eventId, imported: true };
+  }
+}
+
+/** Idempotent Event JSON import (T4.6). Admin/organizer can import a full event JSON file. */
+export const eventFromJson = mutation({
+  args: { jsonString: v.string() },
+  handler: async (ctx, args) => importEventJsonCore(ctx, await requireUser(ctx), args.jsonString),
+});
+
+/** REST bridge for `POST /api/v1/import` (organizer/admin). */
+export const eventFromJsonInternal = internalMutation({
+  args: { userId: v.id("users"), jsonString: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    if (!user) throw new Error("User not found");
+    return importEventJsonCore(ctx, user, args.jsonString);
   },
 });

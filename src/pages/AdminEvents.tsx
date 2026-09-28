@@ -14,6 +14,7 @@ import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
 import { Modal } from "@/components/ui/Modal";
 import { Textarea } from "@/components/ui/Textarea";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { nextDeadline } from "@/lib/eventStatus";
 import { CalendarDays, Columns3, Plus, Search, SlidersHorizontal } from "lucide-react";
 
 const STATUS_OPTIONS = [
@@ -44,7 +45,9 @@ const COLUMNS = [
   { id: "event", label: "Event", critical: true },
   { id: "status", label: "Status", critical: false },
   { id: "slug", label: "Slug", critical: false },
-  { id: "deadline", label: "Deadline", critical: false },
+  { id: "teams", label: "Teams", critical: false },
+  { id: "submissions", label: "Submissions", critical: false },
+  { id: "deadline", label: "Next deadline", critical: false },
   { id: "actions", label: "Actions", critical: true },
 ];
 /** Above this many columns the non-critical ones move behind a picker. */
@@ -54,7 +57,9 @@ export default function AdminEvents() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   const skip = authLoading || !isAuthenticated;
 
-  const events = useQuery(api.events.listAll, skip ? "skip" : {});
+  // `listWithCounts` returns every event an admin can see (all of them) with
+  // its team/submission counts inlined, so no row renders a blank count.
+  const events = useQuery(api.events.listWithCounts, skip ? "skip" : {});
   const users = useQuery(api.users.list, skip ? "skip" : {});
   const publish = useMutation(api.events.publish);
   const unpublish = useMutation(api.events.unpublish);
@@ -305,7 +310,9 @@ export default function AdminEvents() {
               {columnVisible("event") && <TH>Event</TH>}
               {columnVisible("status") && <TH>Status</TH>}
               {columnVisible("slug") && <TH>Slug</TH>}
-              {columnVisible("deadline") && <TH>Deadline</TH>}
+              {columnVisible("teams") && <TH numeric>Teams</TH>}
+              {columnVisible("submissions") && <TH numeric>Submissions</TH>}
+              {columnVisible("deadline") && <TH>Next deadline</TH>}
               {columnVisible("actions") && <TH numeric>Actions</TH>}
             </tr>
           </THead>
@@ -328,11 +335,23 @@ export default function AdminEvents() {
                   </TD>
                 )}
                 {columnVisible("slug") && <TD mono>/{e.slug}</TD>}
+                {columnVisible("teams") && <TD numeric mono>{e.teamCount}</TD>}
+                {columnVisible("submissions") && <TD numeric mono>{e.submissionCount}</TD>}
                 {columnVisible("deadline") && (
                   <TD>
-                    <span className="tnum text-secondary">
-                      {new Date(e.submissionDeadline).toLocaleDateString()}
-                    </span>
+                    {(() => {
+                      const next = nextDeadline(e);
+                      return (
+                        <span className="text-[13px] text-secondary">
+                          {next.label}
+                          {next.date ? (
+                            <span className="block text-[12px] text-muted tnum">
+                              {new Date(next.date).toLocaleDateString()}
+                            </span>
+                          ) : null}
+                        </span>
+                      );
+                    })()}
                   </TD>
                 )}
                 {columnVisible("actions") && (

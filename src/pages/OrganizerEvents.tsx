@@ -8,6 +8,7 @@ import { Dropdown } from "@/components/ui/Dropdown";
 import { Badge } from "@/components/ui/Badge";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Table, THead, TH, TR, TD } from "@/components/ui/Table";
+import { nextDeadline } from "@/lib/eventStatus";
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All Statuses" },
@@ -20,7 +21,8 @@ const STATUS_OPTIONS = [
 export function OrganizerEvents() {
   const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
   // Scoped to the caller's own events (admins get all) — same rule as the console.
-  const events = useQuery(api.events.listMine, authLoading || !isAuthenticated ? "skip" : {});
+  // `listWithCounts` inlines team/submission counts so no row is ever blank (issues 33/37).
+  const events = useQuery(api.events.listWithCounts, authLoading || !isAuthenticated ? "skip" : {});
   const [statusFilter, setStatusFilter] = useState("all");
 
   const filteredEvents = useMemo(() => {
@@ -75,7 +77,9 @@ export function OrganizerEvents() {
               <TH>Event</TH>
               <TH>Status</TH>
               <TH>Slug</TH>
-              <TH>Deadline</TH>
+              <TH numeric>Teams</TH>
+              <TH numeric>Submissions</TH>
+              <TH>Next deadline</TH>
               <TH numeric>Actions</TH>
             </tr>
           </THead>
@@ -91,8 +95,26 @@ export function OrganizerEvents() {
                   </Badge>
                 </TD>
                 <TD mono>/​{e.slug}</TD>
+                <TD numeric mono>
+                  {e.teamCount}
+                </TD>
+                <TD numeric mono>
+                  {e.submissionCount}
+                </TD>
                 <TD>
-                  <span className="tnum">{new Date(e.submissionDeadline).toLocaleDateString()}</span>
+                  {(() => {
+                    const next = nextDeadline(e);
+                    return (
+                      <span className="text-[13px] text-secondary">
+                        {next.label}
+                        {next.date ? (
+                          <span className="block text-[12px] text-muted tnum">
+                            {new Date(next.date).toLocaleDateString()}
+                          </span>
+                        ) : null}
+                      </span>
+                    );
+                  })()}
                 </TD>
                 <TD numeric>
                   <Link to={`/organizer/events/${e.slug}`}>

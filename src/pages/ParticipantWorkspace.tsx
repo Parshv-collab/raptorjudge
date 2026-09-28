@@ -14,6 +14,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { ConfirmDialog } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Markdown } from "@/components/ui/Markdown";
+import { EventPicker } from "@/components/participant/EventPicker";
 import { humanizeConvexError } from "@/lib/errors";
 import { usePrimaryEventSlug } from "@/lib/featuredEvent";
 
@@ -30,6 +31,8 @@ export default function ParticipantWorkspace() {
   const myTeam = useQuery(api.teams.myTeams, skip || !event ? "skip" : { eventId: event._id });
   const data = useQuery(api.submissions.mySubmission, skip || !event ? "skip" : { eventId: event._id });
   const certs = useQuery(api.certificates.mine, skip ? "skip" : {});
+  // Issue 40: the events this participant can switch between.
+  const enrolledEvents = useQuery(api.events.enrolled, skip ? "skip" : {});
 
   const participantState = useQuery(api.participate.getParticipantState, skip || !event ? "skip" : { eventId: event._id });
   const joinSolo = useMutation(api.participate.joinSolo);
@@ -86,6 +89,15 @@ export default function ParticipantWorkspace() {
   const now = Date.now();
   const deadlinePassed = event ? now > event.submissionDeadline : false;
   const isLocked = submission?.status === "submitted" || deadlinePassed;
+
+  // Issue 41: registration window — the create/join/solo UI must not render once
+  // registration has closed (or before it opens). Mirrors `assertWithinWindow`
+  // in the backend, which would refuse the write anyway.
+  const registrationEnd = event?.registrationCloses ?? event?.registrationEnd ?? Number.MAX_SAFE_INTEGER;
+  const registrationStart = event?.registrationOpens ?? event?.registrationStart ?? 0;
+  const registrationClosed = event ? now > registrationEnd : false;
+  const registrationNotOpen = event ? now < registrationStart : false;
+  const canRegister = !registrationClosed && !registrationNotOpen;
 
   const currentMember = team?.members.find((m: any) => m.userId === me?._id);
   const isLeader = !team || !currentMember || currentMember.memberRole === "leader";
@@ -228,6 +240,12 @@ export default function ParticipantWorkspace() {
         }
       />
 
+      {/* Issue 40: pick which enrolled event this workspace is about. */}
+      <EventPicker
+        events={((enrolledEvents ?? []) as any[]).map((e) => ({ slug: e.slug, title: e.title, status: e.status }))}
+        value={eventSlug}
+      />
+
       {deadlinePassed && (
         <Alert variant="warning" title="Submission deadline passed">
           The submission window for this event has closed. Form fields are read-only.
@@ -238,7 +256,13 @@ export default function ParticipantWorkspace() {
       <section className="flex flex-col gap-4">
         <h2 className="text-h2 text-primary">Team</h2>
 
-        {!team ? (
+        {!team && !canRegister ? (
+          <Alert variant="warning" title="Registration closed">
+            {registrationNotOpen
+              ? "Registration for this event has not opened yet."
+              : "Registration closed. You can no longer join this event."}
+          </Alert>
+        ) : !team ? (
           <div className={`grid grid-cols-1 ${event?.soloAllowed !== false ? "md:grid-cols-3" : "md:grid-cols-2"} gap-8`}>
             <div className="flex flex-col gap-3">
               <h3 className="text-[15px] font-semibold text-primary">Create a new team</h3>
@@ -670,9 +694,12 @@ export function TeamChatSection({ teamId, className = "" }: { teamId: any; class
         <div className="max-h-96 overflow-y-auto flex flex-col gap-3">
           {(messages || []).map((msg: any) => (
             <div key={msg.id} className="bg-surface-2 border border-line rounded-card p-3.5 flex flex-col gap-1">
-              <div className="flex justify-between items-center">
-                <span className="text-[13px] font-medium text-primary">{msg.authorName}</span>
-                <span className="text-[11px] text-muted tnum">
+              <div className="flex justify-between items-center gap-2">
+                <span className="flex items-center gap-2 min-w-0">
+                  <Avatar src={msg.authorAvatar} name={msg.authorName} size="sm" />
+                  <span className="text-[13px] font-medium text-primary truncate">{msg.authorName}</span>
+                </span>
+                <span className="text-[11px] text-muted tnum shrink-0">
                   {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 </span>
               </div>
