@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
 import { useConvexAuth, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -47,6 +47,8 @@ import { Link, Navigate, Outlet, useLocation } from "react-router-dom";
 
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { roleHomePath } from "@/lib/roles";
+import { useBranding } from "@/lib/branding";
+import BrandMark from "@/components/layout/BrandMark";
 
 /**
  * `/results` without a slug: bounce to this participant's first enrolled
@@ -67,6 +69,14 @@ function ResultsIndexRedirect() {
 }
 
 function MinimalLayout() {
+  // `/auth` and `/invite/:token` render outside AppShell, so they carry their
+  // own header and footer — and therefore need their own branding, or a signed
+  // out visitor sees "RaptorJudge" on the sign-in page and the configured name
+  // everywhere else.
+  const branding = useBranding();
+  const [logoBroken, setLogoBroken] = useState(false);
+  useEffect(() => setLogoBroken(false), [branding.logoUrl]);
+
   return (
     <div className="min-h-screen flex flex-col bg-canvas text-primary">
       <header className="sticky top-0 z-40 w-full bg-canvas/90 backdrop-blur border-b border-line">
@@ -74,13 +84,15 @@ function MinimalLayout() {
           <Link
             to="/"
             className="flex items-center gap-2.5"
+            aria-label={`${branding.siteName} home`}
           >
-            <span className="w-7 h-7 rounded-btn bg-accent text-white flex items-center justify-center text-[13px] font-bold">
-              R
-            </span>
-            <span className="wordmark text-[17px]">
-              Raptor<span className="text-accent">Judge</span>
-            </span>
+            <BrandMark
+              branding={branding}
+              logoBroken={logoBroken}
+              onLogoError={() => setLogoBroken(true)}
+              size="md"
+            />
+            <span className="wordmark text-[17px]">{branding.siteName}</span>
           </Link>
         </div>
       </header>
@@ -90,7 +102,7 @@ function MinimalLayout() {
       </main>
 
       <footer className="border-t border-line py-6 text-center text-[13px] text-muted">
-        © 2026 RaptorJudge
+        {branding.footerCopyright}
       </footer>
     </div>
   );

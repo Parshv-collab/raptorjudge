@@ -13,6 +13,7 @@ import type * as admin from "../admin.js";
 import type * as adminReset from "../adminReset.js";
 import type * as audit from "../audit.js";
 import type * as auth from "../auth.js";
+import type * as branding from "../branding.js";
 import type * as certificates from "../certificates.js";
 import type * as comments from "../comments.js";
 import type * as crons from "../crons.js";
@@ -65,6 +66,7 @@ declare const fullApi: ApiFromModules<{
   adminReset: typeof adminReset;
   audit: typeof audit;
   auth: typeof auth;
+  branding: typeof branding;
   certificates: typeof certificates;
   comments: typeof comments;
   crons: typeof crons;

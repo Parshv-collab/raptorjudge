@@ -36,7 +36,7 @@ export default function AdminSettings() {
   // Branding
   const [siteName, setSiteName] = useState("RaptorJudge");
   const [siteTagline, setSiteTagline] = useState("Hackathon judging engineered for fairness");
-  const [logoUrl, setLogoUrl] = useState("/logo.svg");
+  const [logoUrl, setLogoUrl] = useState("");
   const [footerCopyright, setFooterCopyright] = useState("© 2026 RaptorJudge");
   const [supportEmail, setSupportEmail] = useState("support@raptorjudge.local");
 
@@ -181,19 +181,20 @@ export default function AdminSettings() {
       />
 
       {/*
-        Honesty banner. Every value on this page is written to the `platform`
-        table and audit-logged, and the lookup-table CRUD further down is fully
-        wired — but a sweep of the codebase found that **no** of these keys is
-        read by any query, mutation or component. Turning on "Maintenance mode"
-        does not take the site down, and requiring 2FA does not require it.
-        Promising enforcement that does not exist is the same defect as a fake
-        control, so the page now says so plainly instead of implying otherwise.
+        Honesty banner. A codebase sweep found that *no* setting on this page
+        was read by any query, mutation or component — turning on "Maintenance
+        mode" did not take the site down, and requiring 2FA required nothing.
+        The branding block is now genuinely enforced (see
+        `src/convex/branding.ts` and `src/lib/branding.ts`), and the banner
+        names the rest as stored-only so nobody reads a toggle as a promise.
       */}
-      <Alert variant="warning" title="These preferences are stored, not enforced">
-        Every value below is saved and audit-logged, but this build does not yet read any of them at
-        runtime — branding, timezone, date format, certificate URL and the feature flags all persist
-        and are ignored until the corresponding code path consumes them. The lookup tables further
-        down this page are fully wired and do take effect. The seed reset at the bottom is real.
+      <Alert variant="warning" title="Feature flags are stored, not enforced">
+        Branding below takes effect immediately — the site name, tagline, logo and footer appear in
+        the app shell and on the sign-in page. The <strong>feature flags</strong> and{" "}
+        <strong>platform defaults</strong> below are saved and audit-logged but not yet read by any
+        code path, so enabling &ldquo;Maintenance mode&rdquo; does not take the site down and
+        &ldquo;Require 2FA&rdquo; requires nothing. The lookup tables further down this page are fully
+        wired and do take effect.
       </Alert>
 
       {/* Branding */}
@@ -217,6 +218,7 @@ export default function AdminSettings() {
             value={logoUrl}
             onChange={(e) => setLogoUrl(e.target.value)}
             onBlur={() => handleSaveSetting("logo_url", logoUrl)}
+            helperText="Leave blank to keep the letter tile. A URL that fails to load falls back to it."
           />
           <Input
             label="Footer copyright"

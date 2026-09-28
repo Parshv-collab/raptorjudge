@@ -7,6 +7,8 @@ import { api } from "@/convex/_generated/api";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { roleHomePath } from "@/lib/roles";
+import { useBranding } from "@/lib/branding";
+import BrandMark from "@/components/layout/BrandMark";
 import { clearConvexAuthSessionKeys } from "@/lib/sessionCleanup";
 import { formatDate } from "@/lib/format";
 
@@ -283,9 +285,18 @@ export function AppShell() {
       item.label === "Overrides" ? { ...item, badge: pendingOverrides ?? 0 } : item,
     );
 
+  // Issue: the site name, tagline, logo and footer an admin sets on
+  // /admin/settings used to be written and then ignored — the shell hardcoded
+  // them in five places. `useBranding` is the single reader, so the wordmark,
+  // the document title and both footers can no longer disagree with each other
+  // or with the settings page.
+  const branding = useBranding();
+  const [logoBroken, setLogoBroken] = useState(false);
+  useEffect(() => setLogoBroken(false), [branding.logoUrl]);
+
   useEffect(() => {
-    document.title = "RaptorJudge";
-  }, []);
+    document.title = branding.siteName;
+  }, [branding.siteName]);
 
   async function handleSignOut() {
     // Issue 17: Convex Auth's tokens live in sessionStorage under __convexAuth*;
@@ -307,11 +318,14 @@ export function AppShell() {
       <div className="min-h-screen flex flex-col bg-canvas text-primary">
         <header className="sticky top-0 z-40 bg-canvas/90 backdrop-blur border-b border-line">
           <div className="max-w-content mx-auto px-5 lg:px-8 h-16 flex items-center justify-between">
-            <Link to="/" className="flex items-center gap-2.5" aria-label="RaptorJudge home">
-              <span className="w-7 h-7 rounded-btn bg-accent text-white flex items-center justify-center text-[13px] font-bold">
-                R
-              </span>
-              <span className="wordmark text-[17px]">RaptorJudge</span>
+            <Link to="/" className="flex items-center gap-2.5" aria-label={`${branding.siteName} home`}>
+              <BrandMark
+                branding={branding}
+                logoBroken={logoBroken}
+                onLogoError={() => setLogoBroken(true)}
+                size="md"
+              />
+              <span className="wordmark text-[17px]">{branding.siteName}</span>
             </Link>
             <nav className="flex items-center gap-5 text-sm">
               <Link to="/events" className="text-secondary hover:text-primary transition-colors duration-fast">
@@ -334,7 +348,7 @@ export function AppShell() {
         </main>
         <footer className="border-t border-line mt-12">
           <div className="max-w-content mx-auto px-5 lg:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-[13px] text-muted">
-            <span>© 2026 RaptorJudge</span>
+            <span>{branding.footerCopyright}</span>
             <div className="flex items-center gap-6">
               <Link to="/help" className="hover:text-primary transition-colors duration-fast">
                 Help
@@ -357,11 +371,14 @@ export function AppShell() {
       {/* Mobile top bar with hamburger (<768px) */}
       <div className="md:hidden sticky top-0 z-40 bg-canvas/90 backdrop-blur border-b border-line">
         <div className="h-14 px-4 flex items-center justify-between">
-          <Link to={homeHref} className="flex items-center gap-2" aria-label="RaptorJudge home">
-            <span className="w-6 h-6 rounded-btn bg-accent text-white flex items-center justify-center text-[11px] font-bold">
-              R
-            </span>
-            <span className="wordmark text-[15px]">RaptorJudge</span>
+          <Link to={homeHref} className="flex items-center gap-2" aria-label={`${branding.siteName} home`}>
+            <BrandMark
+              branding={branding}
+              logoBroken={logoBroken}
+              onLogoError={() => setLogoBroken(true)}
+              size="sm"
+            />
+            <span className="wordmark text-[15px]">{branding.siteName}</span>
           </Link>
           <button
             type="button"
@@ -401,10 +418,14 @@ export function AppShell() {
               aria-label="Go to my dashboard"
               title="Go to my dashboard"
             >
-              <span className="w-7 h-7 rounded-btn bg-accent text-white flex items-center justify-center text-[13px] font-bold shrink-0">
-                R
-              </span>
-              <span className="wordmark text-[17px] truncate md:hidden lg:inline">RaptorJudge</span>
+              <BrandMark
+                branding={branding}
+                logoBroken={logoBroken}
+                onLogoError={() => setLogoBroken(true)}
+                size="md"
+                className="shrink-0"
+              />
+              <span className="wordmark text-[17px] truncate md:hidden lg:inline">{branding.siteName}</span>
             </Link>
           </div>
 
@@ -558,7 +579,7 @@ export function AppShell() {
           </main>
 
           <footer className="border-t border-line py-6 text-center text-[13px] text-muted">
-            © 2026 RaptorJudge
+            {branding.footerCopyright}
           </footer>
         </div>
       </div>

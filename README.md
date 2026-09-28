@@ -101,7 +101,9 @@ community votes, pairwise comparisons, certificates, and runs the duplicate
 detector once — so the voting, pairwise and certificate screens all open with real
 material instead of empty states.
 
-The login page lists these accounts with one-click fill-in buttons.
+The login page does **not** embed these credentials — enter the email and any
+password; the fixture authenticator accepts any non-empty password. Read the
+values above from `.dogfood.toml` rather than from the UI.
 
 ## Seeded events
 
