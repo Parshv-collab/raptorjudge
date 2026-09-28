@@ -85,18 +85,23 @@ test("admin events list shows the seeded event", async ({ page }) => {
   await expect(table).toBeVisible();
   await expect(table.getByRole("cell", { name: "Sample Hack 2026" })).toBeVisible();
 
-  // The five `Test Hack — …` events are only seeded when TEST_EVENTS=true,
-  // which is off by default, so they are asserted only when the suite is told
-  // they exist. Set E2E_TEST_EVENTS=1 against a `TEST_EVENTS=true` stack.
-  const testEventsOn = process.env.E2E_TEST_EVENTS === "1";
+  // The five `Test Hack — …` events only exist when the stack was seeded with
+  // TEST_EVENTS=true, which is off by default. This used to be driven by an
+  // E2E_TEST_EVENTS env var, which is a trap: running against a TEST_EVENTS=true
+  // stack without remembering to set it made this assert that events which
+  // *do* exist are absent, and fail. Detect the deployment instead of asking
+  // the operator to describe it.
   const rows = await table.getByRole("row").count();
-  // One header row plus at least the single seeded event.
-  expect(rows).toBeGreaterThanOrEqual(2);
+  const testEventsOn = (await table.getByRole("cell", { name: /Test Hack/ }).count()) > 0;
+
   if (testEventsOn) {
+    // Sample Hack 2026 plus the five staged demo events, plus a header row.
     await expect(table.getByRole("cell", { name: "Test Hack — Judging" })).toBeVisible();
     expect(rows).toBeGreaterThanOrEqual(7);
   } else {
     await expect(table.getByRole("cell", { name: "Test Hack — Judging" })).toHaveCount(0);
+    // One header row plus the single seeded event.
+    expect(rows).toBe(2);
   }
 });
 

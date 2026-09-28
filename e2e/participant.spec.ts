@@ -33,15 +33,27 @@ test("demo participant dashboard shows the featured seeded event", async ({ page
   await expect(page.getByRole("heading", { name: "Your events" })).toBeVisible();
   await expect(page.getByText("You're not enrolled in any events yet")).toBeVisible();
 
-  // … while the featured slot still surfaces the primary event, so the
-  // dashboard is never a blank screen.
+  // … while the featured slot still surfaces a real event, so the dashboard is
+  // never a blank screen.
+  //
+  // Deliberately NOT asserted against a specific title. `events.featuredForVisitors`
+  // ranks *open* events (registration/hacking/judging/voting) by team count
+  // first and only falls back to the closed/published bucket when there are
+  // none. So the featured card is:
+  //   - "Sample Hack 2026" on a default TEST_EVENTS=false stack (its `closed`
+  //     status is what puts it in the fallback bucket), but
+  //   - whichever test event is currently open on a TEST_EVENTS=true stack.
+  // Naming one of those makes the test pass on one stack and fail on the other.
   const featured = page.locator("section").filter({
     has: page.getByRole("heading", { name: "Featured events" }),
   });
   await expect(
     page.getByRole("heading", { name: "Featured events" }),
   ).toBeVisible();
-  await expect(featured.getByRole("heading", { name: "Sample Hack 2026" })).toBeVisible();
+  // Each featured card links to its public event page.
+  await expect(featured.getByRole("link", { name: "View event" }).first()).toBeVisible();
+  // …and it has a real title, not a placeholder.
+  expect(await featured.getByRole("heading", { level: 3 }).count()).toBeGreaterThan(0);
 });
 
 test("a participant who is on a team sees their enrolled events", async ({ page }) => {

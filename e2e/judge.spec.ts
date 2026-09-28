@@ -11,8 +11,12 @@ import { ACCOUNTS, ROLE_HOME, signIn } from "./helpers";
  *     so a seeded judge's queue is populated and every card shows the "Scored"
  *     badge and a "View score" button.
  *   · Fixture judge `jdg_01` — Tomas Varga, `tomas.varga@example.org` — has
- *     exactly one score row, for the project **"Dry Harbour"**. That is the one
- *     project title this suite can assert on for judge A.
+ *     exactly one score row on the default stack, for the project
+ *     **"Dry Harbour"**. That is the one project title this suite asserts on for
+ *     judge A. Note "Dry Harbour" is a *duplicated* title in `fixtures.json`
+ *     (two submissions carry it), and `myQueue` lists a judge's assignments
+ *     across every event, so on a TEST_EVENTS=true stack the heading can match
+ *     more than once — presence checks use `.first()`, absence checks do not.
  *   · `judging.myQueue` does **not** filter by lifecycle stage: a `closed` event
  *     still lists its assignments, with `canScore: false` and a "Closed …"
  *     window label. So judge A sees a real queue on `sample-hack-2026`.
@@ -29,8 +33,13 @@ test("judge sees their assigned queue", async ({ page }) => {
     page.getByRole("heading", { name: "Assigned projects" }),
   ).toBeVisible();
 
-  // jdg_01's single fixture assignment.
-  await expect(page.getByRole("heading", { name: "Dry Harbour" })).toBeVisible();
+  // jdg_01's fixture assignment. `.first()` because "Dry Harbour" is a
+  // duplicated title in the fixtures (two submissions carry it), and
+  // `myQueue` lists a judge's assignments across *every* event — so on a
+  // TEST_EVENTS=true stack this heading can match more than once. Taking the
+  // first is correct for "is my project on screen"; see the isolation test
+  // below for why the absence assertions deliberately do NOT do this.
+  await expect(page.getByRole("heading", { name: "Dry Harbour" }).first()).toBeVisible();
   // The assignment is completed, so the card offers a read-only view.
   await expect(page.getByText("Scored", { exact: true }).first()).toBeVisible();
   await expect(
@@ -50,7 +59,7 @@ test("judge sees their own submitted scores", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Submitted scores" }),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Dry Harbour" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dry Harbour" }).first()).toBeVisible();
 });
 
 test("judge queue is scoped to the signed-in judge", async ({ page }) => {
@@ -62,8 +71,10 @@ test("judge queue is scoped to the signed-in judge", async ({ page }) => {
 
   await signIn(page, ACCOUNTS.judgeA);
   await page.waitForURL(ROLE_HOME.judge);
-  await expect(page.getByRole("heading", { name: "Dry Harbour" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dry Harbour" }).first()).toBeVisible();
   // Judge A scored one project, so judge B's titles must be absent entirely.
+  // These stay exact-count assertions: `.first()` would make them pass on the
+  // very first match, which is precisely the leak they exist to catch.
   await expect(page.getByRole("heading", { name: "Copper Kiln" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Salt Ledger" })).toHaveCount(0);
 });

@@ -366,9 +366,17 @@ against each other.
 Two notes on what the suite does and does not assert:
 
 - The five `Test Hack — …` demo events only exist when the stack was seeded with
-  `TEST_EVENTS=true`. `e2e/admin.spec.ts` asserts them only when you tell it to:
-  `E2E_TEST_EVENTS=1 npm run test:e2e`. The default single-event stack asserts
-  their *absence*, so a deployment that suddenly grew them would be caught.
+  `TEST_EVENTS=true`. `e2e/admin.spec.ts` **detects** which deployment it is
+  looking at rather than taking an env var, so the same command is correct
+  against both: on a single-event stack it asserts their absence, on a staged
+  one it asserts they are all there. It also means no `E2E_TEST_EVENTS` to
+  remember — which was previously a way to fail the suite by forgetting it.
+- Assertions never name the *featured* event. `events.featuredForVisitors` ranks
+  open events (registration/hacking/judging/voting) by team count first and only
+  falls back to the closed bucket when there are none, so the featured card is
+  `Sample Hack 2026` on a default stack and a currently-open demo event on a
+  `TEST_EVENTS=true` one. The suite asserts a real card is rendered, not which
+  event won.
 - `participant@fixture.local` is created by the seed but is deliberately never
   added to a team, so its dashboard shows the "You're not enrolled in any events
   yet" empty state. The enrolled-events spec therefore signs in as a real fixture
