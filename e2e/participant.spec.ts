@@ -115,6 +115,28 @@ test("project detail shows the community vote panel in its closed state", async 
   await expect(page.getByText(/Voting is not open yet|Voting is closed for this event/)).toBeVisible();
 });
 
+test("a team cannot vote for its own project (issue 56)", async ({ page }) => {
+  // `castVoteCore` refuses a vote for a submission whose team the voter is on,
+  // and audits the refusal. `teamMember` leads `tm_01`, which owns "Glass
+  // Signal", so the panel must offer no way to cast a vote on it — otherwise
+  // the only way to discover the rule is to click a button and read a toast.
+  await signIn(page, ACCOUNTS.teamMember);
+  await page.waitForURL(ROLE_HOME.participant);
+
+  await page.goto("/gallery/test-hack-voting");
+  const link = page.getByRole("link", { name: /Glass Signal/ }).first();
+  await link.waitFor({ timeout: 10_000 }).catch(() => {});
+  test.skip(!(await link.isVisible()), "this deployment was seeded without TEST_EVENTS");
+  await link.click();
+  await page.waitForURL(/\/project\//);
+
+  await expect(page.getByRole("heading", { name: "Community vote" })).toBeVisible();
+  await expect(page.getByText(/This is your team's project/)).toBeVisible();
+  // No point-casting control at all, on either voting mode.
+  await expect(page.locator("button", { hasText: /^Cast / })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Upvote this project" })).toHaveCount(0);
+});
+
 test("a judge never sees the community vote panel", async ({ page }) => {
   // `ProjectDetail.tsx` hides the whole panel for `me.role === "judge"`; the
   // server separately rejects judge votes.

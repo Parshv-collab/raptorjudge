@@ -153,6 +153,31 @@ export async function teamMembers(ctx: QueryCtx | MutationCtx, teamId: Id<"teams
   return rows;
 }
 
+/**
+ * Ids of every team the user belongs to *within one event*, as strings.
+ *
+ * A user can be on teams in several events at once (the seeded fixture accounts
+ * are), so "is this person on that team" is only meaningful once the event is
+ * fixed as well. Shared by the self-vote rule in `voting.ts` and the team
+ * visibility checks, so both answer the question the same way.
+ */
+export async function teamIdsInEvent(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  eventId: Id<"events">,
+): Promise<Set<string>> {
+  const memberships = await ctx.db
+    .query("teamMembers")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  const ids = new Set<string>();
+  for (const m of memberships) {
+    const team = await ctx.db.get(m.teamId);
+    if (team && team.eventId === eventId) ids.add(String(m.teamId));
+  }
+  return ids;
+}
+
 /** Parse `max_team_size=4,voting_type=quadratic` style settings string. */
 export function parseSettings(s: string): Record<string, string> {
   const out: Record<string, string> = {};

@@ -7,6 +7,7 @@ import {
   requireUser,
   stageAllowsVoting,
   stageAllowsVoteResults,
+  teamIdsInEvent,
 } from "./lib/common";
 import { assertWithinWindow } from "./lib/timeWindows";
 import { appendAudit } from "./lib/audit";
@@ -191,9 +192,24 @@ export const voteStatusInternal = internalQuery({
 });
 
 /**
- * Cast a community vote core. Enforces stage, duplicates, quadratic budget,
- * rate limits. Shared by the public mutation and the REST bridge so both apply
- * identical rules (issue 44 backend/HTTP parity).
+ * Cast a community vote core. Enforces stage, enrolment, self-vote, duplicates,
+ * quadratic budget, rate limits. Shared by the public mutation and the REST
+ * bridge so both apply identical rules (issue 44 backend/HTTP parity).
+ *
+ * Two of those rules are integrity rules rather than mechanics (issue 56):
+ *
+ *  - **Enrolment.** Only somebody who is actually on a team in this event gets
+ *    a ballot. Without it any signed-in account could load a fresh mailbox,
+ *    sign in and vote, which is the Sybil shape the rate limit cannot see
+ *    because every burner looks like a first-time voter.
+ *  - **No self-voting.** A team that can vote for its own submission wins its
+ *    own community vote outright, so the ballot is worthless as a signal. The
+ *    check is on *team* membership, not authorship: a four-person team shares
+ *    one ballot, and all four must be shut out.
+ *
+ * Both run after the rate-limit bucket is consumed, so an account that leans on
+ * the endpoint to fish for an accepted vote is throttled just like any other,
+ * and both are audited for the same reason the other refusals are.
  */
 async function castVoteCore(
   ctx: MutationCtx,
@@ -225,6 +241,39 @@ async function castVoteCore(
         targetId: String(user._id),
       });
       throw new Error("Rate limit exceeded: too many actions per minute");
+    }
+
+    // The submission is only knowable from here on, and every rule below needs
+    // to know whose project it is. Scoping it to this event also closes the
+    // gap where a submission from another event would be matched against this
+    // event's teams.
+    const submission = await ctx.db.get(args.submissionId);
+    if (!submission || submission.eventId !== args.eventId) {
+      throw new Error("Submission not found in this event");
+    }
+
+    const myTeamIds = await teamIdsInEvent(ctx, user._id, args.eventId);
+    if (myTeamIds.size === 0) {
+      await appendAudit(ctx, {
+        eventId: args.eventId,
+        actorId: user._id,
+        action: "vote.not_enrolled",
+        targetType: "submission",
+        targetId: String(args.submissionId),
+        afterState: JSON.stringify({ teamCount: 0 }),
+      });
+      throw new Error("You must be enrolled in this event to vote");
+    }
+    if (myTeamIds.has(String(submission.teamId))) {
+      await appendAudit(ctx, {
+        eventId: args.eventId,
+        actorId: user._id,
+        action: "vote.self_vote_rejected",
+        targetType: "submission",
+        targetId: String(args.submissionId),
+        afterState: JSON.stringify({ teamId: String(submission.teamId), points: args.points }),
+      });
+      throw new Error("You cannot vote for your own project");
     }
 
     // hash requester fingerprint (no raw IPs stored — privacy-preserving)

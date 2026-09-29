@@ -28,8 +28,15 @@ export default function ProjectDetail() {
   const removeVote = useMutation(api.voting.removeVote);
   /** Issue 53: is the signed-in visitor actually on a team in this event? */
   const myTeams = useQuery(api.teams.myTeams, me ? {} : "skip");
-  const enrolledInEvent = Boolean(
-    detail?.eventId && myTeams?.some((t: { eventId: string }) => t.eventId === detail.eventId),
+  const myEventTeams = (myTeams ?? []).filter(
+    (t: { eventId: string }) => t.eventId === detail?.eventId,
+  );
+  const enrolledInEvent = myEventTeams.length > 0;
+  /** Issue 56: the server refuses a vote for your own team's project, so the
+   *  panel has to say why the buttons are missing instead of offering a vote
+   *  that is guaranteed to bounce. */
+  const isOwnTeam = myEventTeams.some(
+    (t: { _id: string }) => t._id === String(detail?.teamId ?? ""),
   );
   const eventSlug = (detail as { eventSlug?: string } | undefined)?.eventSlug ?? fallbackSlug;
   const [votePoints, setVotePoints] = useState(1);
@@ -233,6 +240,28 @@ export default function ProjectDetail() {
                 </Link>{" "}
                 to take part — you are not on a team here yet.
               </p>
+            ) : isOwnTeam ? (
+              // Issue 56. The community vote is between teams, so a team
+              // cannot score its own project. Withdrawing an existing vote
+              // stays available so nobody is left holding a ballot they can
+              // neither see nor clear.
+              <div className="flex flex-col gap-3">
+                <p className="text-sm text-secondary">
+                  This is your team's project — you can't vote for it. The community
+                  vote is between teams, so {detail.teamName} is scored by everybody
+                  else taking part.
+                </p>
+                {myVote && (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Badge variant="accent">
+                      {myVote.points} point{myVote.points === 1 ? "" : "s"}
+                    </Badge>
+                    <Button variant="secondary" size="sm" isLoading={busy} onClick={handleRemoveVote}>
+                      Withdraw vote
+                    </Button>
+                  </div>
+                )}
+              </div>
             ) : myVote ? (
               <div className="flex flex-wrap items-center gap-3">
                 <Badge variant="accent">{myVote.points} point{myVote.points === 1 ? "" : "s"}</Badge>
