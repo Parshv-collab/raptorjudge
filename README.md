@@ -153,6 +153,30 @@ time to pass or hand-editing dates:
 | Test Hack — Voting | `test-hack-voting` | `voting` | 6 projects all scored, 15 votes — community voting open, tallies hidden |
 | Test Hack — Results | `test-hack-results` | `published` | 8 projects all scored, 30 votes, winner crowned, certificates issued |
 
+### Moving an event through its stages
+
+The seven stages are a line — `draft → registration → hacking → judging →
+voting → published → archived` — and the console's **Overview** tab carries a
+Lifecycle picker listing exactly the transitions the server accepts (both read
+the same policy module, `src/lib/eventLifecycle.ts`). Two rules matter:
+
+- **An organizer moves forwards freely and may step back one phase.** Stepping
+  back further is refused by name: reopening registration from the middle of a
+  judging week would re-open a gate people have already passed through.
+- **Published results are not walked back by anyone.** The organizer's header
+  button disappears entirely once results are out — it is not disabled with a
+  tooltip, it is absent, because "announce a winner, then quietly un-announce
+  them" is not a workflow. A genuine mistake (wrong rubric, unscored
+  assignments) is recovered by an administrator on `/admin/events` through
+  **Retract results**, which demands a written reason, returns the event to
+  community voting, revokes the event's certificates in place (verification then
+  reports them invalid rather than losing them) and records everything in the
+  audit chain.
+
+Deadline edits follow the same asymmetry: moving a registration or submission
+deadline **later** is always allowed, moving it **earlier** is refused once
+teams or submissions exist.
+
 **`participant@fixture.local` is enrolled in all five.** The main seed creates
 that account but never puts it on a team, which left the participant role's
 whole journey — workspace, team chat, vote panel, comments, results — empty on

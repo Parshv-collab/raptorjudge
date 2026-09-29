@@ -89,6 +89,25 @@ test("a second judge only sees their own assignments", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Dry Harbour" })).toHaveCount(0);
 });
 
+/**
+ * The `/api/*` HTTP front door.
+ *
+ * In the deployed stack nginx serves it on the app's own origin, so a relative
+ * request is what a browser makes and that is the default here. The Vite dev
+ * server has no such proxy and answers every unknown path with the SPA shell —
+ * `200 text/html` — which cannot exercise this route at all; the Convex
+ * deployment serves the same router on its own site origin, which is
+ * `VITE_CONVEX_SITE_URL` in this workspace and `CONVEX_SITE_ORIGIN` in a
+ * self-hosted stack. `E2E_SITE_URL` overrides both. When none is configured the
+ * test below skips with that reason rather than asserting against HTML.
+ */
+const SITE_URL = (
+  process.env.E2E_SITE_URL ||
+  process.env.VITE_CONVEX_SITE_URL ||
+  process.env.CONVEX_SITE_ORIGIN ||
+  ""
+).replace(/\/+$/, "");
+
 test("the peer-scores endpoint fails closed for an anonymous caller", async ({ request }) => {
   // `/api/judging/judges/{judgeId}/scores` resolves the caller from a session
   // cookie or bearer token and returns 401 without one, so an unauthenticated
@@ -98,7 +117,13 @@ test("the peer-scores endpoint fails closed for an anonymous caller", async ({ r
   // ("judge cannot see peer scores"), which drives the same route with seeded
   // session cookies. Asserting the 401 here proves the browser-facing route
   // fails closed; the 403 belongs to the HTTP suite, not duplicated here.
-  const res = await request.get("/api/judging/judges/some-judge-id/scores");
+  const path = "/api/judging/judges/some-judge-id/scores";
+  const res = await request.get(SITE_URL ? `${SITE_URL}${path}` : path);
+
+  test.skip(
+    (res.headers()["content-type"] ?? "").includes("text/html"),
+    "this origin has no /api front door (the dev server answers unknown paths with the SPA shell) — set E2E_SITE_URL to the Convex site origin",
+  );
 
   expect(res.status()).toBe(401);
   const body = await res.text();

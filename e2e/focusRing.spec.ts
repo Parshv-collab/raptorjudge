@@ -393,13 +393,21 @@ test.describe("focus ring contrast (WCAG 2.2 SC 1.4.11 / 2.4.13)", () => {
   test("the sign-in form paints a ≥3:1 ring on every kind of control", async ({ page }) => {
     await page.goto("/auth");
 
+    // The controls below are read off the *current* `Auth.tsx` (the restored
+    // two-column sign-in form), not the redesigned card that briefly replaced
+    // it: the card's `footer link` and its single "Sign up" tab no longer
+    // exist. Two elements on this page are named "Sign up" — the mode-switch
+    // tab and the "Don't have an account?" link-button — and the segmented
+    // control is the earlier one in DOM order, so `.first()` is the tab.
+    const modeSwitch = page.getByRole("button", { name: "Sign up", exact: true }).first();
+
     const controls: [string, Locator][] = [
       ["email input", page.getByLabel(/^Email address/)],
       ["password input", page.getByLabel(/^Password/)],
       ["password reveal toggle", page.getByRole("button", { name: /Show password/ })],
       ["submit button (accent fill)", page.locator("form").getByRole("button", { name: "Sign in" })],
-      ["mode switch", page.getByRole("button", { name: "Sign up" })],
-      ["footer link", page.getByRole("link", { name: "Privacy policy" })],
+      ["mode switch", modeSwitch],
+      ["forgot password link-button", page.getByRole("button", { name: "Forgot password?" })],
     ];
 
     const worst: { label: string; ratio: number; ring: string; bg: number[] }[] = [];

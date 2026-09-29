@@ -6,17 +6,15 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 export const ROLES = ["participant", "judge", "organizer", "admin"] as const;
 export type Role = (typeof ROLES)[number];
 
-/** Event lifecycle stages — linear state machine enforced by mutations. */
-export const EVENT_STAGES = [
-  "draft",
-  "registration",
-  "hacking",
-  "judging",
-  "voting",
-  "published",
-  "archived",
-] as const;
-export type EventStage = (typeof EVENT_STAGES)[number];
+/**
+ * Event lifecycle stages — a linear state machine enforced by mutations.
+ *
+ * Re-exported from `src/lib/eventLifecycle.ts`, which owns the list *and* the
+ * transition policy, so the server and the console cannot disagree about which
+ * stages exist or who may move between them.
+ */
+export { EVENT_STAGES, type EventStage } from "../../lib/eventLifecycle";
+import type { EventStage } from "../../lib/eventLifecycle";
 
 export function stageAllowsSubmissions(stage: EventStage): boolean {
   return stage === "hacking" || stage === "registration" || stage === "draft";

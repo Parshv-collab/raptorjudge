@@ -2,8 +2,27 @@ import { v } from "convex/values";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
-import { getCurrentUser, parseSettings, requireOrganizer, requireUser } from "./lib/common";
+import { getCurrentUser, parseSettings, requireOrganizer, requireRole, requireUser } from "./lib/common";
 import { appendAudit } from "./lib/audit";
+import {
+  evaluateDeadlineChange,
+  evaluateStageTransition,
+  isEventStage,
+  isResultsFinal,
+} from "../lib/eventLifecycle";
+
+/**
+ * Enforce the lifecycle policy for one transition, or refuse with its reason.
+ *
+ * Every stage write in this module funnels through here — `setStage`,
+ * `publish`, `unpublish` and `adminUnpublish` — so there is exactly one place
+ * where "who may move an event where" is decided, and the console can import
+ * the same evaluator to build its picker.
+ */
+function assertStageTransition(from: string, to: string, actorRole?: string): void {
+  const decision = evaluateStageTransition({ from, to, actorRole });
+  if (!decision.allowed) throw new Error(decision.reason ?? "That stage change is not allowed");
+}
 
 const eventArgs = {
   slug: v.string(), title: v.string(), tagline: v.string(), description: v.string(),
@@ -217,6 +236,29 @@ export const update = mutation({ args: { eventId: v.id("events"), ...eventArgs }
   const judgeEnd = patch.judgingEnds ?? patch.judgingEnd ?? event.judgingEnds ?? event.judgingEnd;
   const resAnnounced = patch.resultsAnnounced ?? patch.votingStart ?? patch.votingEnd ?? event.resultsAnnounced;
 
+  // Deadline edits are asymmetric on purpose (see `evaluateDeadlineChange`):
+  // extending a window is always allowed, shortening one that people have
+  // already acted on is refused, because they have no way to find out. The
+  // guard only consults the event's own teams and submissions, so editing an
+  // event nobody has joined yet is untouched.
+  const teams = await ctx.db
+    .query("teams")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))
+    .collect();
+  const eventSubmissions = await ctx.db
+    .query("submissions")
+    .withIndex("by_event", (q) => q.eq("eventId", eventId))
+    .collect();
+  const deadlineDecision = evaluateDeadlineChange({
+    registrationClosesBefore: event.registrationCloses ?? event.registrationEnd,
+    registrationClosesAfter: regEnd,
+    submissionDeadlineBefore: event.submissionDeadline,
+    submissionDeadlineAfter: subDeadline,
+    hasTeams: teams.length > 0,
+    hasSubmissions: eventSubmissions.some((s) => s.status === "submitted"),
+  });
+  if (!deadlineDecision.allowed) throw new Error(deadlineDecision.reason);
+
   await ctx.db.patch(eventId, {
     ...patch,
     tagline: patch.tagline || patch.shortDescription || event.tagline,
@@ -241,18 +283,135 @@ export const update = mutation({ args: { eventId: v.id("events"), ...eventArgs }
   return { ok: true };
 } });
 
+/**
+ * `draft → registration`: the event becomes visible and opens for sign-ups.
+ *
+ * Strictly a draft transition — "publishing" an event that is already running
+ * would be a backwards move, and the lifecycle policy refuses it by name.
+ */
 export const publish = mutation({ args: { eventId: v.id("events") }, handler: async (ctx, args) => {
   const actor = await requireOrganizer(ctx); const event = await ctx.db.get(args.eventId); if (!event) throw new Error("Event not found");
+  if (event.status !== "draft") {
+    throw new Error(`Only a draft event can be published (this one is "${event.status}").`);
+  }
+  assertStageTransition(event.status, "registration", actor.role);
   await ctx.db.patch(args.eventId, { status: "registration", publishedAt: Date.now() });
   await appendAudit(ctx, { eventId: args.eventId, actorId: actor._id, action: "event.publish", targetType: "event", targetId: String(args.eventId), beforeState: event.status, afterState: "registration" });
   return { ok: true };
 } });
+
+/**
+ * `→ draft`: take an event back off the public site.
+ *
+ * Governed by the lifecycle policy, which means an organizer may use it exactly
+ * once in an event's life — from `registration`, before anybody has started
+ * working — and an admin may use it from any stage whose results are not yet
+ * public. It is deliberately *not* the way to retract published results; that
+ * is `adminUnpublish` below, which asks for a reason.
+ */
 export const unpublish = mutation({ args: { eventId: v.id("events") }, handler: async (ctx, args) => {
   const actor = await requireOrganizer(ctx); const event = await ctx.db.get(args.eventId); if (!event) throw new Error("Event not found");
+  assertStageTransition(event.status, "draft", actor.role);
   await ctx.db.patch(args.eventId, { status: "draft", publishedAt: undefined });
   await appendAudit(ctx, { eventId: args.eventId, actorId: actor._id, action: "event.unpublish", targetType: "event", targetId: String(args.eventId), beforeState: event.status, afterState: "draft" });
   return { ok: true };
 } });
+
+/**
+ * Admin recovery: retract results that have already been announced.
+ *
+ * This exists because publishing *is* occasionally a mistake — the wrong rubric
+ * was locked, half the assignments were never scored, a duplicate project won —
+ * and the alternative was letting any organizer walk a published event back to
+ * draft, which silently reorders the public gallery and un-badges the winner.
+ *
+ * The deliberate, attributable version of that:
+ *
+ *   · admin only (`requireRole`), so it cannot be reached from an organizer
+ *     console at all;
+ *   · a written reason is required, so the audit row says *why*, not just *what*;
+ *   · the event lands in `voting`, one step back from `published`, so the
+ *     ranking is no longer public but the scoring work is not thrown away — the
+ *     organizer fixes what was wrong and publishes again;
+ *   · certificates already minted for the event are revoked in place (a revoked
+ *     certificate verifies as invalid rather than disappearing, so a link that
+ *     has been shared keeps working and explains itself);
+ *   · a stale winner override is cleared, because the whole reason for
+ *     retracting is usually that the result it produced was wrong — leaving it
+ *     pinned would silently re-decide the winner on the next publish.
+ *
+ * `beforeState`/`afterState` carry the reason inside their JSON: the audit row
+ * has no separate `reason` column, and the entry hash covers both strings, so
+ * putting it there keeps it inside the tamper-evident chain rather than beside
+ * it.
+ */
+export const adminUnpublish = mutation({
+  args: { eventId: v.id("events"), reason: v.string() },
+  handler: async (ctx, args) => {
+    const actor = await requireRole(ctx, "admin");
+    const event = await ctx.db.get(args.eventId);
+    if (!event) throw new Error("Event not found");
+    if (!isResultsFinal(event.status)) {
+      throw new Error(
+        `Only a published event's results can be retracted — this event is "${event.status}". Use the normal stage controls instead.`,
+      );
+    }
+    const reason = args.reason.trim();
+    if (reason.length < 4) {
+      throw new Error("A written reason is required to retract published results.");
+    }
+
+    // Revoke rather than delete: a shared verification link must keep resolving
+    // and say why it is no longer valid.
+    const certificates = await ctx.db
+      .query("certificates")
+      .withIndex("by_event", (q) => q.eq("eventId", args.eventId))
+      .collect();
+    const live = certificates.filter((c) => c.revokedAt === undefined);
+    const revokedAt = Date.now();
+    for (const cert of live) {
+      await ctx.db.patch(cert._id, { revokedAt, revokedReason: reason });
+    }
+    if (live.length > 0) {
+      await appendAudit(ctx, {
+        eventId: args.eventId,
+        actorId: actor._id,
+        action: "certificate.revoke_all",
+        targetType: "event",
+        targetId: String(args.eventId),
+        beforeState: JSON.stringify({ revoked: 0, issued: certificates.length }),
+        afterState: JSON.stringify({ revoked: live.length, reason }),
+      });
+    }
+
+    const hadWinnerOverride = Boolean(event.winnerOverrideProjectId);
+    await ctx.db.patch(args.eventId, {
+      status: "voting",
+      publishedAt: undefined,
+      winnerOverrideProjectId: undefined,
+      winnerIsOverridden: false,
+    });
+    await appendAudit(ctx, {
+      eventId: args.eventId,
+      actorId: actor._id,
+      action: "event.admin_unpublish",
+      targetType: "event",
+      targetId: String(args.eventId),
+      beforeState: JSON.stringify({
+        status: event.status,
+        publishedAt: event.publishedAt ?? null,
+        winnerOverrideProjectId: event.winnerOverrideProjectId ?? null,
+      }),
+      afterState: JSON.stringify({
+        status: "voting",
+        publishedAt: null,
+        winnerOverrideProjectId: null,
+        reason,
+      }),
+    });
+    return { ok: true, revokedCertificates: live.length, clearedWinnerOverride: hadWinnerOverride };
+  },
+});
 export const deleteEvent = mutation({ args: { eventId: v.id("events") }, handler: async (ctx, args) => {
   const actor = await requireOrganizer(ctx); const event = await ctx.db.get(args.eventId); if (!event) throw new Error("Event not found");
   if (event.status !== "draft") throw new Error("Only draft events can be deleted");
@@ -302,7 +461,10 @@ async function assertPublishReady(ctx: MutationCtx, event: Doc<"events">): Promi
 
 export const setStage = mutation({ args: { eventId: v.id("events"), stage: v.string() }, handler: async (ctx, args) => {
   const actor = await requireOrganizer(ctx); const event = await ctx.db.get(args.eventId); if (!event) throw new Error("Event not found");
-  const stages = ["draft", "registration", "hacking", "judging", "voting", "published", "archived"]; if (!stages.includes(args.stage)) throw new Error("Invalid stage");
+  if (!isEventStage(args.stage)) throw new Error("Invalid stage");
+  // The lifecycle policy runs before anything else: a refused transition must
+  // not have side effects (no webhook, no participant fan-out).
+  assertStageTransition(event.status, args.stage, actor.role);
   if (args.stage === "published" && event.status !== "published") {
     await assertPublishReady(ctx, event);
   }

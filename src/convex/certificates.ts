@@ -50,6 +50,10 @@ function canonicalPayload(p: {
 /**
  * Existing certificate for a recipient/type/title, if any — the idempotency key.
  * `rank` participates so a gold and a silver award are distinct certificates.
+ *
+ * Revoked rows are skipped: after a retraction and a fresh publish, re-issuing
+ * must mint a new certificate, not hand back the revoked one and report
+ * `reused`.
  */
 async function findExistingCertificate(
   ctx: any,
@@ -66,7 +70,11 @@ async function findExistingCertificate(
   return (
     rows.find(
       (c: Doc<"certificates">) =>
-        c.userId === userId && c.certType === certType && c.title === title && c.rank === rank,
+        c.userId === userId &&
+        c.certType === certType &&
+        c.title === title &&
+        c.rank === rank &&
+        c.revokedAt === undefined,
     ) ?? null
   );
 }
@@ -246,6 +254,19 @@ export const verify = query({
       .withIndex("by_uuid", (q) => q.eq("certUuid", args.certUuid))
       .unique();
     if (!cert) return { valid: false, reason: "certificate not found" };
+    // Revoked in place by `events.adminUnpublish` when the event's results were
+    // retracted. The signature still matches — that is the point — so the
+    // refusal has to be an explicit state, not a failed HMAC comparison.
+    if (cert.revokedAt !== undefined) {
+      return {
+        valid: false,
+        reason:
+          cert.revokedReason && cert.revokedReason.length > 0
+            ? `This certificate was revoked when the event's results were retracted: ${cert.revokedReason}`
+            : "This certificate was revoked when the event's results were retracted.",
+        certificate: null,
+      };
+    }
     const secret = await getCertSecret(ctx);
     const expected = await hmacSha256Hex(
       secret,
@@ -279,13 +300,19 @@ export const verify = query({
   },
 });
 
-/** Certificates for the current user ("my credentials"). */
+/**
+ * Certificates for the current user ("my credentials").
+ *
+ * Revoked certificates are excluded: the holder no longer has the award, and a
+ * console that keeps listing it (with a working verification link) would be
+ * claiming something the platform has retracted.
+ */
 export const mine = query({
   args: {},
   handler: async (ctx) => {
     const user = await requireUser(ctx);
     const all = await ctx.db.query("certificates").collect();
-    return all.filter((c) => c.userId === user._id);
+    return all.filter((c) => c.userId === user._id && c.revokedAt === undefined);
   },
 });
 

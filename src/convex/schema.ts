@@ -41,7 +41,12 @@ export default defineSchema({
   auditLogs: defineTable({ eventId: v.optional(v.id("events")), actorId: v.optional(v.id("users")), action: v.string(), targetType: v.string(), targetId: v.string(), beforeState: v.string(), afterState: v.string(), ipAddress: v.string(), prevHash: v.string(), entryHash: v.string(), timestamp: v.number() }).index("by_event", ["eventId"]).index("by_action", ["action"]),
   webhooks: defineTable({ eventId: v.id("events"), targetUrl: v.string(), secretKey: v.string(), events: v.string(), isActive: v.boolean(), createdAt: v.number() }).index("by_event", ["eventId"]),
   webhookDeliveries: defineTable({ webhookId: v.id("webhooks"), eventType: v.string(), payload: v.string(), statusCode: v.number(), success: v.boolean(), deliveredAt: v.number() }).index("by_webhook", ["webhookId"]),
-  certificates: defineTable({ certUuid: v.string(), eventId: v.id("events"), userId: v.id("users"), recipientName: v.string(), certType: v.string(), title: v.string(), trackName: v.string(), rank: v.number(), signatureHash: v.string(), issuedAt: v.number() }).index("by_uuid", ["certUuid"]).index("by_event", ["eventId"]),
+  // `revokedAt`/`revokedReason` are set when an admin retracts a published
+  // event's results (`events.adminUnpublish`). A revoked certificate stays in
+  // the table — a verification link that has already been shared must keep
+  // resolving and explain itself rather than 404 — but `certificates.verify`
+  // reports it as invalid. Additive: existing rows simply have no value.
+  certificates: defineTable({ certUuid: v.string(), eventId: v.id("events"), userId: v.id("users"), recipientName: v.string(), certType: v.string(), title: v.string(), trackName: v.string(), rank: v.number(), signatureHash: v.string(), issuedAt: v.number(), revokedAt: v.optional(v.number()), revokedReason: v.optional(v.string()) }).index("by_uuid", ["certUuid"]).index("by_event", ["eventId"]),
   platform: defineTable({ key: v.string(), value: v.string() }).index("by_key", ["key"]),
   invites: defineTable({
     email: v.optional(v.string()),

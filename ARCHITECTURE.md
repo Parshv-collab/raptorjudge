@@ -105,6 +105,38 @@ Pure, dependency-free algorithm modules live outside Convex in
 `duplicates.ts`) so they can be unit-tested directly and reused by the proof
 script. The Convex layer only gathers inputs and persists results.
 
+### Event lifecycle policy
+
+The seven stages are a line — `draft → registration → hacking → judging →
+voting → published → archived` — and the policy for moving along it lives in
+one pure module, `src/lib/eventLifecycle.ts`. `events.setStage`, `publish`,
+`unpublish` and `adminUnpublish` all call `evaluateStageTransition`, and the
+organizer console builds its stage picker from `allowedStageTargets`, which
+calls the same evaluator. A stage the UI offers is therefore always one the
+server accepts.
+
+Two rules carry the weight:
+
+- **Published results are final.** No backwards move out of `published` or
+  `archived` is available to anyone through `setStage` — an organizer cannot
+  un-announce a winner, and neither can an admin by accident. Retracting
+  published results is its own admin-only mutation, `events.adminUnpublish`,
+  which requires a written reason, moves the event to `voting`, revokes the
+  event's certificates in place (`certificates.verify` then reports them
+  invalid rather than losing them), clears a now-suspect winner override, and
+  writes the reason into the audit chain's `beforeState`/`afterState` (the
+  audit row has no separate reason column, so the reason lives inside the
+  hash-covered state strings).
+- **Correcting a phase is normal; unwinding the event is not.** An organizer
+  may move forwards freely and may step back exactly one phase; anything
+  further back is refused by name and points at the admin path. Admins may move
+  backwards without limit.
+
+Deadline edits follow the same asymmetry (`evaluateDeadlineChange`): moving a
+registration or submission deadline later is always allowed, moving it earlier
+is refused once teams or submissions exist, because the people who acted on the
+old date have no way to find out.
+
 ---
 
 ## 4. Frontend structure

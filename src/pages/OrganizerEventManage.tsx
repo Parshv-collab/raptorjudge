@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
+import { Dropdown } from "@/components/ui/Dropdown";
 import { ConfirmDialog } from "@/components/ui/Modal";
 import { SkeletonCard } from "@/components/ui/SkeletonCard";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -17,6 +18,12 @@ import { WinnerOverridePanel } from "@/pages/organizer/WinnerOverridePanel";
 import { Markdown } from "@/components/ui/Markdown";
 import { formatDate, formatDateTime, formatTime } from "@/lib/format";
 import { ShieldCheck, ShieldAlert, Trophy } from "lucide-react";
+import {
+  STAGE_LABELS,
+  allowedStageTargets,
+  isResultsFinal,
+  type EventStage,
+} from "@/lib/eventLifecycle";
 
 export function OrganizerEventManage() {
   const navigate = useNavigate();
@@ -33,6 +40,11 @@ export function OrganizerEventManage() {
 
   const event = useQuery(api.events.getBySlug, skip || !slug ? "skip" : { slug });
   const setStage = useMutation(api.events.setStage);
+  // Publishing stamps `publishedAt` (and unpublishing clears it), which
+  // `setStage` deliberately does not — the lifecycle card uses `setStage` for
+  // everything else.
+  const publishEvent = useMutation(api.events.publish);
+  const unpublishEvent = useMutation(api.events.unpublish);
   const tracks = useQuery(api.tracks.listByEvent, skip || !event ? "skip" : { eventId: event._id });
   const submissions = useQuery(api.submissions.byEvent, skip || !event ? "skip" : { eventId: event._id });
   // Issue 34: judging progress drives the publication gate in the UI so the
@@ -160,6 +172,13 @@ export function OrganizerEventManage() {
   // server-side; the UI mirrors that by hiding the controls that would fail.
   const isPublished = ["published", "archived", "closed"].includes(event.status);
 
+  // The stage picker is built from the same evaluator the mutations enforce, so
+  // an option that appears here is one the server will accept (`allowedStageTargets`
+  // is the exact filter `evaluateStageTransition` applies).
+  const stageTargets = allowedStageTargets(event.status, me?.role);
+  const lifecycleLabel = STAGE_LABELS[event.status as EventStage] ?? event.status;
+  const resultsFinal = isResultsFinal(event.status);
+
   // Publication readiness (issue 34) — mirrors `events.setStage`'s server-side
   // gate so the button explains itself instead of failing on click.
   const submittedCount = (submissions ?? []).filter((s: any) => s.status === "submitted").length;
@@ -183,13 +202,13 @@ export function OrganizerEventManage() {
   }
   const canPublish = publishBlockers.length === 0;
 
-  async function togglePublish() {
+  /** `draft → registration`: the event goes public. */
+  async function handlePublish() {
     if (!event) return;
     setBusy(true);
     try {
-      const nextStage = event.status === "draft" ? "registration" : "draft";
-      await setStage({ eventId: event._id, stage: nextStage });
-      toast.success(`Event ${nextStage === "draft" ? "unpublished" : "published"}.`);
+      await publishEvent({ eventId: event._id });
+      toast.success("Event published — registration is open.");
     } catch (e: any) {
       toast.error(humanizeConvexError(e));
     } finally {
@@ -197,16 +216,37 @@ export function OrganizerEventManage() {
     }
   }
 
-  /** Stage transitions used by the results tab (publish / unpublish results). */
+  /**
+   * `registration → draft`: take the event back off the site.
+   *
+   * Only offered while the event is in `registration` — the lifecycle policy
+   * allows an organizer exactly one step back, and only before anybody has
+   * acted on the event. Once it is running, taking it down is an admin action.
+   */
+  async function handleUnpublish() {
+    if (!event) return;
+    setBusy(true);
+    try {
+      await unpublishEvent({ eventId: event._id });
+      toast.success("Event unpublished — it is a draft again and hidden from the public site.");
+    } catch (e: any) {
+      toast.error(humanizeConvexError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Every stage move from the lifecycle card and the results tab. */
   async function handleSetStage(stage: string) {
     if (!event) return;
     setBusy(true);
+    const label = STAGE_LABELS[stage as EventStage] ?? stage;
     try {
       await setStage({ eventId: event._id, stage });
       toast.success(
         stage === "published"
           ? "Results published — the gallery is now ordered by the final ranking."
-          : `Event moved back to ${stage}.`,
+          : `Event moved to ${label}.`,
       );
     } catch (e: any) {
       toast.error(humanizeConvexError(e));
@@ -515,25 +555,88 @@ export function OrganizerEventManage() {
           <h1 className="text-h1 text-primary mt-2">{event.title}</h1>
         </div>
 
+        {/*
+          Two buttons, each offered only where it actually works.
+
+          "Unpublish to draft" is gone from a published or archived event on
+          purpose — not disabled, not tooltip'd, absent. Retracting announced
+          results is an administrator action with a written reason
+          (`events.adminUnpublish`), and offering it here would let an organizer
+          silently un-badge a winner who has already been told they won. It is
+          also absent from the stages past `registration`, where the lifecycle
+          policy refuses a two-phase regression; the one-step-back options live
+          in the Lifecycle card on the Overview tab.
+        */}
         <div className="flex gap-2 shrink-0">
           <Link to={`/organizer/events/${event.slug}/edit`}>
             <Button variant="secondary">Edit details</Button>
           </Link>
-          <Button
-            variant={event.status === "draft" ? "primary" : "secondary"}
-            isLoading={busy}
-            onClick={() => {
-              if (event.status !== "draft") {
-                setUnpublishConfirmOpen(true);
-              } else {
-                togglePublish();
-              }
-            }}
-          >
-            {event.status === "draft" ? "Publish event" : "Unpublish to draft"}
-          </Button>
+          {event.status === "draft" && (
+            <Button variant="primary" isLoading={busy} onClick={handlePublish}>
+              Publish event
+            </Button>
+          )}
+          {event.status === "registration" && (
+            <Button
+              variant="secondary"
+              isLoading={busy}
+              onClick={() => setUnpublishConfirmOpen(true)}
+            >
+              Unpublish to draft
+            </Button>
+          )}
         </div>
       </div>
+
+      {/*
+        Lifecycle — the stage control.
+
+        Before this existed the only stage writes anywhere in the console were
+        publish/unpublish and the results tab's two buttons, which between them
+        reach `draft`, `registration`, `judging` and `published`. The middle of
+        the run — `hacking` and `voting` — had no control at all, so an
+        organizer could not actually take an event from registration to judging
+        without editing the database. The options are built from
+        `allowedStageTargets`, the same policy `events.setStage` enforces, so a
+        listed option is never one the server would refuse.
+      */}
+      {activeTab === "overview" && (
+        <div className="bg-surface-1 border border-line rounded-card p-6 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div className="min-w-0">
+            <h3 className="text-h3 text-primary">Lifecycle</h3>
+            <p className="text-[13px] text-secondary mt-0.5">
+              Where this event is in its run. Moving it on opens the next phase; stepping back one
+              phase reopens the previous one.
+            </p>
+            {resultsFinal && (
+              <p className="text-[12px] text-muted mt-2">
+                Results are published and final. Only an administrator can retract them, and doing so
+                records a reason in the audit log.
+              </p>
+            )}
+          </div>
+          <div className="w-full sm:w-64 shrink-0">
+            {stageTargets.length === 0 ? (
+              <p className="text-[13px] text-muted">
+                No stage changes are available to you on this event.
+              </p>
+            ) : (
+              <Dropdown
+                label="Move to stage"
+                value={event.status}
+                options={[
+                  { value: event.status, label: `${lifecycleLabel} — current` },
+                  ...stageTargets.map((stage) => ({
+                    value: stage,
+                    label: STAGE_LABELS[stage],
+                  })),
+                ]}
+                onChange={(value) => handleSetStage(value)}
+              />
+            )}
+          </div>
+        </div>
+      )}
 
       {activeTab === "overview" && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1063,8 +1166,15 @@ export function OrganizerEventManage() {
                 </p>
               )}
             </div>
+            {/*
+              Both buttons are gated on the lifecycle policy rather than on a
+              hand-written inequality: "Back to judging" used to appear
+              whenever the event was not already judging — including on a
+              *published* event, where the server now refuses it — and its
+              replacement text explains the one case that is genuinely closed.
+            */}
             <div className="flex gap-2 shrink-0">
-              {event.status !== "judging" && (
+              {stageTargets.includes("judging") && (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -1074,7 +1184,7 @@ export function OrganizerEventManage() {
                   Back to judging
                 </Button>
               )}
-              {event.status !== "published" && (
+              {stageTargets.includes("published") && (
                 <Button
                   variant="primary"
                   size="sm"
@@ -1085,6 +1195,11 @@ export function OrganizerEventManage() {
                 >
                   Publish results
                 </Button>
+              )}
+              {resultsFinal && (
+                <p className="text-[12px] text-muted self-center max-w-[15rem]">
+                  Results are live and final. An administrator can retract them from the admin console.
+                </p>
               )}
             </div>
           </div>
@@ -1201,6 +1316,14 @@ export function OrganizerEventManage() {
                   <div className="min-w-0">
                     <span className="font-medium text-primary">{c.email}</span>
                     <span className="text-muted ml-2 uppercase text-[11px] tracking-[0.08em]">{c.certType}</span>
+                    {/* Revoked when an admin retracted the event's published
+                        results. The row stays so the organizer can see what was
+                        withdrawn, and the reason is on the verification page. */}
+                    {c.revokedAt ? (
+                      <span className="ml-2 text-danger uppercase text-[11px] tracking-[0.08em]">
+                        revoked
+                      </span>
+                    ) : null}
                     <p className="text-muted mt-0.5 truncate">{c.title}</p>
                   </div>
                   <Link
@@ -1425,9 +1548,9 @@ export function OrganizerEventManage() {
       <ConfirmDialog
         isOpen={unpublishConfirmOpen}
         onClose={() => setUnpublishConfirmOpen(false)}
-        onConfirm={togglePublish}
+        onConfirm={handleUnpublish}
         title="Unpublish event"
-        description="Unpublishing returns the event to draft status and hides public registration."
+        description="Unpublishing returns the event to draft status and hides public registration. Nobody has registered yet, so nothing is lost — this is only offered while the event is still in registration."
         confirmLabel="Unpublish event"
         destructive
         isLoading={busy}

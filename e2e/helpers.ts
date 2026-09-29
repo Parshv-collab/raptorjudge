@@ -28,8 +28,13 @@ export const SEED_PASSWORD = "dogfood2026";
 const TOKEN_KEY_PREFIX = "__convexAuth";
 const AUTH_NAMESPACE = "raptorjudge";
 
-/** Access tokens already issued in this worker, keyed by email. */
-const jwtCache = new Map<string, string>();
+/**
+ * Sessions already established in this worker, keyed by email.
+ *
+ * Replayed into the next page's `sessionStorage` so each account authenticates
+ * once per run rather than once per test.
+ */
+const tokenCache = new Map<string, SessionTokens>();
 
 /** The five demo accounts created by the seed, plus one real team member. */
 export const ACCOUNTS = {
@@ -57,6 +62,94 @@ export const ROLE_HOME = {
 } as const;
 
 /**
+ * The console each seeded account lands on after signing in, mirroring
+ * `roleHomePath` in `src/lib/roles.ts`. Only used to give a *replayed* session a
+ * document to land on (see {@link signIn}); anything not listed falls back to
+ * `/home`, which redirects by role.
+ */
+const ACCOUNT_HOME: Record<string, string> = {
+  [ACCOUNTS.admin]: "/admin",
+  [ACCOUNTS.organizer]: "/organizer",
+  [ACCOUNTS.judgeA]: "/judge",
+  [ACCOUNTS.judgeB]: "/judge",
+  [ACCOUNTS.participant]: "/dashboard",
+  [ACCOUNTS.teamMember]: "/dashboard",
+};
+
+/**
+ * The two tokens the provider keeps in `sessionStorage`.
+ *
+ * **Both** are needed to resume a session, which is not obvious and cost this
+ * suite real flakiness:
+ *
+ *   `ConvexProviderWithAuth` installs its auth callback from an effect that
+ *   runs *before* `AuthProvider`'s effect has read `sessionStorage`, so the
+ *   first token fetch the Convex client makes always comes back empty. The
+ *   client reacts to that by immediately forcing a refresh —
+ *   `AuthenticationManager.setConfig` → `initialRefetch` →
+ *   `fetchToken({ forceRefreshToken: true })` — and that path goes straight to
+ *   the stored **refresh token**, never to the JWT. With no refresh token on
+ *   disk the refresh fails, `onAuthChange(false)` fires, and the app renders
+ *   the sign-in page with the session sitting right there in storage.
+ *
+ * That is also why a browser reload keeps a session alive: the refresh token is
+ * present and is exchanged for a fresh JWT on the way up.
+ */
+const JWT_KEY = `${TOKEN_KEY_PREFIX}JWT_${AUTH_NAMESPACE}`;
+const REFRESH_KEY = `${TOKEN_KEY_PREFIX}RefreshToken_${AUTH_NAMESPACE}`;
+
+interface SessionTokens {
+  jwt: string;
+  refreshToken: string;
+}
+
+/** Read both tokens out of the page, or `null` if either is missing. */
+async function readTokens(page: Page): Promise<SessionTokens | null> {
+  try {
+    return await page.evaluate(
+      ([jwtKey, refreshKey]) => {
+        const jwt = window.sessionStorage.getItem(jwtKey);
+        const refreshToken = window.sessionStorage.getItem(refreshKey);
+        return jwt && refreshToken ? { jwt, refreshToken } : null;
+      },
+      [JWT_KEY, REFRESH_KEY] as const,
+    );
+  } catch {
+    // Navigation in flight destroyed the execution context.
+    return null;
+  }
+}
+
+/** True once the app has left `/auth` — i.e. the server accepted the session. */
+async function sessionAccepted(page: Page): Promise<boolean> {
+  try {
+    await page.waitForURL((url) => !/^\/auth(\/|\?|$)/.test(url.pathname), { timeout: 10_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Cache the tokens as they are *after* the boot-time refresh has rotated them.
+ *
+ * The refresh token the client holds is single-use: the boot that reads it
+ * swaps it for a new one. Capturing the value the instant the page lands would
+ * therefore cache a token that is already spent, and the next replay would be
+ * refused. Polling for a beat past the landing captures the rotated pair.
+ */
+async function cacheTokens(page: Page, email: string): Promise<void> {
+  let latest: SessionTokens | null = null;
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    const tokens = await readTokens(page);
+    if (tokens) latest = tokens;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (latest) tokenCache.set(email, latest);
+}
+
+/**
  * Sign in by actually filling the form in — no caching, no token replay.
  * Used by the tests whose subject *is* the sign-in screen.
  */
@@ -76,10 +169,10 @@ export async function signInViaForm(
  * Get `page` into `email`'s session, and wait for nothing else — callers
  * assert on the landing page themselves.
  *
- * The first time an account is used in a worker this really types credentials
- * into the form. Afterwards the issued JWT is cached and replayed into the next
- * page's `sessionStorage`, so each account authenticates once per run rather
- * than once per test.
+ * The first time an account is used this really types credentials into the
+ * form. Afterwards the issued JWT is cached and replayed into the next page's
+ * `sessionStorage`, so each account authenticates once per run rather than once
+ * per test.
  *
  * That is not just a speed-up. `auth.ts` charges every credential attempt —
  * successful ones included — against a per-address bucket
@@ -88,9 +181,25 @@ export async function signInViaForm(
  * with a bare "Something went wrong" the moment it was re-run inside the
  * window. Caching keeps the suite deterministic no matter how often it is run.
  *
- * Only the JWT is replayed, never the refresh token: the refresh token is
- * single-use and rotating, and a valid one-hour JWT removes the need for it
- * inside a test run. Tests that care about the sign-in *form* itself use
+ * Three details make the cache actually work, and all three were missing:
+ *
+ *   1. **Both tokens are captured and replayed** — see {@link JWT_KEY} for why
+ *      a JWT on its own cannot resume a session in this app.
+ *   2. The tokens are read by polling storage, not by a single `evaluate` fired
+ *      the instant the click is dispatched. The provider writes them a beat
+ *      later (and again when the boot refresh rotates the refresh token), so
+ *      the one-shot read came back `null`, nothing was ever cached, and every
+ *      test re-submitted the form — the exact pattern this cache exists to
+ *      prevent.
+ *   3. A replayed session needs a document to land on. `addInitScript` only
+ *      takes effect on the *next* navigation, so the cached branch performs one
+ *      (`page.goto(ACCOUNT_HOME[email])`). Previously it returned with the page
+ *      still on `about:blank`, which left every caller's `waitForURL` waiting.
+ *
+ * A replay that is refused (a refresh token that rotation already spent, a
+ * session revoked since, an expired JWT) falls back to the form instead of
+ * leaving the caller on `/auth`: the cache is an optimisation, never a
+ * correctness dependency. Tests that care about the sign-in *form* itself use
  * `signInViaForm`, which never touches the cache.
  */
 export async function signIn(
@@ -98,20 +207,31 @@ export async function signIn(
   email: string,
   password: string = SEED_PASSWORD,
 ): Promise<void> {
-  const cached = jwtCache.get(email);
+  const cached = tokenCache.get(email);
   if (cached) {
     await page.addInitScript(
-      ([key, value]) => window.sessionStorage.setItem(key, value),
-      [`${TOKEN_KEY_PREFIX}JWT_${AUTH_NAMESPACE}`, cached] as const,
+      ([jwtKey, jwt, refreshKey, refreshToken]) => {
+        window.sessionStorage.setItem(jwtKey, jwt);
+        window.sessionStorage.setItem(refreshKey, refreshToken);
+      },
+      [JWT_KEY, cached.jwt, REFRESH_KEY, cached.refreshToken] as const,
     );
+    await page.goto(ACCOUNT_HOME[email] ?? "/home");
+    if (await sessionAccepted(page)) {
+      await cacheTokens(page, email);
+      return;
+    }
+    // Refused — drop the stale pair and sign in the slow way rather than
+    // letting the caller time out waiting for a page that will never render.
+    tokenCache.delete(email);
+  }
+
+  await signInViaForm(page, email, password);
+  if (!(await sessionAccepted(page))) {
+    // Let the caller's own `waitForURL`/assertion report the failure.
     return;
   }
-  await signInViaForm(page, email, password);
-  const jwt = await page.evaluate(
-    (key) => window.sessionStorage.getItem(key),
-    `${TOKEN_KEY_PREFIX}JWT_${AUTH_NAMESPACE}`,
-  );
-  if (jwt) jwtCache.set(email, jwt);
+  await cacheTokens(page, email);
 }
 
 /**

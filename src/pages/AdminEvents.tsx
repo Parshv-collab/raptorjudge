@@ -16,6 +16,7 @@ import { formatDate } from "@/lib/format";
 import { Textarea } from "@/components/ui/Textarea";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { nextDeadline } from "@/lib/eventStatus";
+import { isResultsFinal } from "@/lib/eventLifecycle";
 import { CalendarDays, Columns3, Plus, Search, SlidersHorizontal } from "lucide-react";
 
 const STATUS_OPTIONS = [
@@ -64,6 +65,9 @@ export default function AdminEvents() {
   const users = useQuery(api.users.list, skip ? "skip" : {});
   const publish = useMutation(api.events.publish);
   const unpublish = useMutation(api.events.unpublish);
+  // Retracting announced results is its own admin-only mutation with a written
+  // reason — it is deliberately not the same thing as "unpublish to draft".
+  const adminUnpublish = useMutation(api.events.adminUnpublish);
   const deleteEvent = useMutation(api.events.deleteEvent);
   const transferOwnership = useMutation(api.events.adminTransferOwnership);
   const importEventFromJson = useMutation(api.imports.eventFromJson);
@@ -79,6 +83,12 @@ export default function AdminEvents() {
   // Only drafts can be deleted, and deletion also drops the event's teams,
   // submissions and scores — so it confirms in-app with the title typed out.
   const [deleteTarget, setDeleteTarget] = useState<{ _id: any; title: string } | null>(null);
+  // Published results are retracted through a reason-carrying dialog rather
+  // than a one-click toggle: it is the one action here that takes something
+  // back from the public, so it has to be deliberate and attributable.
+  const [retractTarget, setRetractTarget] = useState<{ _id: any; title: string } | null>(null);
+  const [retractReason, setRetractReason] = useState("");
+  const [retractBusy, setRetractBusy] = useState(false);
   const [importJsonText, setImportJsonText] = useState("");
   const [importBusy, setImportBusy] = useState(false);
 
@@ -141,6 +151,35 @@ export default function AdminEvents() {
       }
     } catch (err: any) {
       toast.error(humanizeConvexError(err));
+    }
+  }
+
+  /**
+   * Retract announced results. The button for this only exists on a published
+   * or archived event; the reason is required by the mutation as well, so an
+   * empty one cannot reach the audit log from here or anywhere else.
+   */
+  async function handleRetract() {
+    if (!retractTarget) return;
+    const reason = retractReason.trim();
+    if (reason.length < 4) {
+      toast.error("Write a short reason — it is recorded in the audit log.");
+      return;
+    }
+    setRetractBusy(true);
+    try {
+      const result = await adminUnpublish({ eventId: retractTarget._id, reason });
+      toast.success(
+        result.revokedCertificates > 0
+          ? `Results retracted. ${result.revokedCertificates} certificate${result.revokedCertificates === 1 ? "" : "s"} revoked.`
+          : "Results retracted — the event is back in community voting.",
+      );
+      setRetractTarget(null);
+      setRetractReason("");
+    } catch (err: any) {
+      toast.error(humanizeConvexError(err));
+    } finally {
+      setRetractBusy(false);
     }
   }
 
@@ -367,9 +406,26 @@ export default function AdminEvents() {
                           Edit
                         </Button>
                       </Link>
-                      <Button variant="ghost" size="sm" onClick={() => handleTogglePublish(e)}>
-                        {e.status === "draft" ? "Publish" : "Unpublish"}
-                      </Button>
+                      {/* Published results get a different action, with a
+                          reason, instead of a one-click "Unpublish": walking
+                          the public gallery and the winner badge back is not
+                          the same kind of decision as taking a draft live. */}
+                      {isResultsFinal(e.status) ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setRetractReason("");
+                            setRetractTarget({ _id: e._id, title: e.title });
+                          }}
+                        >
+                          Retract results
+                        </Button>
+                      ) : (
+                        <Button variant="ghost" size="sm" onClick={() => handleTogglePublish(e)}>
+                          {e.status === "draft" ? "Publish" : "Unpublish"}
+                        </Button>
+                      )}
                       <Button variant="ghost" size="sm" onClick={() => setTransferTargetEvent(e)}>
                         Transfer
                       </Button>
@@ -465,6 +521,41 @@ export default function AdminEvents() {
             </Button>
             <Button variant="primary" disabled={!selectedOrganizer} onClick={handleTransferConfirm}>
               Confirm transfer
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Retract published results — admin-only, reasoned, audited. */}
+      <Modal
+        isOpen={retractTarget !== null}
+        onClose={() => setRetractTarget(null)}
+        title="Retract published results"
+        description={
+          retractTarget
+            ? `Retracting ${retractTarget.title} moves it back to community voting, hides the final ranking from the public gallery and revokes any certificates already issued. It is recorded in the audit log with your reason, and this cannot be undone without publishing again.`
+            : ""
+        }
+      >
+        <div className="flex flex-col gap-4 mt-2">
+          <Textarea
+            label="Why are these results being retracted?"
+            rows={3}
+            value={retractReason}
+            onChange={(e) => setRetractReason(e.target.value)}
+            placeholder="e.g. half the assignments were never scored, so the ranking is wrong"
+          />
+          <div className="flex justify-end gap-3">
+            <Button variant="ghost" onClick={() => setRetractTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              isLoading={retractBusy}
+              disabled={retractReason.trim().length < 4}
+              onClick={handleRetract}
+            >
+              Retract results
             </Button>
           </div>
         </div>

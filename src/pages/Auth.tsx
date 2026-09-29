@@ -429,7 +429,7 @@ export default function Auth() {
                   value={code}
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
                   placeholder="000000"
-                  className="w-full h-10 px-3.5 text-center font-mono text-lg tracking-[0.3em] rounded-input text-primary bg-surface-1 border border-accent transition-colors duration-fast focus:outline-2 focus:outline-accent/40"
+                  className="w-full h-10 px-3.5 text-center font-mono text-lg tracking-[0.3em] rounded-input text-primary bg-surface-1 border border-accent transition-colors duration-fast focus:outline-2 focus:outline-accent"
                 />
                 <span className="text-[13px] text-muted">Two-factor is active on this account</span>
               </div>
