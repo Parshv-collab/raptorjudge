@@ -314,7 +314,10 @@ export default function ParticipantWorkspace() {
             <div className="flex flex-wrap items-center justify-between gap-4 bg-surface-1 border border-line rounded-card p-5">
               <div>
                 <span className="text-[11px] uppercase tracking-[0.08em] text-accent font-medium">Your team</span>
-                <h3 className="text-h2 text-primary">{team.name}</h3>
+                {/* A team name is a section heading, and every sibling on this
+                    page is an `h2`; as an `h3` at the same 24px it read as a
+                    heading one level down that happened to be as large. */}
+                <h2 className="text-h2 text-primary">{team.name}</h2>
               </div>
 
               <div className="flex items-center gap-2">

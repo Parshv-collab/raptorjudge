@@ -21,7 +21,7 @@ export default function NotFound() {
     <div className="min-h-[60vh] flex items-center justify-center py-12 px-4">
       <div className="max-w-md w-full text-center flex flex-col items-center">
         <p className="font-mono text-display text-accent leading-none">404</p>
-        <h1 className="text-h2 text-primary mt-6">Page not found</h1>
+        <h1 className="text-h1 text-primary mt-6">Page not found</h1>
         <p className="text-sm text-secondary mt-2 mb-8 leading-relaxed max-w-sm">
           {home
             ? "That link does not match any page in this workspace. Nothing was lost — your work is untouched."

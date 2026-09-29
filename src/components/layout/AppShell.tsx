@@ -227,7 +227,7 @@ const NavRow: React.FC<{ item: NavItem; active: boolean }> = ({ item, active }) 
     <span className="shrink-0">{item.icon}</span>
     <span className="truncate md:hidden lg:inline">{item.label}</span>
     {item.badge !== undefined && item.badge > 0 && (
-      <span className="ml-auto md:absolute md:right-1 md:top-1 lg:static lg:ml-auto tnum text-[11px] font-semibold rounded-pill bg-accent text-white px-1.5 py-0.5">
+      <span className="ml-auto md:absolute md:right-1 md:top-1 lg:static lg:ml-auto tnum text-[11px] font-semibold rounded-pill bg-accent text-canvas px-1.5 py-0.5">
         {item.badge}
       </span>
     )}
@@ -344,7 +344,7 @@ export function AppShell() {
               </Link>
               <Link
                 to="/auth"
-                className="h-9 px-4 inline-flex items-center rounded-btn bg-accent text-white hover:bg-accent-hover transition-colors duration-fast"
+                className="h-9 px-4 inline-flex items-center rounded-btn bg-accent text-canvas hover:bg-accent-hover transition-colors duration-fast"
               >
                 Sign in
               </Link>
@@ -484,7 +484,7 @@ export function AppShell() {
               </span>
               <span className="truncate md:hidden lg:inline">Notifications</span>
               {unreadCount > 0 && (
-                <span className="ml-auto md:absolute md:right-3 lg:static lg:ml-auto tnum text-[11px] font-semibold rounded-pill bg-accent text-white px-1.5 py-0.5">
+                <span className="ml-auto md:absolute md:right-3 lg:static lg:ml-auto tnum text-[11px] font-semibold rounded-pill bg-accent text-canvas px-1.5 py-0.5">
                   {unreadCount}
                 </span>
               )}

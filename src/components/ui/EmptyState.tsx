@@ -1,4 +1,5 @@
 import React from "react";
+import { Button } from "./Button";
 
 export interface EmptyStateProps {
   icon?: React.ReactNode;
@@ -36,13 +37,12 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       <h3 className="text-base font-semibold text-primary">{title}</h3>
       <p className="text-[13px] text-muted max-w-sm mt-1.5 leading-relaxed">{description}</p>
       {actionLabel && onAction && (
-        <button
-          type="button"
-          onClick={onAction}
-          className="mt-6 px-4 h-10 inline-flex items-center rounded-btn text-sm font-medium text-white bg-accent hover:bg-accent-hover transition-colors duration-fast"
-        >
+        // The shared Button, not a copy of its classes: same 40px/6px geometry,
+        // plus the focus ring and disabled handling this hand-rolled version
+        // did not have.
+        <Button variant="primary" size="md" onClick={onAction} className="mt-6">
           {actionLabel}
-        </button>
+        </Button>
       )}
     </div>
   );

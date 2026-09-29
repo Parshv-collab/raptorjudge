@@ -22,7 +22,7 @@ export default function EmbedGallery() {
       <div className="flex flex-col gap-3 mb-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="w-6 h-6 rounded-btn bg-accent text-white font-bold text-[11px] flex items-center justify-center shrink-0">
+            <span className="w-6 h-6 rounded-btn bg-accent text-canvas font-bold text-[11px] flex items-center justify-center shrink-0">
               R
             </span>
             <span className="text-[13px] font-semibold truncate">

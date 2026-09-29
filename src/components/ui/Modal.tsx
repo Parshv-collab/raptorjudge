@@ -213,7 +213,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
               onConfirm();
               onClose();
             }}
-            className={`px-4 h-10 inline-flex items-center justify-center gap-2 rounded-btn text-sm text-white transition-colors duration-fast disabled:opacity-40 disabled:pointer-events-none ${
+            className={`px-4 h-10 inline-flex items-center justify-center gap-2 rounded-btn text-sm text-canvas transition-colors duration-fast disabled:opacity-40 disabled:pointer-events-none ${
               destructive ? "bg-danger hover:brightness-110" : "bg-accent hover:bg-accent-hover"
             }`}
           >

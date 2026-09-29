@@ -19,7 +19,7 @@ export interface PageHeaderProps {
 }
 
 /**
- * The in-content top bar: page title (h1, 24px), one-line muted description,
+ * The in-content top bar: page title (h1, 36px), one-line muted description,
  * actions on the right. Sits inside the main content column — it never spans
  * the full viewport (the sidebar owns the left rail).
  *
@@ -70,7 +70,10 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
         }`}
       >
         <div className="min-w-0">
-          <h1 className="text-h2 text-primary truncate">{title}</h1>
+          {/* 36px, matching the twelve pages that hand-roll their own `text-h1`
+              title. At 24px the same page title rendered at two different sizes
+              depending on which of the two systems built it. */}
+          <h1 className="text-h1 text-primary truncate">{title}</h1>
           {description && <p className="text-sm text-secondary mt-1">{description}</p>}
         </div>
         {actions && <div className="flex items-center gap-3 shrink-0">{actions}</div>}

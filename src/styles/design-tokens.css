@@ -25,9 +25,18 @@
   --color-accent: #ff2d55;
   --color-accent-hover: #ff4568;
   /* Foreground for text sitting on the accent fill (mark tiles, solid
-     buttons, the focused skip link). White is the accent's contrast partner,
-     and naming it here keeps the one raw hex out of index.css. */
-  --color-on-accent: #ffffff;
+     buttons, the focused skip link, the destructive confirm).
+     Measured, not assumed: white on the accent is **3.64:1** and white on
+     the danger red is **3.76:1**, both under WCAG AA's 4.5:1 for text this
+     size (button labels are 13–15px, the notification badge 11px) — and the
+     e2e colour audit flagged every one of them on 31 of the 35 pages it
+     walked. The canvas black is the accent's contrast partner instead:
+     5.43:1 on the accent and 5.27:1 on danger, from the same palette, with
+     the fill itself untouched.
+     `text-canvas` is the Tailwind utility that resolves to this value;
+     `text-white` on an accent fill is a regression this comment exists to
+     stop. */
+  --color-on-accent: #0a0a0b;
   --color-success: #22c55e;
   --color-warning: #f59e0b;
   --color-danger: #ef4444;

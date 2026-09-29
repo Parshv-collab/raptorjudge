@@ -2,6 +2,7 @@ import { Link, Navigate } from "react-router-dom";
 import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { StatCard } from "@/components/ui/StatCard";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { SkeletonCard, SkeletonStat } from "@/components/ui/SkeletonCard";
@@ -141,7 +142,14 @@ export default function OrganizerDashboard() {
             </div>
           ))}
           {(!audit || audit.length === 0) && (
-            <p className="text-[13px] text-muted px-5 py-8 text-center">No recent audit activity.</p>
+            // The one hand-rolled empty state in the app: a bare centred
+            // sentence, where every other list uses EmptyState's icon +
+            // title + guidance.
+            <EmptyState
+              title="No recent activity yet"
+              description="Every privileged change to this event — rubric edits, assignments, exports — is logged here as it happens."
+              className="min-h-0 py-8"
+            />
           )}
         </div>
       </section>

@@ -93,7 +93,7 @@ export default function Search() {
         />
         <button
           type="submit"
-          className="h-10 px-5 rounded-btn bg-accent text-white text-sm font-medium hover:bg-accent-hover transition-colors duration-fast shrink-0"
+          className="h-10 px-5 rounded-btn bg-accent text-canvas text-sm font-medium hover:bg-accent-hover transition-colors duration-fast shrink-0"
         >
           Search
         </button>

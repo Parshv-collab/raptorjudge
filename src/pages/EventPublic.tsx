@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import { useQuery, useConvexAuth } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/Badge";
@@ -166,6 +167,23 @@ export default function EventPublic() {
 
   return (
     <div className="flex flex-col gap-10">
+      {/*
+        Back affordance. `/project/:id` gets one from `PageHeader`, so an event
+        page reached from `/events` (or from a shared link) had no way back into
+        the app other than the browser's own history. Styled like that control
+        so the two read as the same thing.
+      */}
+      <Link
+        to="/events"
+        className="group inline-flex items-center gap-2 self-start -ml-1 px-1 py-1 rounded-btn text-[13px] text-secondary hover:text-primary transition-colors duration-fast"
+      >
+        <ArrowLeft
+          size={16}
+          aria-hidden="true"
+          className="transition-transform duration-fast group-hover:-translate-x-0.5"
+        />
+        <span>All events</span>
+      </Link>
       {/*
         Hero (issue 54). Replaces the old "big dark block with the title
         repeated in it, then the real title underneath" pair: one panel, a

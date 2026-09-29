@@ -30,11 +30,14 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     };
 
     const variantStyles = {
-      primary: "bg-accent text-white hover:bg-accent-hover",
+      // `text-canvas` is the on-accent foreground: white measured 3.64:1 on
+      // this fill, the canvas black 5.43:1. See `--color-on-accent`.
+      primary: "bg-accent text-canvas hover:bg-accent-hover",
       secondary:
         "bg-surface-2 text-primary border border-line hover:border-line-strong hover:bg-line/20",
       ghost: "bg-transparent text-secondary hover:text-primary hover:bg-surface-2",
-      danger: "bg-danger text-white hover:brightness-110",
+      // White on the danger fill measured 3.76:1; the canvas black is 5.27:1.
+      danger: "bg-danger text-canvas hover:brightness-110",
     };
 
     return (

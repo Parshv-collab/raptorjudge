@@ -393,21 +393,24 @@ test.describe("focus ring contrast (WCAG 2.2 SC 1.4.11 / 2.4.13)", () => {
   test("the sign-in form paints a ≥3:1 ring on every kind of control", async ({ page }) => {
     await page.goto("/auth");
 
-    // The controls below are read off the *current* `Auth.tsx` (the restored
-    // two-column sign-in form), not the redesigned card that briefly replaced
-    // it: the card's `footer link` and its single "Sign up" tab no longer
-    // exist. Two elements on this page are named "Sign up" — the mode-switch
-    // tab and the "Don't have an account?" link-button — and the segmented
-    // control is the earlier one in DOM order, so `.first()` is the tab.
-    const modeSwitch = page.getByRole("button", { name: "Sign up", exact: true }).first();
-
     const controls: [string, Locator][] = [
       ["email input", page.getByLabel(/^Email address/)],
       ["password input", page.getByLabel(/^Password/)],
       ["password reveal toggle", page.getByRole("button", { name: /Show password/ })],
       ["submit button (accent fill)", page.locator("form").getByRole("button", { name: "Sign in" })],
-      ["mode switch", modeSwitch],
-      ["forgot password link-button", page.getByRole("button", { name: "Forgot password?" })],
+      // Two buttons on this screen read "Sign up": the sign-in / sign-up mode
+      // tab above the form, and the inline "Don't have an account? Sign up"
+      // button at the bottom *of* the form. `focusWithRing` already takes
+      // `.first()`, and the tab is first in DOM order; saying so here keeps the
+      // intent visible instead of resting on document order by accident.
+      ["mode switch", page.getByRole("button", { name: "Sign up", exact: true }).first()],
+      // The sign-in card is self-contained: it contains no anchor at all. (The
+      // "Privacy policy" footer link this spec used to measure belonged to the
+      // previous, card-based layout and does not exist on the restored
+      // two-column page.) The accent text button is the closest thing it has to
+      // a link, and it is what a keyboard user actually tabs into between the
+      // password field and the submit button.
+      ["forgot-password link-button", page.getByRole("button", { name: "Forgot password?" })],
     ];
 
     const worst: { label: string; ratio: number; ring: string; bg: number[] }[] = [];
@@ -445,6 +448,38 @@ test.describe("focus ring contrast (WCAG 2.2 SC 1.4.11 / 2.4.13)", () => {
     console.log(
       `focus ring floor on /auth: ${floor.ratio}:1 (${floor.label}) · ring rgb(${floor.ring}) on [${floor.bg}]`,
     );
+  });
+
+  test("the sign-up form paints a ≥3:1 ring on its fields, links and checkbox", async ({ page }) => {
+    // The other half of the same screen. It is not a second helping of the
+    // test above: the sign-up step is where the page's **inline links** live
+    // (the sign-in form has none) and the only checkbox, so this is the only
+    // place "every kind of control" can be checked for those two.
+    await page.goto("/auth");
+    await page.getByRole("button", { name: "Sign up", exact: true }).first().click();
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Create your account" }),
+    ).toBeVisible();
+
+    const controls: [string, Locator][] = [
+      ["name input", page.getByLabel(/^Full name/)],
+      ["confirm password input", page.getByLabel(/^Confirm password/)],
+      ["terms checkbox", page.getByRole("checkbox")],
+      // The links sit inside the checkbox's `<label>`, on the same line as the
+      // "I agree to the" text — an inline element, so its ring is drawn around
+      // one text box rather than a panel.
+      ["inline Terms link", page.getByRole("link", { name: "Terms", exact: true })],
+      ["inline Privacy Policy link", page.getByRole("link", { name: "Privacy Policy" })],
+      ["Continue button (accent fill)", page.getByRole("button", { name: "Continue" })],
+    ];
+
+    let floor = Number.POSITIVE_INFINITY;
+    for (const [label, locator] of controls) {
+      const reading = await readRing(page, await focusWithRing(page, locator));
+      assertAccessibleRing(reading, `/auth sign-up ${label}`);
+      floor = Math.min(floor, reading.contrast.inside, reading.contrast.outside);
+    }
+    console.log(`focus ring floor on the sign-up form: ${floor}:1`);
   });
 
   test("the signed-in console paints a ≥3:1 ring on rail links and page controls", async ({ page }) => {

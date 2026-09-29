@@ -202,9 +202,13 @@ export default function JudgePortal() {
                 if (eventItems.length === 0) return null;
                 return (
                   <div key={evtId} className="flex flex-col gap-3">
-                    <h3 className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted pb-2 border-b border-line">
+                    {/* An 11px uppercase overline, which is the house style for
+                        group labels everywhere else — it is not a heading, and
+                        tagging it as one put a 3rd-level heading in the document
+                        outline at 11px. */}
+                    <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted pb-2 border-b border-line">
                       {evtTitle}
-                    </h3>
+                    </p>
                     {eventItems.map(renderCard)}
                   </div>
                 );

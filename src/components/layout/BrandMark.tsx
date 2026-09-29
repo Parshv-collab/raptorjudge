@@ -38,7 +38,7 @@ const BrandMark: React.FC<{
   }
   return (
     <span
-      className={`${tile} rounded-btn bg-accent text-white flex items-center justify-center font-bold ${className}`}
+      className={`${tile} rounded-btn bg-accent text-canvas flex items-center justify-center font-bold ${className}`}
     >
       {branding.siteName.trim().charAt(0).toUpperCase() || "R"}
     </span>
