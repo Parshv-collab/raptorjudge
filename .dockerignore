@@ -1,0 +1,40 @@
+# Both images are built from ONE build context — the repository root — because
+# this project is a single Vite + Convex package (the Convex functions live in
+# src/convex/ and are part of the same npm package). Per-directory
+# `.dockerignore` files only take effect when that directory *is* the build
+# context, so shipping backend/.dockerignore or frontend/.dockerignore here
+# would be dead configuration. This file is the one that actually applies.
+
+# dependencies (reinstalled inside the image via `npm ci`)
+node_modules
+**/node_modules
+
+# build output (produced inside the image)
+dist
+dist-ssr
+build
+
+# local environment — never bake secrets into an image
+.env
+.env.*
+# env.example is the committed template (no secrets), so let it through
+!env.example
+
+# version control, CI and editor state
+.git
+.gitignore
+.github
+.vscode
+.idea
+
+# Convex + Freebuff local runtime state
+.convex
+.vly-run
+
+# typescript incremental build info and logs
+*.tsbuildinfo
+*.log
+npm-debug.log*
+
+# scratch
+Untitled-1.txt

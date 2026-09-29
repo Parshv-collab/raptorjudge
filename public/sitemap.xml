@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Static sitemap for the public surfaces. The host below is a PLACEHOLDER:
+  this app is self-hosted, so replace `raptorjudge.local` with the origin you
+  serve the SPA from before going live (or delete this file — it is optional).
+
+  The event and gallery URLs point at `sample-hack-2026`, which is the event the
+  fixture seed creates. A `TEST_EVENTS=true` deployment additionally creates
+  `test-hack-registration`, `test-hack-submissions`, `test-hack-judging`,
+  `test-hack-voting` and `test-hack-results`, which you can add here by hand.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://raptorjudge.local/</loc>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://raptorjudge.local/events</loc>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://raptorjudge.local/e/sample-hack-2026</loc>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://raptorjudge.local/gallery/sample-hack-2026</loc>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://raptorjudge.local/verify</loc>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://raptorjudge.local/help</loc>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://raptorjudge.local/terms</loc>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://raptorjudge.local/privacy</loc>
+    <priority>0.5</priority>
+  </url>
+</urlset>

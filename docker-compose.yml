@@ -1,0 +1,243 @@
+# RaptorJudge — fully self-hosted, offline stack.
+#
+#   docker compose up --build
+#
+# Services
+#   db         PostgreSQL 16 — the Convex backend's persistent store
+#   backend    self-hosted Convex backend (open source, Rust) + HTTP actions
+#   dashboard  Convex dashboard                 http://localhost:6791
+#   bootstrap  one-shot: auth keys, function push (migration), seed fixtures
+#   frontend   nginx serving the built SPA      http://localhost:3000
+#
+# A note on stack shape: the brief this file came from assumed a Node/Python
+# REST server plus Postgres. This project's backend is Convex — an open-source
+# database + serverless-function runtime that ships its own image and can use
+# Postgres as its storage engine. So `backend` runs that upstream image instead
+# of a locally built server, `db` is genuinely used (as Convex's store, not as
+# a decorative container), and `bootstrap` fills the "run migrations and seed
+# on startup" role — for Convex, pushing the function bundle *is* the migration.
+
+name: raptorjudge
+
+# The identity of the Convex instance, shared by `backend` and `admin_key`.
+#
+# `admin_key` runs the backend image's own `generate_admin_key.sh`, which is the
+# only supported way to mint a function-push key, and a key is only valid for
+# the instance it was minted for. Anything the generator needs to reach that
+# instance's state has to be identical to the backend's — hence one anchor
+# rather than a hand-copied subset that would silently rot the next time the
+# backend's configuration changes.
+x-convex-instance: &convex_instance
+  # Persist to Postgres rather than Convex's default embedded SQLite.
+  # POSTGRES_URL must NOT include the database name: the backend appends it
+  # from INSTANCE_NAME with '-' replaced by '_' (dogfood -> dogfood).
+  POSTGRES_URL: postgresql://dogfood:dogfood@db:5432
+  DO_NOT_REQUIRE_SSL: "1"
+  INSTANCE_NAME: dogfood
+  # Root secret: rotate for any real deployment (openssl rand -hex 32).
+  # Rotating it invalidates existing keys and sessions.
+  INSTANCE_SECRET: ${INSTANCE_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+
+services:
+  # ------------------------------------------------------------------ db ----
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: dogfood
+      POSTGRES_PASSWORD: dogfood
+      POSTGRES_DB: dogfood
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dogfood"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      dogfood-network:
+        aliases:
+          - db
+
+  # ------------------------------------------------------------- backend ----
+  # The Convex backend itself. It is the database + function runtime: there is
+  # no Node/Python process of ours to build, so this service runs the upstream
+  # image rather than `build: ./backend` (see bootstrap for the built image).
+  backend:
+    image: ghcr.io/get-convex/convex-backend:latest
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # The instance-defining half is shared with `admin_key` below, which runs
+      # the backend's own key generator and must present the same identity or it
+      # mints a key the running backend rejects with "BadAdminKey".
+      <<: *convex_instance
+      # Origins the *browser* uses to reach the backend. Also determines the
+      # built-in CONVEX_SITE_URL that src/convex/auth.config.ts reads.
+      CONVEX_CLOUD_ORIGIN: ${CONVEX_CLOUD_ORIGIN:-http://localhost:3210}
+      CONVEX_SITE_ORIGIN: ${CONVEX_SITE_ORIGIN:-http://localhost:3211}
+      TRUSTED_ORIGINS: ${TRUSTED_ORIGINS:-http://localhost:3000}
+      DISABLE_BEACON: "true"
+      RUST_LOG: info
+      NO_PROXY: "localhost,127.0.0.1,backend,db,dashboard"
+      no_proxy: "localhost,127.0.0.1,backend,db,dashboard"
+    # Lets the backend reach a receiver on the *host* (its own 127.0.0.1 is the
+    # container's loopback). Docker Desktop provides host.docker.internal by
+    # itself; on Linux this entry is what makes it resolve, which is what the
+    # T4.3 webhook check in run_t3_t4.py needs.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "3210:3210"   # Convex client API: queries, mutations, actions, sync
+      - "3211:3211"   # HTTP actions:      the /api/* REST + auth routes
+      - "8000:3211"   # convenience alias so `curl localhost:8000/api/health` works
+    volumes:
+      - convex_data:/convex/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3210/version"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    networks:
+      - dogfood-network
+
+  # ----------------------------------------------------------- admin key ----
+  # Self-hosted Convex mints its function-push admin key from the backend
+  # process itself, so there is no template variable for it and it cannot be
+  # derived from INSTANCE_SECRET. The only way to mint one is to run the
+  # backend image's own `generate_admin_key.sh`, which used to mean a human had
+  # to do that by hand before `docker compose up` could finish — breaking the
+  # "a fresh clone just works" promise.
+  #
+  # This one-shot service does it automatically. It runs the *same image* as the
+  # backend so the generator is present, waits for the backend to be healthy,
+  # and writes the key to a shared volume that `bootstrap` reads.
+  #
+  # It is deliberately best-effort. `bootstrap` takes a key from the environment
+  # when one is set, and only falls back to this file, so a deployment that
+  # already has CONVEX_SELF_HOSTED_ADMIN_KEY in .env is unaffected. And the
+  # command always exits 0 — on failure it writes nothing and warns — so
+  # `bootstrap` degrades to the previous behaviour (loud, actionable error)
+  # instead of the stack failing to start.
+  admin_key:
+    image: ghcr.io/get-convex/convex-backend:latest
+    depends_on:
+      backend:
+        condition: service_healthy
+    # MUST mirror the backend's instance identity, not just its secret. A
+    # generated admin key is scoped to the instance it was minted for, and the
+    # generator reaches that instance's state the same way the backend does, so
+    # a sidecar with less context mints a key the running backend rejects with
+    # "BadAdminKey: The provided admin key was invalid for this instance".
+    #
+    # This mirrors `docker compose run --rm backend ./generate_admin_key.sh`,
+    # which is the documented manual step and inherits all of this. The anchor
+    # is shared with `backend` so the two can never drift apart.
+    environment: *convex_instance
+    volumes:
+      - convex_data:/convex/data
+      - admin_key:/keygen
+    # `entrypoint` is set explicitly so this runs the generator rather than the
+    # image's own entrypoint (which would start a second backend). The image's
+    # WORKDIR is /convex, which is where the generator lives.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -u
+        # The generator prints a table; the key is the row containing '|'.
+        # Mirrors scripts/ci-compose-runtime.sh, which mints from the host.
+        if ./generate_admin_key.sh 2>/dev/null | grep '|' | tail -1 | tr -d '\r' > /keygen/admin_key \
+           && [ -s /keygen/admin_key ]; then
+          echo "==> admin key generated for first boot (written to the admin_key volume)"
+        else
+          # Never fail: `bootstrap` only *prefers* this file, and an operator
+          # with CONVEX_SELF_HOSTED_ADMIN_KEY in .env must keep working.
+          echo "==> WARNING: could not mint an admin key; set CONVEX_SELF_HOSTED_ADMIN_KEY in .env" >&2
+          : > /keygen/admin_key
+        fi
+        exit 0
+    restart: "no"
+    networks:
+      - dogfood-network
+
+  # ----------------------------------------------------------- dashboard ----
+  dashboard:
+    image: ghcr.io/get-convex/convex-dashboard:latest
+    stop_grace_period: 10s
+    stop_signal: SIGINT
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_DEPLOYMENT_URL: ${CONVEX_CLOUD_ORIGIN:-http://localhost:3210}
+    ports:
+      - "6791:6791"
+    networks:
+      - dogfood-network
+
+  # ----------------------------------------------------------- bootstrap ----
+  # Built from ./backend — see backend/Dockerfile. Publishes the Convex Auth
+  # signing keys, pushes the function bundle (schema migration), then seeds the
+  # Dogfood 2026 fixtures. Exits when done; `restart: "no"` keeps it a one-shot.
+  bootstrap:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+      # Ordering only. `admin_key` always exits 0, so this can never block a
+      # deployment that already supplies its own key.
+      admin_key:
+        condition: service_completed_successfully
+    volumes:
+      - admin_key:/keygen:ro
+    environment:
+      CONVEX_SELF_HOSTED_URL: http://backend:3210
+      # Optional. Leave blank and `bootstrap` uses the key the `admin_key`
+      # service generated on first boot — see README / env.example.
+      CONVEX_SELF_HOSTED_ADMIN_KEY: ${CONVEX_SELF_HOSTED_ADMIN_KEY:-}
+      SITE_URL: ${SITE_URL:-http://localhost:3000}
+      SEED_ON_START: ${SEED_ON_START:-true}
+      SKIP_AUTH_KEYS: ${SKIP_AUTH_KEYS:-false}
+      # Issue 30: seed five extra demo events, one per lifecycle stage.
+      # "false" (the default) keeps the seed exactly as it was: only
+      # Sample Hack 2026. Propagated to the deployment in backend/entrypoint.sh,
+      # because Convex functions read process.env from the deployment's own
+      # environment variables — not from this container's.
+      TEST_EVENTS: ${TEST_EVENTS:-false}
+    restart: "no"
+    networks:
+      - dogfood-network
+
+  # ------------------------------------------------------------ frontend ----
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        # Vite inlines VITE_* at build time; change + rebuild to repoint.
+        VITE_CONVEX_URL: ${VITE_CONVEX_URL:-http://localhost:3210}
+    depends_on:
+      # Do NOT serve the app until the functions are actually deployed. An SPA
+      # pointed at an empty Convex backend looks fine and then fails every
+      # query with "Could not find public function" — so gate on bootstrap and
+      # fail loudly at startup instead of serving a silently broken app.
+      bootstrap:
+        condition: service_completed_successfully
+    ports:
+      - "3000:3000"
+    networks:
+      - dogfood-network
+
+networks:
+  dogfood-network:
+    driver: bridge
+
+volumes:
+  db_data:
+  convex_data:
+  admin_key:

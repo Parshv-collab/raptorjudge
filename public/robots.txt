@@ -1,0 +1,8 @@
+# RaptorJudge is self-hosted: replace `raptorjudge.local` below with the origin
+# you actually serve the SPA from. Everything is public by default — there are no
+# crawlable private routes, because every authenticated surface is behind a client
+# session and every data route is role-gated server-side.
+User-agent: *
+Allow: /
+
+Sitemap: https://raptorjudge.local/sitemap.xml

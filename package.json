@@ -1,0 +1,61 @@
+{
+  "name": "raptorjudge",
+  "private": true,
+  "version": "1.0.0",
+  "description": "RaptorJudge — open-source, self-hostable hackathon submission & judging platform for Hackathon Raptors / Dogfood 2026",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report",
+    "seed": "node scripts/run-seed.mjs",
+    "acceptance": "node scripts/run-acceptance.mjs",
+    "proof:normalization": "node scripts/normalization-proof.mjs",
+    "keys:generate": "node scripts/generate-auth-keys.mjs",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down -v",
+    "docker:verify": "sh ./scripts/ci-compose-runtime.sh"
+  },
+  "dependencies": {
+    "@convex-dev/auth": "^0.0.95",
+    "@fontsource-variable/inter-tight": "^5.3.0",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "convex": "1.46.0",
+    "convex-helpers": "0.1.124",
+    "lucide-react": "0.462.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "6.30.6",
+    "recharts": "2.15.4",
+    "remark-gfm": "^4.0.1",
+    "sonner": "1.7.4",
+    "tailwind-merge": "2.6.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "26.6.2",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "@vitejs/plugin-react": "4.7.0",
+    "autoprefixer": "10.6.1",
+    "postcss": "8.5.28",
+    "tailwindcss": "3.4.19",
+    "tailwindcss-animate": "1.0.7",
+    "typescript": "5.9.3",
+    "vite": "5.4.21",
+    "vite-tsconfig-paths": "5.1.4",
+    "vitest": "2.1.9"
+  }
+}

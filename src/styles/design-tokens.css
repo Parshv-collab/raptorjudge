@@ -1,0 +1,75 @@
+/* ============================================================================
+   RaptorJudge design tokens — single source of truth.
+   Dark editorial system: near-black canvas, one hot accent, sharp corners.
+   Every page consumes these via Tailwind semantic utilities (bg-surface-1,
+   text-secondary, border-line, …). No component may hardcode a color.
+   ========================================================================== */
+
+:root {
+  /* Color */
+  --color-bg: #0a0a0b;
+  --color-surface-1: #111113;
+  --color-surface-2: #17171a;
+  --color-border: #232328;
+  --color-border-strong: #2e2e34;
+  --color-text-primary: #f4f4f5;
+  --color-text-secondary: #a1a1aa;
+  /*
+   * Was #52525b, which measured 2.56:1 on the canvas, 2.44:1 on surface-1 and
+   * 2.31:1 on surface-2 — under WCAG AA (4.5:1) for the 11–13px micro-labels,
+   * timestamps and overlines it is used for. This value measures 5.4:1 / 5.2:1
+   * / 4.9:1 while staying visibly quieter than `text-secondary` (7.4:1), so the
+   * three-tier hierarchy survives: primary 17:1 → secondary 7.4:1 → muted 5:1.
+   */
+  --color-text-muted: #85858e;
+  --color-accent: #ff2d55;
+  --color-accent-hover: #ff4568;
+  /* Foreground for text sitting on the accent fill (mark tiles, solid
+     buttons, the focused skip link). White is the accent's contrast partner,
+     and naming it here keeps the one raw hex out of index.css. */
+  --color-on-accent: #ffffff;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-backdrop: rgba(0, 0, 0, 0.6);
+  /*
+   * Focus ring — WCAG 2.2 SC 1.4.11 (Non-text Contrast) and SC 2.4.13 (Focus
+   * Appearance) both want a focus indicator at 3:1 against the colours around
+   * it. The ring used to be the accent at 40% alpha, which measured 1.70:1 on
+   * the canvas and the same 1.70:1 on surface-1 and surface-2: a failing
+   * indicator on every surface in the system, and invisible on a dark one.
+   *
+   * The opaque accent is the fix, not a new colour: 5.43:1 on the canvas,
+   * 5.17:1 on surface-1, 4.85:1 on surface-2 — and, because every rule keeps
+   * `outline-offset: 2px`, the ring is always drawn *beside* an element rather
+   * than over its own fill, so it never has to contrast with itself.
+   *
+   * This is an `outline` shorthand (width/style/colour) so the one global rule
+   * in index.css can be `outline: var(--focus-ring)`. Component call sites use
+   * the matching Tailwind utility `outline-accent` with no alpha modifier;
+   * `tests/focusRing.test.ts` fails if either side reintroduces translucency.
+   */
+  --focus-ring: 2px solid var(--color-accent);
+
+  /* Radius — one scale, never deviate */
+  --radius-button: 6px;
+  --radius-input: 6px;
+  --radius-card: 8px;
+  /* The sign-in / sign-up card is a single focused surface, so it rounds a
+     little softer than a content card while staying far from the pill scale. */
+  --radius-auth: 12px;
+  --radius-pill: 999px;
+
+  /* Shadow — borders do the work; only overlays get depth */
+  --shadow-modal: 0 8px 32px rgba(0, 0, 0, 0.5);
+
+  /* Motion */
+  --duration-fast: 150ms;
+  --duration-state: 200ms;
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+
+  /* Layout */
+  --sidebar-width: 240px;
+  --topbar-height: 64px;
+  --content-max: 1200px;
+}

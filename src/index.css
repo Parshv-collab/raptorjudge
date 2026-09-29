@@ -1,0 +1,215 @@
+@import "@fontsource-variable/inter-tight";
+@import "@fontsource-variable/jetbrains-mono";
+@import "./styles/design-tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    background-color: var(--color-bg);
+    color: var(--color-text-primary);
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text-primary);
+    font-family: "Inter Tight Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: rgba(255, 45, 85, 0.25);
+    color: var(--color-text-primary);
+  }
+
+  /* Focus ring: 2px opaque accent, offset — on every interactive element.
+     The colour, width and style all come from the token, which exists so the
+     ring clears WCAG 2.2 1.4.11 / 2.4.13 (3:1); the 40%-alpha accent it
+     replaced measured 1.70:1 on every surface here. See design-tokens.css. */
+  :focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  * {
+    border-color: var(--color-border);
+  }
+
+  /* Scrollbars match the canvas */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border-strong);
+    border-radius: var(--radius-pill);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-muted);
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer utilities {
+  /* Numeric data always reads in columns */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Brand wordmark */
+  .wordmark {
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  /* Skip-to-content target */
+  .skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: 100;
+  }
+  .skip-link:focus {
+    left: 16px;
+    top: 16px;
+    padding: 8px 12px;
+    background: var(--color-accent);
+    color: var(--color-on-accent);
+    border-radius: var(--radius-button);
+  }
+
+  /* Modal choreography: backdrop fade + 4px rise, 150ms (spec) */
+  .modal-fade-in {
+    animation: backdrop-fade var(--duration-fast) var(--ease-out);
+  }
+  .modal-rise-in {
+    animation: modal-rise var(--duration-fast) var(--ease-out);
+  }
+
+  /* Sign-in backdrop: a faint square grid, masked to a soft pool behind the
+     card so the pattern has no visible edge. Flat — no glow, no shadow.
+
+     The pattern lives on a `::before` at `z-index: -1` rather than on the
+     element itself, and that is load-bearing rather than tidiness. A `mask` on
+     this element would apply to its whole subtree — the card, the inputs, the
+     submit button's own accent fill and the focus ring drawn around them. The
+     mask is not opaque at the edges of the pool, so everything the card
+     painted was composited at 77–93% alpha: the sign-in button's ring measured
+     4.60:1 instead of 5.17:1 and the mode switch's only 3.38:1, which is
+     inside the noise of the 3:1 SC 1.4.11 floor. A mask belongs on the
+     decoration, never on the content. */
+  .auth-grid {
+    position: relative;
+  }
+
+  .auth-grid::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 48px 48px;
+    background-position: center center;
+    -webkit-mask-image: radial-gradient(ellipse 68% 62% at 50% 45%, #000 20%, transparent 100%);
+    mask-image: radial-gradient(ellipse 68% 62% at 50% 45%, #000 20%, transparent 100%);
+  }
+
+  /* The TOTP field arriving after `TOTP_REQUIRED` — a short rise rather than a
+     pop, so it reads as part of the same form. */
+  .auth-reveal {
+    animation: auth-reveal 200ms var(--ease-out);
+  }
+
+  /* Shimmer for loading skeletons */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--color-surface-2) 25%,
+      var(--color-border) 50%,
+      var(--color-surface-2) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s linear infinite;
+  }
+}
+
+@keyframes backdrop-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes auth-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Sonner toast slide-in from the right (spec: 200ms) */
+[data-sonner-toast] {
+  animation: toast-slide-in 200ms var(--ease-out);
+  font-family: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

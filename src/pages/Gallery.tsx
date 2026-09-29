@@ -1,0 +1,216 @@
+import { useState, useMemo } from "react";
+import { useParams, Link } from "react-router-dom";
+import { useQuery, useConvexAuth } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { Input } from "@/components/ui/Input";
+import { Dropdown } from "@/components/ui/Dropdown";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Badge } from "@/components/ui/Badge";
+import { SkeletonCard } from "@/components/ui/SkeletonCard";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { DEFAULT_EVENT_SLUG } from "@/lib/featuredEvent";
+
+const SORT_OPTIONS = [
+  { value: "default", label: "Default Order" },
+  { value: "title_asc", label: "Title (A-Z)" },
+  { value: "title_desc", label: "Title (Z-A)" },
+];
+
+/**
+ * Ordering rules (they live on the server, this screen just renders them):
+ *  - before publication the query returns a deterministic per-day shuffle, so
+ *    the grid carries no information about merit and `rank` is absent;
+ *  - after publication it returns the final ranking (Bradley–Terry if the event
+ *    ran pairwise comparisons, else the normalized z-score) with `rank` on every
+ *    card and `isWinner` on #1.
+ */
+const RESULTS_PUBLISHED_STATUSES = ["published", "archived"];
+
+export default function Gallery() {
+  const { slug } = useParams<{ slug: string }>();
+  const { isAuthenticated } = useConvexAuth();
+  const event = useQuery(api.events.getBySlug, slug ? { slug } : "skip");
+
+  const [search, setSearch] = useState("");
+  const [selectedTrack, setSelectedTrack] = useState("");
+  const [sortBy, setSortBy] = useState("default");
+
+  const cards = useQuery(
+    api.submissions.publicGallery,
+    event ? { eventId: event._id, search: search || undefined } : "skip"
+  );
+
+  const tracks = useQuery(api.tracks.listByEvent, event ? { eventId: event._id } : "skip");
+
+  const visibleProjects = useMemo(() => {
+    let list = cards ?? [];
+    if (selectedTrack) {
+      list = list.filter((p: any) => p.trackName === selectedTrack);
+    }
+    if (sortBy === "title_asc") {
+      list = [...list].sort((a, b) => a.title.localeCompare(b.title));
+    } else if (sortBy === "title_desc") {
+      list = [...list].sort((b, a) => a.title.localeCompare(b.title));
+    }
+    return list;
+  }, [cards, selectedTrack, sortBy]);
+
+  const galleryClosed = event && ["draft", "registration", "hacking"].includes(event.status);
+  const resultsPublished = Boolean(event && RESULTS_PUBLISHED_STATUSES.includes(event.status));
+  // Whether the visitor already belongs to a team here — only used to word the
+  // voting hint accurately, never to gate anything.
+  const myTeamForEvent = useQuery(
+    api.teams.myTeams,
+    isAuthenticated && event ? {} : "skip",
+  )?.some((t: { eventId: string }) => t.eventId === event?._id);
+
+  return (
+    <div className="flex flex-col gap-8">
+      <PageHeader
+        title={event?.title ? `${event.title} — projects` : "Project gallery"}
+        description={
+          galleryClosed
+            ? "Gallery submissions will be visible once hacking concludes."
+            : resultsPublished
+              ? `${visibleProjects.length} project${visibleProjects.length === 1 ? "" : "s"}, ranked by the final results`
+              : `Browsing ${visibleProjects.length} project submission${visibleProjects.length === 1 ? "" : "s"} — order is randomised until results are announced`
+        }
+        actions={
+          <Link
+            to={`/e/${slug || DEFAULT_EVENT_SLUG}`}
+            className="text-sm text-accent hover:text-accent-hover transition-colors duration-fast"
+          >
+            ← Back to event
+          </Link>
+        }
+      />
+
+      {/*
+        Issue 53: on a voting event the grid is where the work happens, but the
+        page gave no hint that a ballot was open. The event page's "Vote now"
+        button lands here, so the landing has to say what to do next.
+      */}
+      {event?.status === "voting" && (
+        <div className="rounded-card border border-accent/40 bg-accent/10 px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-primary">
+            <span className="font-medium">Community voting is open.</span>{" "}
+            <span className="text-secondary">
+              Open a project to cast your points. Tallies stay hidden until results are published.
+            </span>
+          </p>
+          <Link
+            to={myTeamForEvent ? `/workspace?event=${event.slug}` : `/e/${event.slug}`}
+            className="text-[13px] text-accent hover:text-accent-hover shrink-0"
+          >
+            {myTeamForEvent ? "Back to your workspace" : "About this event"} →
+          </Link>
+        </div>
+      )}
+
+      {/* Filter bar */}
+      <div className="flex flex-col gap-4">
+        <div className="bg-surface-1 border border-line rounded-card p-4 flex flex-col sm:flex-row gap-4 items-center">
+          <div className="w-full sm:flex-1">
+            <Input
+              aria-label="Search projects"
+              placeholder="Search project title, tagline, team..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="w-full sm:w-48">
+            <Dropdown options={SORT_OPTIONS} value={sortBy} onChange={(val) => setSortBy(val)} />
+          </div>
+        </div>
+
+        {/* Track filter chips */}
+        {tracks && tracks.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedTrack("")}
+              className={`h-8 px-3.5 rounded-pill text-[13px] font-medium border transition-colors duration-fast ${
+                selectedTrack === ""
+                  ? "bg-accent/10 text-accent border-accent/40"
+                  : "bg-surface-1 text-secondary border-line hover:text-primary hover:border-line-strong"
+              }`}
+            >
+              All tracks
+            </button>
+            {tracks.map((t) => (
+              <button
+                key={t._id}
+                type="button"
+                onClick={() => setSelectedTrack(t.name)}
+                className={`h-8 px-3.5 rounded-pill text-[13px] font-medium border transition-colors duration-fast ${
+                  selectedTrack === t.name
+                    ? "bg-accent/10 text-accent border-accent/40"
+                    : "bg-surface-1 text-secondary border-line hover:text-primary hover:border-line-strong"
+                }`}
+              >
+                {t.name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Cards grid */}
+      {cards === undefined ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={3} />
+        </div>
+      ) : galleryClosed ? (
+        <EmptyState
+          title="Gallery embargoed"
+          description="Submissions for this event will be published after the submission deadline."
+        />
+      ) : visibleProjects.length === 0 ? (
+        <EmptyState
+          title="No projects found"
+          description="No submitted projects match your current filter or search query."
+        />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {visibleProjects.map((project: any) => (
+            <Link key={project.id} to={`/project/${project.id}`} className="group">
+              <div className="h-full bg-surface-1 border border-line rounded-card overflow-hidden transition-colors duration-fast group-hover:border-line-strong flex flex-col">
+                <div className="h-32 bg-surface-2 border-b border-line flex items-center justify-center font-mono text-xl text-accent">
+                  {String(project.title ?? "?").slice(0, 2).toUpperCase()}
+                </div>
+
+                <div className="p-5 flex flex-col flex-1">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Badge variant="accent">{project.trackName || "General Track"}</Badge>
+                      {project.isWinner ? (
+                        <Badge variant="success">🏆 Winner</Badge>
+                      ) : project.rank ? (
+                        <Badge variant="default">#{project.rank}</Badge>
+                      ) : null}
+                    </div>
+                    <span className="text-[13px] text-muted truncate">{project.teamName}</span>
+                  </div>
+
+                  <h3 className="text-[15px] font-semibold text-primary">{project.title}</h3>
+                  <p className="text-[13px] text-secondary line-clamp-2 leading-relaxed mt-1">
+                    {project.tagline || project.description}
+                  </p>
+
+                  <div className="mt-auto pt-4 border-t border-line flex justify-between items-center text-[13px]">
+                    <span className="font-medium text-accent">View details →</span>
+                    {project.tags && (
+                      <span className="text-muted truncate max-w-[150px] font-mono text-[11px]">{project.tags}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
