@@ -109,7 +109,10 @@ export default function Verify() {
               </dl>
             </Alert>
           ) : (
-            <Alert variant="error" title="Judge record could not be verified">
+            // Verdict wording matches the certificate branch below ("Certificate
+            // invalid"): a reader scanning for the outcome should not have to
+            // read a sentence to learn whether the signature held.
+            <Alert variant="error" title="Judge record invalid">
               {judgeRecord.reason || "The signature does not match this judge's records."}
             </Alert>
           )}

@@ -5,10 +5,69 @@
 [![acceptance](https://img.shields.io/badge/acceptance-T1%20T2%20verified-brightgreen)](#acceptance-status)
 [![license](https://img.shields.io/badge/license-MIT-blue)](#license)
 
-> **Docs verified against `main` on 2026-09-29** (`36aab87`). Every number in this
-> file has a command beside it — if a count ever disagrees with the code, the code
-> wins. [FINAL-REVIEW.md](FINAL-REVIEW.md) is the ledger of what is proven by
-> which command, and the `AUDIT*.md` files are historical snapshots.
+> **Docs verified against `main` on 2026-09-29.** Every number in this file has a
+> command beside it — if a count ever disagrees with the code, the code wins.
+> [FINAL-REVIEW.md](FINAL-REVIEW.md) is the ledger of what is proven by which
+> command, and the `AUDIT*.md` files are historical snapshots.
+
+---
+
+## Verify in 5 minutes
+
+```bash
+git clone https://github.com/Parshv-collab/raptorjudge
+cd raptorjudge
+docker compose up --build
+```
+
+Wait for the four containers to come up. Then:
+
+```bash
+python3 run.py .dogfood.toml          # T1/T2 acceptance → 7/7 PASS
+python3 run_t3_t4.py .dogfood.toml    # T3/T4 self-audit → 17/17 PASS
+```
+
+Open <http://localhost:3000>. Sign in with any seeded account — the password is
+**`dogfood2026`** for all of them:
+
+| Role | Email |
+|---|---|
+| Admin | `admin@fixture.local` |
+| Organizer | `organizer@fixture.local` |
+| Judge A | `tomas.varga@example.org` |
+| Judge B | `wei.lindqvist@example.org` |
+| Participant | `participant@fixture.local` |
+
+No signup, no mail server, no API keys, no external services. The first boot
+seeds a deterministic population — 8 tracks, 30 judges, 40 teams, 41 projects,
+126 score rows — so every screen opens with real data instead of an empty state.
+[What happens on first boot](#what-happens-on-first-boot) walks the sequence;
+[Seeded credentials](#seeded-credentials) says what each account unlocks.
+
+## What you'll see
+
+### Landing page
+
+![Landing page](docs/screenshots/01-landing.png)
+
+### Sign-in
+
+![Sign in](docs/screenshots/02-signin.png)
+
+### Organizer console
+
+![Organizer overview](docs/screenshots/03-organizer.png)
+
+### Participant workspace
+
+![Workspace](docs/screenshots/04-workspace.png)
+
+### Platform settings
+
+![Platform settings](docs/screenshots/05-settings.png)
+
+> **Demo:** no video — the screenshots above and the verification scripts below
+> are the demo. Every claim in this README is a command you can run.
 
 ---
 
@@ -35,26 +94,20 @@ into as an admin, organizer, two judges and a participant.
 | Auth | `@convex-dev/auth` 0.0.95 password provider, RS256 session JWTs, optional TOTP for privileged roles |
 | Database | PostgreSQL 16 (Convex storage backend) |
 | Serving | nginx (SPA + security headers) behind Docker Compose |
-| Tests | Vitest 2.1 — 227 unit tests / 19 files · Playwright 1.63 — 41 browser tests / 5 specs · two Python HTTP harnesses (7/7 and 17/17) |
+| Tests | Vitest 2.1 — 258 unit tests / 21 files · Playwright 1.63 — 49 browser tests / 7 specs · two Python HTTP harnesses (7/7 and 17/17) |
 
 There is no Express/Fastify/Django service, no UI component library and **no
 runtime third-party API requirement**. Everything runs inside the Compose stack.
 
-## Quickstart
+## What happens on first boot
 
-> **Suggested walkthrough** (no recording yet): sign in as the organizer on
-> `test-hack-results`, then as a judge score a submission, then as the participant
-> show the podium and a verified certificate.
+> **Suggested walkthrough:** sign in as the organizer on `test-hack-results`,
+> then as a judge score a submission, then as the participant show the podium
+> and a verified certificate.
 
-```bash
-git clone <this repo> raptorjudge
-cd raptorjudge
-docker compose up --build
-```
-
-Then open **<http://localhost:3000>**.
-
-What happens on first boot:
+The clone and `docker compose up --build` from
+[Verify in 5 minutes](#verify-in-5-minutes) bring up the stack on
+**<http://localhost:3000>**. Internally:
 
 1. `db` (PostgreSQL 16) starts and passes its healthcheck.
 2. `backend` (Convex) starts with `POSTGRES_URL` pointing at `db` and answers
@@ -388,15 +441,15 @@ Four layers, each answering a question the others cannot.
 
 | Layer | Command | What it covers |
 |-------|---------|----------------|
-| Unit + integration | `npm test` | Backend logic, algorithms, security, audit chain (227 tests, 19 files) |
-| **E2E (browser)** | `npm run test:e2e` | **React pages, sign-in flows, role guards, admin nav** (41 tests, 5 specs) |
+| Unit + integration | `npm test` | Backend logic, algorithms, security, audit chain (258 tests, 21 files) |
+| **E2E (browser)** | `npm run test:e2e` | **React pages, sign-in flows, role guards, admin nav** (49 tests, 7 specs) |
 | T1/T2 acceptance | `python3 run.py .dogfood.toml` | Official checker |
 | T3/T4 self-audit | `python3 run_t3_t4.py .dogfood.toml` | Self-audit |
 | Compose smoke | `npm run docker:verify` | Boots the real stack and asserts health + API surface |
 
 The unit and HTTP layers are fast and hermetic but they never render a React
 page: a broken import, a component that throws on mount, or a route that no
-longer exists passes all 227 unit tests and both Python suites, and only fails
+longer exists passes all 258 unit tests and both Python suites, and only fails
 in a browser. The Playwright layer closes that gap.
 
 **E2E tests require the stack to be running:**
@@ -460,8 +513,8 @@ Two notes on what the suite does and does not assert:
 | `npm run dev` | Vite dev server (frontend) |
 | `npm run build` | Production build to `dist/` |
 | `npm run typecheck` | `tsc -b --noEmit` (covers `src/`, `tests/`, `e2e/`, `playwright.config.ts`) |
-| `npm test` | Vitest suite (227 tests, 19 files) |
-| `npm run test:e2e` | Playwright browser suite (41 tests, 5 specs) — needs a running stack |
+| `npm test` | Vitest suite (258 tests, 21 files) |
+| `npm run test:e2e` | Playwright browser suite (49 tests, 7 specs) — needs a running stack |
 | `npm run test:e2e:ui` | Playwright interactive mode |
 | `python3 run_t3_t4.py .dogfood.toml` | T3/T4 self-audit against a running stack |
 | `npm run test:watch` | Vitest in watch mode |
@@ -482,8 +535,8 @@ src/lib/             framework-free helpers: algorithms/, validation, safe redir
                      token storage, rate-limit policy, CSV, formatting, event status
 src/pages/           route-level screens (+ src/pages/organizer/ tab panels)
 src/components/      ui/ design system, layout/ app shell, events/, participant/
-tests/               19 Vitest files, including fixture-driven proofs
-e2e/                 5 Playwright specs (public, auth, judge, participant, admin)
+tests/               21 Vitest files, including fixture-driven proofs
+e2e/                 7 Playwright specs (public, auth, judge, participant, admin, …)
 playwright.config.ts browser-suite config: one Chromium project, serial, one worker
 scripts/             seed / acceptance / proof / auth-key tooling + the compose smoke test
 frontend/, backend/  Docker images, nginx.conf, and the bootstrap entrypoint
@@ -491,6 +544,7 @@ run.py, .dogfood.toml official acceptance checker and its config
 run_t3_t4.py         companion T3/T4 self-audit (same config, stdlib only)
 spec.md, fixtures.json  the DOGFOOD 2026 brief and the fixture population both
                        acceptance suites read
+docs/screenshots/  the five README screenshots
 ```
 
 ## Documentation
@@ -509,6 +563,7 @@ spec.md, fixtures.json  the DOGFOOD 2026 brief and the fixture population both
 | [ui-audit.md](ui-audit.md) | The pre-simplification UI density audit that motivated the design pass | **Historical** snapshot |
 | [env.example](env.example) | Copy to `.env`; every variable the Compose stack substitutes | Current |
 | [spec.md](spec.md) / [fixtures.json](fixtures.json) | The DOGFOOD 2026 brief and the fixture population both acceptance suites read | Inputs, not documentation |
+| [docs/screenshots/](docs/screenshots/) | The five screenshots in [What you'll see](#what-youll-see) — landing, sign-in, organizer console, participant workspace, platform settings | Captured from a running stack |
 | [normalization-proof.txt](normalization-proof.txt) | Generated evidence: raw vs normalized rankings and the harsh/generous compression | Generated by `npm run proof:normalization` |
 | [acceptance-report.txt](acceptance-report.txt) | Captured output of the official `run.py` T1/T2 checker — 7/7 PASS | Captured run |
 | [t3-t4-audit.txt](t3-t4-audit.txt) | Captured output of `run_t3_t4.py` — 17/17 PASS, 0 skips | Captured run |
@@ -590,12 +645,13 @@ Honest, specific, and current:
   (primary 16.3–18.0:1, secondary 7.0–7.7:1, muted 4.9–5.4:1). Modal focus
   trapping, `aria-describedby` wiring and keyboard reachability are in place;
   contrast on this one token is the outstanding half.
-- **The admin rail lists "Settings" twice.** `ROLE_NAV.admin` points one entry at
-  `/admin/settings` and the shared `ACCOUNT_NAV` points the other at `/settings`,
-  so both light up as "Settings" in the admin sidebar. This is the same
-  duplicated-row bug that was fixed for "Profile"; the browser suite asserts
-  around it (by `href`) rather than papering over it. Low impact, but it is
-  ambiguous and should collapse to one entry.
+- **The admin rail listed "Settings" twice. Fixed.** `ROLE_NAV.admin` pointed one
+  entry at `/admin/settings` and the shared `ACCOUNT_NAV` pointed the other at
+  `/settings`, so two rail rows read "Settings" and highlighted on different
+  pages — the same duplicated-row bug that was fixed for "Profile". The account
+  row is now **"Account settings"**, which is also that page's own H1, and
+  `e2e/admin.spec.ts` asserts the rail holds exactly one of each so it cannot
+  come back.
 - **Password recovery is human-mediated by design.** There is no mail service
   in an offline deployment, so `/auth` explains that an organizer or admin must
   issue a temporary password (`/admin/users → Reset password`, audited, live

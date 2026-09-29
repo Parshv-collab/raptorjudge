@@ -156,9 +156,10 @@ Private notes are stored per score row and are visible only to staff.
 ## 4. Z-score normalization
 
 Different judges use the 1–5 slider differently. In the fixture data the harshest
-panel averages **2.000** and the most generous **4.222** — more than two points
-apart on a five-point scale. A raw average therefore measures *who happened to
-review you*. Normalization removes that.
+panel — Tomas Varga (`jdg_01`) — averages **2.000** and the most generous, Wei
+Lindqvist (`jdg_02`), **4.222** — more than two points apart on a five-point
+scale. A raw average therefore measures *who happened to review you*.
+Normalization removes that.
 
 ### Formula
 
@@ -191,14 +192,40 @@ is treated as perfectly average rather than infinitely good or bad.
 
 ### Worked example (from the fixture proof)
 
-`jdg_01` is the harsh panel — one project, mean **2.000**, `sigma 0.000`.
-`jdg_02` is the generous panel — six projects, mean **4.222**, `sigma 0.807`.
-Raw gap: **2.222** points.
+`jdg_01` — **Tomas Varga** (`tomas.varga@example.org`) — is the harsh panel: one
+project, mean **2.000**, `sigma 0.000`. `jdg_02` — **Wei Lindqvist**
+(`wei.lindqvist@example.org`) — is the generous panel: six projects, mean
+**4.222**, `sigma 0.807`. Raw gap: **2.222** points.
 
-After standardization both have `mean_z = 0.000` exactly (verified across all
-30 judges by `maxJudgeMeanZ = 0.000000000000`), so both contribute the same and
-their ten-point mean is **5.000**. The judge-severity gap collapses from
-**0.420** to **0.000** (std dev of judge means).
+Take one project from each panel and run the formula. Every number below is a
+real fixture score:
+
+```text
+harsh panel (Tomas Varga) — his only score row:
+    raw = 2.000, mu = 2.000, sigma = 0.000
+    sigma == 0 and the judge's range is flat (one project), so the degenerate
+    branch fires: ten-point = 5.0 — no signal to extract, so no signal invented.
+    On the raw scale that 2.000 is dead last of 41 projects.
+
+generous panel (Wei Lindqvist) — his mean, and his best row:
+    raw = 4.222  (his mean of 3.000, 3.667, 4.000, 4.667, 5.000, 5.000)
+        z        = (4.222 − 4.222) / 0.807 = 0.000
+        ten-point = clamp(5 + 2 × 0.000, 0, 10) = 5.000
+    raw = 5.000  (his best row — only 0.778 above his own mean)
+        z        = (5.000 − 4.222) / 0.807 = 0.964
+        ten-point = clamp(5 + 2 × 0.964, 0, 10) = 6.928
+```
+
+The 0.778-point advantage the generous judge gave his best project is small on a
+five-point slider and is worth **1.928 points of ten** once the panel is removed.
+The harsh judge's lone 2.000 — last place on the raw scale — becomes exactly
+5.000, because a one-project panel has no shape to standardize against. That is
+the whole argument: without normalization, a project is ranked by the severity
+of whoever happened to read it.
+
+After standardization both panels have `mean_z = 0.000` exactly (verified across
+all 30 judges by `maxJudgeMeanZ = 0.000000000000`), and the judge-severity gap
+collapses from **0.420** to **0.000** (std dev of judge means).
 
 ### Companion methods
 

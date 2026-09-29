@@ -185,7 +185,11 @@ function buildParticipantNav(slug: string | null): NavItem[] {
 const ACCOUNT_NAV: NavItem[] = [
   { label: "Profile", href: "/profile", icon: <UserIcon size={20} strokeWidth={1.75} /> },
   { label: "Search", href: "/search", icon: <Search size={20} strokeWidth={1.75} /> },
-  { label: "Settings", href: "/settings", icon: <Settings size={20} strokeWidth={1.75} /> },
+  // "Account settings", not "Settings": `ROLE_NAV.admin` already has a
+  // "Settings" row for `/admin/settings` (the platform console), and two rail
+  // rows with the same label pointing at different pages is the same ambiguity
+  // phase 2 fixed for "Profile". This label is also the page's own H1.
+  { label: "Account settings", href: "/settings", icon: <Settings size={20} strokeWidth={1.75} /> },
   { label: "Security", href: "/security", icon: <ShieldCheck size={20} strokeWidth={1.75} /> },
   { label: "Help", href: "/help", icon: <ClipboardList size={20} strokeWidth={1.75} /> },
 ];

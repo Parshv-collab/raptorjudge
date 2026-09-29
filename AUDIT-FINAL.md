@@ -1,14 +1,15 @@
 # RaptorJudge — final parity audit (AUDIT-FINAL.md)
 
-> **Historical snapshot.** It describes `main` at the final-polish commit, and
-> one more pass has landed since (`cacb715` "Full audit + fix pass", `36aab87`
-> seeder fix). The test counts here (227 / 19 files) still match; for anything
-> re-measured after that, read [FINAL-REVIEW.md](FINAL-REVIEW.md) (verified
-> 2026-09-29) and the Known gaps list in [README.md](README.md). The two items
-> called out at the end of this file as unfixable in that pass — the
-> `!auditLogs || length === 0` flash in the organizer Audit tab
+> **Historical snapshot, kept current where it is checkable.** It describes `main`
+> at the final-polish commit. Since then three passes have landed: a usability +
+> hardening pass, a UI refinement pass, and a final documentation + audit pass.
+> The two items called out at the end of this file as unfixable in that pass —
+> the `!auditLogs || length === 0` flash in the organizer Audit tab
 > (`src/pages/OrganizerEventManage.tsx`) and the seconds-precision timestamp in
-> that tab's rows — were re-checked on 2026-09-29 and are **both still present**.
+> that tab's rows — were **both fixed on 2026-09-29**; see the last pass's
+> entries in [README.md](README.md) → Known gaps. For anything re-measured after
+> the snapshot, read [FINAL-REVIEW.md](FINAL-REVIEW.md) and the Known gaps list
+> in [README.md](README.md), which is the maintained one.
 
 **Scope.** Every check in the final-pass brief, run against the state of `main` at
 the final-polish commit. This document records *what was checked, how, and what
@@ -27,9 +28,9 @@ not manual:
   names, or with a return shape the page misreads, **is a compile error**. Checks 2,
   3 and 5 below are therefore not "we read the code and agreed" — they are
   "the compiler would not have merged it".
-- `bun run test` is green at **227 tests across 19 files**, including
-  `tests/auditChain.test.ts`, `tests/duplicates.test.ts`, `tests/rateLimit.test.ts`
-  and the fixture-derived normalization proof.
+- `bun run test` is green at **258 tests across 21 files**, including
+  `tests/auditChain.test.ts`, `tests/duplicates.test.ts`, `tests/rateLimit.test.ts`,
+  `tests/focusRing.test.ts` and the fixture-derived normalization proof.
 
 ---
 
@@ -61,12 +62,14 @@ button in the UI. Five of them were additionally being called through `(api as a
 escapes, which the compiler could not check; those escapes are gone and the calls
 are typed.
 
-**Remaining two public queries with no caller — left in place, reported:**
+**Remaining public queries with no caller — left in place, reported:**
 
 | Export | Why it stays |
 |---|---|
 | `events.listMine` | Superseded by `events.listWithCounts` (same scoping, counts inlined — issues 33/37). It is still a valid public API export for an external client. |
 | `events.getStorageUrl` | Storage ids are resolved server-side today (`users.myAvatarUrl`, banner fields). It has no frontend caller. |
+| `events.featured` | Superseded by `events.featuredForVisitors`, which is what `src/lib/featuredEvent.ts` calls. |
+| `certificates.issue` | The UI always issues a whole event at once through `certificates.issueAll`; the single-certificate export has no caller. |
 
 Deleting a public Convex export is a schema-visible change with no upside here and a
 non-zero chance of breaking a CLI consumer, so both are documented rather than
@@ -86,7 +89,7 @@ the SPA for data the UI owns.
 
 ## 3. Every route in `src/App.tsx` resolves to a real page
 
-**31 route elements, 31 real page components, 0 wildcards beyond the catch-all.**
+**30 route elements, 30 real page components, 0 wildcards beyond the catch-all.**
 Verified by reading the route table against `src/pages/`:
 
 - 12 public routes (no session): `/`, `/events`, `/terms`, `/privacy`, `/help`,
@@ -277,14 +280,45 @@ message cannot reach an API consumer even if a caller forgets to sanitize.
 
 ---
 
+## Bugs found and fixed in the final documentation + audit pass (2026-09-29)
+
+A full walk of all 30 routes in five roles at 375 / 768 / 1280px — 105 page-views
+measured for horizontal overflow, text contrast against the painted background,
+type scale, clipped headings, sibling control heights and table overflow — plus
+nine named interactive checks. The measurement pass came back clean (0 overflow,
+0 contrast failures, 0 clipped headings, 0 control-row mismatches). Three real
+defects were found by reading the walk with a user's eye, and all three are
+fixed here:
+
+16. **The organizer console's Audit tab flashed a false empty state** — see the
+    Known gaps entry below, now closed.
+17. **The organizer console's Audit tab kept seconds-precision timestamps** — see
+    the Known gaps entry below, now closed.
+18. **The admin rail carried two rows labelled "Settings"** pointing at
+    `/admin/settings` and `/settings`, so two different pages highlighted the
+    same word. The account row is now "Account settings" (its own page H1), and
+    `e2e/admin.spec.ts` asserts the rail holds exactly one "Settings" and
+    exactly one "Account settings" so the duplicate cannot return. The two
+    `if (item.label === "Settings")` workarounds the spec carried for this are
+    gone.
+19. **The judge-record verification alert used different verdict vocabulary from
+    the certificate alert directly beneath it** — "Judge record could not be
+    verified" against "Certificate invalid". A reader scanning the two branches
+    for the outcome had to read a sentence in one of them. Both now read
+    "… invalid", and the server's own reason ("signature mismatch — record may
+    be forged") is unchanged underneath.
+
+Two copies were also found stale and corrected rather than left to rot: the
+test counts in this file (227/19 → 258/21) and the route count (31 → 30).
+
 ## Known gaps, honestly
 
 ### Phase 2 — full role × event sweep
-
-- **`events.listMine` and `events.getStorageUrl`** are public queries with no caller
-  (§1). Documented rather than deleted. **Re-measured 2026-09-29: the set is
-  four, not two** — `events.featured` (superseded by `events.featuredForVisitors`,
-  which `src/lib/featuredEvent.ts` calls) and `certificates.issue` (the page calls
+- **`events.listMine`, `events.getStorageUrl`, `events.featured` and
+  `certificates.issue`** are public queries with no caller (§1). Documented
+  rather than deleted. The set was re-measured 2026-09-29 and is four, not two:
+  `events.featured` (superseded by `events.featuredForVisitors`, which
+  `src/lib/featuredEvent.ts` calls) and `certificates.issue` (the page calls
   `certificates.issueAll`) are also unreferenced from the SPA. Same reasoning,
   same decision.
 - **`/admin/settings` stores 13 platform keys and the runtime reads four of
@@ -358,15 +392,18 @@ message cannot reach an API consumer even if a caller forgets to sanitize.
   the list, and the landing page's featured-event fallback includes it — without
   that, a default `TEST_EVENTS=false` deployment resolved to *no* primary event
   at all and the hero opened with "—" stat tiles and an `/e/` link that 404s.
-- **One instance could not be fixed in this pass.** The organizer console's
-  Audit tab still has the `!auditLogs || length === 0` guard. That block is in
-  the last 60 lines of a 1,438-line file whose tail this environment's editor
-  cannot match against; every attempt returned "not found". The audit query
-  loads with the page rather than on tab click, so the flash only appears if an
-  organizer clicks "Audit" within the first ~200ms of the console opening.
-- **The event timeline row in the organizer audit tab** keeps seconds; the other 28
-  date sites were migrated. A one-line difference, left because the file's tail
-  region resists the editor used in this environment, not because it is right.
+- ~~**The organizer console's Audit tab had the `!auditLogs || length === 0`
+  guard.**~~ **Fixed 2026-09-29.** The audit query loads with the page rather than
+  on tab click, so an organizer who opened the console and clicked "Audit" within
+  the first ~200ms saw "No audit entries yet" on an event with hundreds of
+  entries — the same false-empty-state class fixed in the other seven panels of
+  that console. It now holds a `SkeletonCard` pair while `auditLogs === undefined`
+  and only shows the `EmptyState` once the query has actually resolved empty.
+- ~~**The event timeline row in the organizer audit tab kept seconds.**~~ **Fixed
+  2026-09-29.** It was the last bare `toLocaleString()` on the page, so the same
+  event read `9/28/2026, 12:00:00 AM` in the log and `28 Sep 2026` in the 28 other
+  date fields around it. It now uses `formatDateTime` like the rest. With this,
+  every date in the app goes through `src/lib/format.ts`.
 - **Rate limiting is single-node** (a fixed-window counter in the `platform` table,
   20 actions/minute per actor+event). It is correct for the single-node Compose
   deployment this ships; it is not a distributed limiter. Documented in

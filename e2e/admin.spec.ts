@@ -9,13 +9,12 @@ import { ACCOUNTS, ROLE_HOME, sidebar, signIn } from "./helpers";
  * "Overrides" where the rail actually says "Winner overrides" (relabelled in
  * issue 44 to match the page H1).
  *
- * One wrinkle worth knowing about: the admin rail lists **two** entries labelled
- * "Settings" — `ROLE_NAV.admin` points one at `/admin/settings` and the shared
- * `ACCOUNT_NAV` points the other at `/settings`. That is the same class of
- * duplicated-row bug phase 2 fixed for "Profile", and it is left in place here
- * because the tests describe the app as it is, not as it should be. Every nav
- * assertion below therefore clicks by `href`, which is unambiguous, and checks
- * the label separately where the label itself is unique.
+ * One wrinkle worth knowing about: the admin rail used to list **two** entries
+ * labelled "Settings" — `ROLE_NAV.admin` points one at `/admin/settings` and the
+ * shared `ACCOUNT_NAV` pointed the other at `/settings`. The account row is now
+ * labelled "Account settings" (its own page H1), so every label in the rail is
+ * unique. The `/admin` Overview row is still matched by `href`, because the
+ * wordmark also links to `/admin`.
  */
 
 /** `ROLE_NAV.admin`, in rail order. */
@@ -39,11 +38,10 @@ test("admin sidebar navigation works", async ({ page }) => {
   await expect(rail).toBeVisible();
 
   for (const item of ADMIN_NAV) {
-    // Click by label where the label is unique. Two entries need `href`
-    // instead: "Settings" exists twice in the admin rail, and `/admin` is both
-    // the Overview row and the wordmark's `homeHref`.
+    // Click by label where the label is unique. `/admin` needs `href` instead,
+    // because it is both the Overview row and the wordmark's `homeHref`.
     const link =
-      item.label === "Settings" || item.href === "/admin"
+      item.href === "/admin"
         ? rail.locator(`a[href="${item.href}"]:not([aria-label])`)
         : rail.getByRole("link", { name: item.label, exact: true });
     await expect(link).toBeVisible();
@@ -63,11 +61,12 @@ test("admin rail labels are the ones the pages are known by", async ({ page }) =
 
   const rail = sidebar(page);
   for (const item of ADMIN_NAV) {
-    // "Settings" is excluded: the rail has two of them (see the file header),
-    // so a name-based assertion there would be ambiguous.
-    if (item.label === "Settings") continue;
     await expect(rail.getByRole("link", { name: item.label, exact: true })).toBeVisible();
   }
+  // The duplicate-row bug this file used to work around: two rail rows reading
+  // "Settings" but pointing at different pages. Locked shut.
+  await expect(rail.getByRole("link", { name: "Settings", exact: true })).toHaveCount(1);
+  await expect(rail.getByRole("link", { name: "Account settings", exact: true })).toHaveCount(1);
 });
 
 test("admin events list shows the seeded event", async ({ page }) => {

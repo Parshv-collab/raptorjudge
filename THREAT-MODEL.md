@@ -20,6 +20,27 @@ Authorization lives in `src/convex/lib/common.ts` (`requireUser` / `requireRole`
 `requireOrganizer`) and is asserted server-side for every endpoint listed in
 [JUDGING.md §7](JUDGING.md#7-role-isolation).
 
+## Top threats at a glance
+
+The full STRIDE table below has 35 rows. These ten are the ones that decide
+whether the deployment is safe to hand to a real event; the rest are defence in
+depth. **Residual** is what is still true after the mitigation ships — "None"
+means the control is enforced server-side and asserted by a test, not merely
+implemented.
+
+| # | Threat | Category | Impact | Mitigation | Residual |
+|---|--------|----------|--------|------------|----------|
+| 1 | Peer judge scores exposed | Information disclosure | **High** | `judging.myQueue` is scoped to the caller's own `judgeId`; `progress` / `judgesOverview` require organizer. Asserted by `run.py` T2 over HTTP and by `tests/rbac.test.ts` | None |
+| 2 | Participant or judge calls an organizer/admin function | Elevation | **High** | `requireUser` / `requireRole` / `requireOrganizer` inside every function in `src/convex/lib/common.ts`; `unlockRubric` and `setRole` are admin-only | None |
+| 3 | Stolen browser session token replayed | Spoofing | **High** | RS256 JWT verified server-side before `sub` is read; tokens in `sessionStorage`, not `localStorage`; TOTP available for privileged roles | Session revocation is manual — no session list, so a lost device is removed by an admin password reset |
+| 4 | A privileged actor edits history to hide a change | Tampering / Repudiation | **High** | Append-only hash chain (`entryHash` folds in `prevHash`); `audit.verifyChain` recomputes it and names the first break; every privileged write appends actor, target, before and after | Detects, does not prevent — a database owner with write access can still rewrite rows; only the break is reported |
+| 5 | Rubric weights change after judges have scored | Tampering | **High** | Stage lock + explicit lock, both reported by `getRubric`; every criterion write passes `assertRubricEditable`; weights must sum to 1.000 | An admin can unlock and edit mid-event; the change is audit-logged but not reversible |
+| 6 | Invite token guessed, reused or replayed to gain a role | Elevation | **High** | Only the token hash is stored; plaintext shown once; expired/used/revoked rejected; the invited email must match the signed-in account; the role comes from a server-side allowlist, never the client | Invite lookup has no rate limit — see Known gaps |
+| 7 | Webhook pointed at cloud metadata or internal infrastructure | SSRF | **High** | `lib/webhookTarget.ts`: HTTPS/HTTP only, credentials-in-URL rejected, metadata addresses blocked | Loopback and RFC1918 receivers stay allowed **on purpose** — self-hosting means a same-network receiver is normal |
+| 8 | Stored script injection through a comment or project field | Injection | **High** | React escapes by default; `Markdown` renders a safe subset with raw HTML never enabled and an `http(s)`/`mailto`/`tel`/relative href allowlist; CSP forbids inline and external script | None for the rendered paths; Markdown is a subset, so author-supplied HTML/iframes are dropped rather than sanitised |
+| 9 | Results or tallies read before publication | Information disclosure | Medium | Vote tallies masked until `published`; `normalization.analyze` requires organizer; the Bradley–Terry leaderboard is organizer/admin-only pre-publish | None — enforced in the query, not the UI |
+| 10 | Certificate signing key or session hashes read out of the KV table | Information disclosure | Medium | The settings projection strips `cert_secret` and every `session:` / `ratelimit:` / `lookup:` / `invite:` / `judge_tracks:` / `rubric_lock:` row; `sec.platform_secrets` asserts it on live data | Secrets are stored in the same database as the data they protect — no separate KMS or secret manager |
+
 ## STRIDE analysis
 
 | # | Threat | Attack description | Mitigation / status | Where |

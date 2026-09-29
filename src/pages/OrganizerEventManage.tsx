@@ -1520,7 +1520,19 @@ export function OrganizerEventManage() {
 
           <div className="bg-surface-1 border border-line rounded-card p-6">
             <div className="flex flex-col gap-2">
-              {(auditLogs || []).map((log: any) => (
+              {/* Hold a skeleton until the query resolves. The previous guard was
+                  `!auditLogs || auditLogs.length === 0`, which is trivially true
+                  while `auditLogs` is still `undefined` — so the tab flashed "No
+                  audit entries yet" for the ~200ms before the first row landed,
+                  on an event that has hundreds. The same class of bug was fixed
+                  in the other seven panels of this console. */}
+              {auditLogs === undefined && (
+                <>
+                  <SkeletonCard lines={2} />
+                  <SkeletonCard lines={2} />
+                </>
+              )}
+              {(auditLogs ?? []).map((log: any) => (
                 <div
                   key={log.id}
                   className="px-4 py-3 rounded-input bg-surface-2 border border-line flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[13px]"
@@ -1529,12 +1541,16 @@ export function OrganizerEventManage() {
                   <span className="text-secondary truncate sm:max-w-xs">
                     {log.actorEmail} → {log.targetType}:{log.targetId.slice(0, 10)}
                   </span>
+                  {/* `formatDateTime`, like the other 28 date sites: a bare
+                      `toLocaleString()` renders seconds here, so the same event
+                      showed "9/28/2026, 12:00:00 AM" in the log and
+                      "28 Sep 2026" everywhere else. */}
                   <span className="font-mono text-[12px] text-muted tnum">
-                    {new Date(log.timestamp).toLocaleString()}
+                    {formatDateTime(log.timestamp)}
                   </span>
                 </div>
               ))}
-              {(!auditLogs || auditLogs.length === 0) && (
+              {auditLogs !== undefined && auditLogs.length === 0 && (
                 <EmptyState
                   title="No audit entries yet"
                   description="Publishes, rubric edits, assignments and exports on this event are recorded here."
