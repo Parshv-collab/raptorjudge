@@ -1,0 +1,13 @@
+# RaptorJudge — line-ending policy.
+#
+# Windows checkouts default to core.autocrlf=true, which rewrites text files to
+# CRLF. That breaks the container entrypoints: `backend/entrypoint.sh` line 28
+# is `set -eu`, and Alpine's BusyBox ash parses the trailing CR as an option,
+# aborting the bootstrap with `line 28: illegal option -` (CRLF also breaks the
+# executable-bit-less `sh ./script.sh` invocations and nginx config parsing).
+# Force LF everywhere text is involved, whatever the platform's git config says.
+* text=auto eol=lf
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
